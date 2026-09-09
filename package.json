@@ -1,0 +1,41 @@
+{
+  "name": "zee-lang",
+  "version": "0.1.0",
+  "description": "Zee — a strongly typed systems language. Interpreter, REPL, and editor.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "bin": {
+    "zee": "./bin/zee.mjs"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "repl": "tsx src/cli.ts",
+    "run": "tsx src/cli.ts run",
+    "check": "tsx src/cli.ts check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "npm run typecheck",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zethsell/zee-lang.git"
+  },
+  "keywords": [
+    "zee",
+    "programming-language",
+    "interpreter",
+    "typed"
+  ],
+  "license": "MIT",
+  "author": "Marcio Theodoro Rodrigues",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

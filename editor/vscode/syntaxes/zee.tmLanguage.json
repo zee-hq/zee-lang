@@ -1,0 +1,69 @@
+{
+  "scopeName": "source.zee",
+  "name": "Zee",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#literals" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.zee",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.zee",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.zee",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.zee",
+          "match": "\\\\[nt\\\\\"]"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.zee",
+          "match": "\\b(fn|let|return)\\b"
+        },
+        {
+          "name": "keyword.control.zee",
+          "match": "\\b(if|else)\\b"
+        },
+        {
+          "name": "constant.language.boolean.zee",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "name": "support.type.zee",
+      "match": "\\b(i32|bool|String|Unit)\\b"
+    },
+    "literals": {
+      "name": "constant.numeric.integer.zee",
+      "match": "\\b\\d+\\b"
+    },
+    "functions": {
+      "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.zee" },
+        "2": { "name": "entity.name.function.zee" }
+      }
+    }
+  }
+}

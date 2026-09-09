@@ -1,0 +1,7 @@
+fn greet(name: String) -> String {
+  "hello, " + name
+}
+
+fn main() {
+  println(greet("zee"))
+}

@@ -1,0 +1,50 @@
+{
+  "name": "zee",
+  "displayName": "Zee",
+  "description": "Language support for Zee — syntax highlighting and Run File.",
+  "version": "0.1.0",
+  "publisher": "zethsell",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Programming Languages"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:zee"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "zee",
+        "aliases": ["Zee", "zee"],
+        "extensions": [".zee"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zee",
+        "scopeName": "source.zee",
+        "path": "./syntaxes/zee.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "zee.runFile",
+        "title": "Zee: Run File"
+      },
+      {
+        "command": "zee.checkFile",
+        "title": "Zee: Check File"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "zee.runFile",
+          "when": "resourceLangId == zee",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
