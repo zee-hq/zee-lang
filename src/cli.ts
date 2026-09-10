@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs'
 import { cwd, stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { ZeeError, PanicError, VERSION } from './error.ts'
@@ -15,6 +16,7 @@ import {
   generateService,
   type GeneratedFile,
 } from './generate.ts'
+import { findDefinition, formatGoto } from './navigate.ts'
 import { getPackages, updatePackages } from './pkg.ts'
 import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
 import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
@@ -38,6 +40,8 @@ Usage:
   zee registry                   Serve the HTTP registry (file-backed)
   zee run [file]                 Run a .zee file, or src/main.zee in a project
   zee check [file]               Type-check a file, or the project entry
+  zee goto <file> <line> <column>
+                                 Print the definition at a 1-based position
   zee help                       Show this help
   zee version                    Print the version
 `
@@ -139,6 +143,25 @@ async function main(argv: string[]): Promise<number> {
     const file = resolveEntry(cwd(), argv[1])
     checkPath(file)
     stdout.write(`ok: ${file}\n`)
+    return 0
+  }
+
+  if (command === 'goto') {
+    const file = resolveEntry(cwd(), argv[1])
+    const line = Number(argv[2])
+    const column = Number(argv[3])
+    if (!Number.isInteger(line) || !Number.isInteger(column) || line < 1 || column < 1) {
+      stderr('usage: zee goto <file> <line> <column>')
+      return 1
+    }
+    const hit = findDefinition({
+      source: readFileSync(file, 'utf8'),
+      file,
+      line,
+      column,
+    })
+    if (!hit) return 1
+    stdout.write(`${formatGoto(hit)}\n`)
     return 0
   }
 

@@ -90,7 +90,7 @@
     {
       "scope": "variable.language.zee",
       "settings": {
-        "foreground": "#8B93A1"
+        "foreground": "#6B7380"
       }
     },
     {
@@ -103,6 +103,12 @@
       "scope": "support.type.zee",
       "settings": {
         "foreground": "#14E0B4"
+      }
+    },
+    {
+      "scope": "entity.name.type.zee",
+      "settings": {
+        "foreground": "#FF6B6B"
       }
     },
     {

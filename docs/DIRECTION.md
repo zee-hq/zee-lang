@@ -388,7 +388,15 @@ fn mag(self: Point) -> i32 {
 
 Field `const` / `var` is Kotlin `val` / `var`. `readonly` on the type means *every* field behaves as `const`.
 
-Methods: `self` (read), `var self` (mutate). Associated (`fn origin() -> Point`) is called `Point.origin()` — no `self`, not on an instance. No `new`. Construction is `Name { fields }`. No `static` keyword. Named constructors beyond that, and wiring a controller to a service, are **radar** (§9) — not a second construction syntax in v0.
+Methods: `self` (read), `var self` (mutate). Associated (`fn origin() -> Point`) is called `Point.origin()` — no `self`, not on an instance. No `new`. Construction is `Name { fields }`. Inside a type body, `self` in a type or constructor position is the enclosing name:
+
+```zee
+pub fn empty() -> self {
+  self { rows: {}, nextId: 1 }
+}
+```
+
+That is the same as `-> CompanyService` / `CompanyService { … }`. `self` as a type outside a type body is an error. No `static` keyword. Named constructors beyond that, and wiring a controller to a service, are **radar** (§9) — not a second construction syntax in v0.
 
 ### Nested types and associated constants
 

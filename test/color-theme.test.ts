@@ -26,6 +26,29 @@ describe('Zee color theme', () => {
     expect(PALETTE.coral).toBe('#FF6B6B')
   })
 
+  it('paints PascalCase type uses, not only declarations (AC-theme-type-uses)', () => {
+    const includes = grammar.patterns.map((pattern: { include: string }) => pattern.include)
+    expect(includes).toContain('#typeUses')
+    expect(includes.indexOf('#types')).toBeLessThan(includes.indexOf('#typeUses'))
+    expect(includes.indexOf('#typeUses')).toBeLessThan(includes.indexOf('#functionCalls'))
+    expect(grammar.repository.typeUses.name).toBe('entity.name.type.zee')
+    expect(grammar.repository.typeUses.match).toContain('[A-Z]')
+    const use = tokenColors().find((rule) => rule.scope === 'entity.name.type.zee')
+    const classDecl = tokenColors().find((rule) => rule.scope === 'entity.name.type.class.zee')
+    expect(use?.settings.foreground).toBe(PALETTE.coral)
+    expect(classDecl?.settings.foreground).toBe(PALETTE.coral)
+  })
+
+  it('paints self gray against identifier white (AC-theme-self)', () => {
+    expect(grammar.repository.keywords.patterns.some((p: { name?: string }) => p.name === 'variable.language.zee')).toBe(
+      true,
+    )
+    const selfRule = tokenColors().find((rule) => rule.scope === 'variable.language.zee')
+    expect(selfRule?.settings.foreground).toBe(PALETTE.dim)
+    expect(PALETTE.dim).not.toBe(dark.colors['editor.foreground'])
+    expect(PALETTE.dim).toBe('#6B7380')
+  })
+
   it('paints host builtins violet, distinct from user functions (AC-theme-builtins)', () => {
     const includes = grammar.patterns.map((pattern: { include: string }) => pattern.include)
     expect(includes).toContain('#builtins')

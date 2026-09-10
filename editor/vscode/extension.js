@@ -25,6 +25,11 @@ function activate(context) {
       }
       await lintDocument(editor.document, diagnostics)
     }),
+    vscode.languages.registerDefinitionProvider('zee', {
+      provideDefinition(document, position) {
+        return definitionAt(document, position)
+      },
+    }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (vscode.workspace.getConfiguration('zee').get('checkOnSave', true)) {
         checkDocument(document)
@@ -76,7 +81,53 @@ function toDiagnostic(document, item) {
 }
 
 /**
- * @param {'run' | 'check'} subcommand
+ * @param {vscode.TextDocument} document
+ * @param {vscode.Position} position
+ */
+async function definitionAt(document, position) {
+  if (document.languageId !== 'zee') return undefined
+  if (document.isDirty) await document.save()
+  const file = document.uri.fsPath
+  const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath
+  const cli = resolveZeeCli('goto', file, workspaceRoot)
+  cli.args.push(String(position.line + 1), String(position.character + 1))
+  try {
+    const output = await spawnCapture(cli)
+    const hit = parseGoto(output.stdout)
+    if (!hit) return undefined
+    return new vscode.Location(
+      vscode.Uri.file(hit.file),
+      new vscode.Position(Math.max(hit.line - 1, 0), Math.max(hit.column - 1, 0)),
+    )
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * @param {string} text
+ * @returns {{ file: string, line: number, column: number } | undefined}
+ */
+function parseGoto(text) {
+  const line = text
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .at(-1)
+  if (!line) return undefined
+  try {
+    const hit = JSON.parse(line)
+    if (typeof hit.file !== 'string' || typeof hit.line !== 'number' || typeof hit.column !== 'number') {
+      return undefined
+    }
+    return hit
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * @param {string} subcommand
  */
 async function runInTerminal(subcommand) {
   const editor = vscode.window.activeTextEditor

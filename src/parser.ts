@@ -31,11 +31,22 @@ export function parse(source: string, file = '<input>'): Program {
 class Parser {
   private current = 0
   private trailingBrace = true
+  private typeSelf: string | undefined
 
   constructor(
     private readonly tokens: Token[],
     private readonly file: string,
   ) {}
+
+  private withTypeSelf<T>(name: string, run: () => T): T {
+    const previous = this.typeSelf
+    this.typeSelf = name
+    try {
+      return run()
+    } finally {
+      this.typeSelf = previous
+    }
+  }
 
   parseProgram(): Program {
     const stmts: Stmt[] = []
@@ -284,13 +295,13 @@ class Parser {
         loc,
       }
     }
-    const body = this.parseTypeBody(nameTok.lexeme)
+    const body = this.withTypeSelf(nameTok.lexeme, () => this.parseTypeBody(nameTok.lexeme))
     this.consume('}', `expected \`}\` after ${form} members`)
     const implementsAfter = this.parseImplementsClause()
     const implemented = uniqueImplements([...implementsBefore, ...implementsAfter])
     const afterMethods =
       this.check('{') && this.peekAt(1).kind === 'fn'
-        ? this.parseTypeMethods(nameTok.lexeme)
+        ? this.withTypeSelf(nameTok.lexeme, () => this.parseTypeMethods(nameTok.lexeme))
         : []
     return {
       kind: 'structDecl',
@@ -801,6 +812,15 @@ class Parser {
       return { kind: 'tuple', parts, loc }
     }
     const tok = this.consume('ident', 'expected type name')
+    if (tok.lexeme === 'self') {
+      if (this.check('<')) {
+        throw new ZeeError('`self` cannot take type arguments', tok.loc.line, tok.loc.column, this.file)
+      }
+      if (!this.typeSelf) {
+        throw new ZeeError('`self` type is only valid inside a type body', tok.loc.line, tok.loc.column, this.file)
+      }
+      return { kind: 'named', name: this.typeSelf, loc: tok.loc }
+    }
     if (this.match('<')) {
       const args: TypeAst[] = []
       if (!this.check('>')) {
@@ -1226,7 +1246,21 @@ class Parser {
     }
     this.consume('}', 'expected `}` after struct literal')
     const parts = flattenQualifier(target)
-    const name = parts[parts.length - 1]!
+    let name = parts[parts.length - 1]!
+    if (name === 'self') {
+      if (!this.typeSelf) {
+        throw new ZeeError(
+          '`self` type is only valid inside a type body',
+          target.loc.line,
+          target.loc.column,
+          this.file,
+        )
+      }
+      if (parts.length > 1) {
+        throw new ZeeError('`self` cannot be qualified', target.loc.line, target.loc.column, this.file)
+      }
+      name = this.typeSelf
+    }
     const qualifier = parts.length > 1 ? parts.slice(0, -1) : undefined
     return { kind: 'structLit', name, qualifier, fields, loc: target.loc }
   }

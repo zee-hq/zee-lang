@@ -1,6 +1,6 @@
 # Zee editor (VS Code / Cursor)
 
-Language support for `.zee` files: syntax, the Zee file icon, **check on save** (Problems panel), snippets, and **Zee: Run File**.
+Language support for `.zee` files: syntax, the Zee file icon, **Go to Definition** (F12) for types, functions, and `import` paths, **check on save** (Problems panel), snippets, and **Zee: Run File**.
 
 The mark and file icons come from [`brand/`](../../brand/BRAND.md).
 
@@ -16,7 +16,7 @@ That symlinks this folder into `~/.cursor/extensions/zee-hq.zee-0.1.0` and `~/.v
 
 To see role-colored Z marks in the explorer, set **File Icon Theme → Zee**. Zee files are a colored **Z**; tests are a flask + Z. Empty folders and other languages use [Catppuccin Icons](https://github.com/catppuccin/vscode-icons) (Mocha). A `.zee/` folder is that Catppuccin folder with the signal Z. The older page-and-glyph set is in `file-icons/page/`.
 
-Color in the editor: **Color Theme → Zee Dark** (or **Zee Light**). The setting id is the same string as the label (`workbench.colorTheme`: `"Zee Dark"`). Class names are coral, structs mint, enums orchid — the same hex as the file icon. User functions are azure; host builtins (`print`, `println`, `str`, `error`, `getenv`, …) are violet; `panic` is amber.
+Color in the editor: **Color Theme → Zee Dark** (or **Zee Light**). The setting id is the same string as the label (`workbench.colorTheme`: `"Zee Dark"`). Class names are coral (declaration and PascalCase uses), structs mint, enums orchid — the same hex as the file icon. User functions are azure; host builtins (`print`, `println`, `str`, `error`, `getenv`, …) are violet; `panic` is amber; `self` is gray.
 
 Reload the window after `npm run editor:link`. If the workspace setting does not apply in Cursor, pick **Preferences: Color Theme → Zee Dark** once (writes the user setting).
 

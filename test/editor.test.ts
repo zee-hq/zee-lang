@@ -21,7 +21,7 @@ const { parseCliDiagnostics } = require('../editor/vscode/diagnostics.cjs') as {
 }
 const { resolveZeeCli } = require('../editor/vscode/cli.cjs') as {
   resolveZeeCli: (
-    subcommand: 'run' | 'check',
+    subcommand: string,
     file: string,
     workspaceRoot: string | undefined,
     exists: (path: string) => boolean,
@@ -112,6 +112,12 @@ describe('editor grammar', () => {
   it('closes brackets, quotes, and backticks', () => {
     const pairs = languageConfig.autoClosingPairs.map((pair: { open: string }) => pair.open)
     expect(pairs).toEqual(expect.arrayContaining(['{', '(', '[', '"', '`']))
+  })
+
+  it('registers go-to-definition and a word pattern (AC-editor-navigate)', () => {
+    const extension = readFileSync(join(editorRoot, 'extension.js'), 'utf8')
+    expect(extension).toContain('registerDefinitionProvider')
+    expect(languageConfig.wordPattern).toBeDefined()
   })
 })
 

@@ -4,7 +4,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 /**
- * @param {'run' | 'check'} subcommand
+ * @param {string} subcommand
  * @param {string} file
  * @param {string | undefined} workspaceRoot
  * @param {(path: string) => boolean} [exists]

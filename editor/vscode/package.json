@@ -1,7 +1,7 @@
 {
   "name": "zee",
   "displayName": "Zee",
-  "description": "Zee language — syntax, file icons, check on save, Run File.",
+  "description": "Zee language — syntax, file icons, go to definition, check on save, Run File.",
   "version": "0.1.0",
   "publisher": "zee-hq",
   "license": "MIT",
