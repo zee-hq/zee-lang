@@ -52,7 +52,7 @@ describe('interpreter', () => {
 
   it('keeps lets and functions in the REPL session', () => {
     const session = new ZeeSession()
-    session.eval('let x = 40')
+    session.eval('const x = 40')
     session.eval('fn add(a: i32, b: i32) -> i32 { a + b }')
     const result = session.eval('add(x, 2)')
     expect(result.display).toBe('42')

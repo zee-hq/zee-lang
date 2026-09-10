@@ -1,4 +1,5 @@
 import { locOf, ZeeError, type Loc } from './error.ts'
+import { isIntKind } from './types.ts'
 
 export type TokenKind =
   | 'eof'
@@ -6,30 +7,78 @@ export type TokenKind =
   | 'string'
   | 'ident'
   | 'fn'
-  | 'let'
+  | 'const'
+  | 'var'
+  | 'redim'
   | 'if'
   | 'else'
+  | 'match'
   | 'return'
+  | 'while'
+  | 'until'
+  | 'do'
+  | 'break'
+  | 'continue'
+  | 'for'
+  | 'in'
+  | 'struct'
+  | 'class'
+  | 'data'
+  | 'readonly'
+  | 'enum'
+  | 'sealed'
+  | 'type'
+  | 'newtype'
+  | 'interface'
+  | 'implements'
+  | 'is'
+  | 'preserve'
   | 'true'
   | 'false'
+  | 'import'
+  | 'pub'
+  | 'internal'
+  | 'as'
+  | 'panic'
+  | 'defer'
   | '+'
+  | '+='
   | '-'
+  | '-='
   | '*'
+  | '*='
   | '/'
+  | '/='
+  | '%'
+  | '%='
+  | '.'
+  | '..'
   | '='
   | '=='
+  | '==='
+  | '=>'
   | '!='
+  | '!=='
   | '<'
   | '<='
   | '>'
   | '>='
   | '!'
   | '&&'
+  | '&&='
   | '||'
+  | '||='
+  | '|'
+  | '?:'
+  | '??='
+  | '!!='
+  | '<===>'
   | '('
   | ')'
   | '{'
   | '}'
+  | '['
+  | ']'
   | ','
   | ':'
   | '->'
@@ -43,12 +92,40 @@ export interface Token {
 
 const KEYWORDS: Record<string, TokenKind> = {
   fn: 'fn',
-  let: 'let',
+  const: 'const',
+  var: 'var',
+  redim: 'redim',
   if: 'if',
   else: 'else',
+  match: 'match',
   return: 'return',
+  while: 'while',
+  until: 'until',
+  do: 'do',
+  break: 'break',
+  continue: 'continue',
+  for: 'for',
+  in: 'in',
+  struct: 'struct',
+  class: 'class',
+  data: 'data',
+  readonly: 'readonly',
+  enum: 'enum',
+  sealed: 'sealed',
+  type: 'type',
+  newtype: 'newtype',
+  interface: 'interface',
+  implements: 'implements',
+  is: 'is',
+  preserve: 'preserve',
   true: 'true',
   false: 'false',
+  import: 'import',
+  pub: 'pub',
+  internal: 'internal',
+  as: 'as',
+  panic: 'panic',
+  defer: 'defer',
 }
 
 export function tokenize(source: string, file = '<input>'): Token[] {
@@ -90,35 +167,76 @@ class Lexer {
       case ')':
       case '{':
       case '}':
+      case '[':
+      case ']':
       case ',':
       case ':':
       case ';':
       case '+':
       case '*':
-        this.add(char)
+      case '%':
+        this.add(this.match('=') ? (`${char}=` as TokenKind) : char)
+        break
+      case '.':
+        if (this.match('.')) {
+          if (this.peek() === '=') {
+            this.error('inclusive range `..=` is not in v0; use `0..n` (exclusive)')
+          }
+          this.add('..')
+        } else {
+          this.add('.')
+        }
         break
       case '-':
-        this.add(this.match('>') ? '->' : '-')
+        this.add(this.match('>') ? '->' : this.match('=') ? '-=' : '-')
         break
       case '!':
-        this.add(this.match('=') ? '!=' : '!')
+        if (this.peek() === '!' && this.peekNext() === '=') {
+          this.advance()
+          this.advance()
+          this.add('!!=')
+        } else if (this.peek() === '=' && this.peekNext() === '=') {
+          this.advance()
+          this.advance()
+          this.add('!==')
+        } else {
+          this.add(this.match('=') ? '!=' : '!')
+        }
         break
       case '=':
-        this.add(this.match('=') ? '==' : '=')
+        if (this.match('=')) this.add(this.match('=') ? '===' : '==')
+        else if (this.match('>')) this.add('=>')
+        else this.add('=')
         break
       case '<':
-        this.add(this.match('=') ? '<=' : '<')
+        if (this.peek() === '=' && this.peekNext() === '=' && this.charAt(2) === '=' && this.charAt(3) === '>') {
+          this.advance()
+          this.advance()
+          this.advance()
+          this.advance()
+          this.add('<===>')
+        } else {
+          this.add(this.match('=') ? '<=' : '<')
+        }
         break
       case '>':
         this.add(this.match('=') ? '>=' : '>')
         break
+      case '?':
+        if (this.match(':')) this.add('?:')
+        else if (this.match('?')) {
+          if (this.match('=')) this.add('??=')
+          else this.error('use `?:` for Elvis; `??` is not a token')
+        } else {
+          this.error('unexpected character `?`')
+        }
+        break
       case '&':
-        if (this.match('&')) this.add('&&')
-        else this.error('unexpected character `&`')
+        if (!this.match('&')) this.error('unexpected character `&`')
+        this.add(this.match('=') ? '&&=' : '&&')
         break
       case '|':
-        if (this.match('|')) this.add('||')
-        else this.error('unexpected character `|`')
+        this.add(this.match('|') ? (this.match('=') ? '||=' : '||') : '|')
         break
       case '/':
         if (this.match('/')) {
@@ -126,7 +244,7 @@ class Lexer {
         } else if (this.match('*')) {
           this.blockComment()
         } else {
-          this.add('/')
+          this.add(this.match('=') ? '/=' : '/')
         }
         break
       case '"':
@@ -189,10 +307,51 @@ class Lexer {
   }
 
   private number(): void {
-    while (isDigit(this.peek())) this.advance()
-    const lexeme = this.source.slice(this.start, this.current)
-    if (!/^-?\d+$/.test(lexeme)) this.error(`invalid number ${lexeme}`)
+    if (this.source[this.start] === '0' && (this.peek() === 'x' || this.peek() === 'X')) {
+      this.advance()
+      if (!isHexDigit(this.peek())) this.error('invalid hex literal')
+      this.consumeDigits(isHexDigit)
+      this.tryIntSuffix()
+      this.add('number')
+      return
+    }
+    if (this.source[this.start] === '0' && (this.peek() === 'b' || this.peek() === 'B')) {
+      this.advance()
+      if (!isBinDigit(this.peek())) this.error('invalid binary literal')
+      this.consumeDigits(isBinDigit)
+      if (isDigit(this.peek())) this.error('invalid binary literal')
+      this.tryIntSuffix()
+      this.add('number')
+      return
+    }
+    this.consumeDigits(isDigit)
+    this.tryIntSuffix()
     this.add('number')
+  }
+
+  private tryIntSuffix(): void {
+    let index = this.current
+    const start = this.source[index] ?? ''
+    if (!isIdentStart(start)) return
+    index += 1
+    while (isIdentPart(this.source[index] ?? '')) index += 1
+    const suffix = this.source.slice(this.current, index)
+    if (!isIntKind(suffix)) return
+    while (this.current < index) this.advance()
+  }
+
+  private consumeDigits(isDigitChar: (char: string) => boolean): void {
+    while (true) {
+      if (isDigitChar(this.peek())) {
+        this.advance()
+        continue
+      }
+      if (this.peek() === '_' && isDigitChar(this.peekNext())) {
+        this.advance()
+        continue
+      }
+      break
+    }
   }
 
   private ident(): void {
@@ -230,6 +389,10 @@ class Lexer {
     return this.source[this.current + 1] ?? '\0'
   }
 
+  private charAt(offset: number): string {
+    return this.source[this.current + offset] ?? '\0'
+  }
+
   private isAtEnd(): boolean {
     return this.current >= this.source.length
   }
@@ -241,6 +404,14 @@ class Lexer {
 
 function isDigit(char: string): boolean {
   return char >= '0' && char <= '9'
+}
+
+function isBinDigit(char: string): boolean {
+  return char === '0' || char === '1'
+}
+
+function isHexDigit(char: string): boolean {
+  return isDigit(char) || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
 }
 
 function isIdentStart(char: string): boolean {

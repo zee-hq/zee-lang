@@ -12,6 +12,18 @@ export class ZeeError extends Error {
   }
 }
 
+export class PanicError extends Error {
+  constructor(
+    readonly panicMessage: string,
+    readonly line: number = 1,
+    readonly column: number = 1,
+    readonly file: string = '<input>',
+  ) {
+    super(panicMessage)
+    this.name = 'PanicError'
+  }
+}
+
 export interface Loc {
   file: string
   line: number

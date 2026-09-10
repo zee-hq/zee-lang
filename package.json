@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zethsell/zee-lang.git"
+    "url": "git+https://github.com/RR-IT-Solutions/zee-lang.git"
   },
   "keywords": [
     "zee",
@@ -32,9 +32,11 @@
   ],
   "license": "MIT",
   "author": "Marcio Theodoro Rodrigues",
+  "dependencies": {
+    "tsx": "^4.20.5"
+  },
   "devDependencies": {
     "@types/node": "^24.3.0",
-    "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

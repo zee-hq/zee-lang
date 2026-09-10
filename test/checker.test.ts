@@ -13,10 +13,10 @@ describe('type checker', () => {
   })
 
   it('rejects if-value without else', () => {
-    expect(() => execute('let x = if true { 1 }')).toThrow(/missing `else`/)
+    expect(() => execute('const x = if true { 1 }')).toThrow(/missing `else`/)
   })
 
-  it('accepts local inference for let', () => {
-    expect(execute('let x = 40\nlet y = 2\nx + y').value).toEqual({ type: 'i32', value: 42 })
+  it('accepts local inference for const', () => {
+    expect(execute('const x = 40\nconst y = 2\nx + y').value).toEqual({ type: 'i32', value: 42 })
   })
 })

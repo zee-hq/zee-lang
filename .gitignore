@@ -5,3 +5,5 @@ coverage/
 *.vsix
 *.log
 .vscode-test/
+.zee/
+

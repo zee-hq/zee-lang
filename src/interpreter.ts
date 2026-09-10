@@ -1,13 +1,103 @@
-import type { Block, Expr, Program, Stmt } from './ast.ts'
-import { ZeeError } from './error.ts'
+import type { AssignOp, Block, Expr, MatchPattern, Program, Stmt, TypeAst, Visibility } from './ast.ts'
+import { PanicError, ZeeError } from './error.ts'
+import {
+  INT_KINDS,
+  canWidenInt,
+  intFits,
+  isIntKind,
+  type IntKind,
+  type ZeeType,
+  typeName,
+} from './types.ts'
 
 export type ZeeValue =
-  | { type: 'i32'; value: number }
+  | { type: 'i8' | 'i16' | 'i32' | 'u8' | 'u16' | 'u32'; value: number }
+  | { type: 'i64' | 'u64' | 'isize' | 'usize'; value: bigint }
   | { type: 'bool'; value: boolean }
   | { type: 'string'; value: string }
   | { type: 'unit' }
-  | { type: 'fn'; name: string; params: string[]; body: Block }
+  | { type: 'error'; message: string }
+  | {
+      type: 'newtype'
+      name: string
+      module: string
+      inner: ZeeValue
+    }
+  | { type: 'newtypeCtor'; name: string; module: string }
+  | { type: 'option'; tag: 'none' }
+  | { type: 'option'; tag: 'some'; value: ZeeValue }
+  | { type: 'tuple'; items: ZeeValue[] }
+  | { type: 'array'; items: ZeeValue[]; elem: ZeeType }
+  | { type: 'list'; items: ZeeValue[]; elem: ZeeType }
+  | {
+      type: 'map'
+      entries: Map<string, { key: ZeeValue; value: ZeeValue }>
+      key: ZeeType
+      value: ZeeType
+    }
+  | {
+      type: 'struct'
+      name: string
+      module: string
+      data: boolean
+      readonly: boolean
+      identity: boolean
+      fields: Record<string, ZeeValue>
+      fieldMut: Record<string, boolean>
+    }
+  | {
+      type: 'enum'
+      name: string
+      module: string
+      variant: string
+      ordinal: number
+    }
+  | {
+      type: 'sealed'
+      name: string
+      module: string
+      variant: string
+      data: boolean
+      readonly: boolean
+      identity: boolean
+      fields: Record<string, ZeeValue>
+      fieldMut: Record<string, boolean>
+    }
+  | {
+      type: 'typeNs'
+      tag: 'enum'
+      name: string
+      module: string
+      variants: string[]
+    }
+  | {
+      type: 'typeNs'
+      tag: 'sealed'
+      name: string
+      module: string
+      identity: boolean
+      variants: RuntimeSealedVariant[]
+    }
+  | { type: 'fn'; name: string; params: string[]; body: Block; env: Env; mutatingReceiver: boolean }
+  | { type: 'closure'; params: string[]; body: Block; env: Env }
   | { type: 'builtin'; name: string }
+  | { type: 'module'; name: string; env: Env }
+
+interface RuntimeSealedVariant {
+  name: string
+  data: boolean
+  readonly: boolean
+  fields: { name: string; mutable: boolean }[]
+}
+
+interface StructInfo {
+  name: string
+  module: string
+  data: boolean
+  readonly: boolean
+  identity: boolean
+  fields: { name: string; mutable: boolean }[]
+}
 
 export interface RuntimeIo {
   print: (text: string) => void
@@ -19,28 +109,122 @@ class ReturnSignal {
   constructor(readonly value: ZeeValue) {}
 }
 
+class BreakSignal {}
+
+class ContinueSignal {}
+
 class Env {
+  file: string
+  module: string
+  moduleHome: Env
+  defers: Array<() => ZeeValue> | undefined
+  private modules: Map<string, Env> | undefined
+  private readonly structMap = new Map<string, StructInfo>()
+  private readonly methodMap = new Map<string, Map<string, Extract<ZeeValue, { type: 'fn' }>>>()
+
   constructor(
     private readonly parent: Env | undefined,
-    private readonly values = new Map<string, ZeeValue>(),
-  ) {}
+    private readonly slots = new Map<string, { value: ZeeValue; mutable: boolean; visibility: Visibility }>(),
+  ) {
+    this.file = parent?.file ?? '<input>'
+    this.module = parent?.module ?? ''
+    this.moduleHome = parent?.moduleHome ?? this
+  }
 
-  define(name: string, value: ZeeValue): void {
-    this.values.set(name, value)
+  attachModules(modules: Map<string, Env>): void {
+    this.modules = modules
+  }
+
+  getModule(name: string): Env | undefined {
+    return this.modules?.get(name) ?? this.parent?.getModule(name)
+  }
+
+  define(name: string, value: ZeeValue, mutable = false, visibility: Visibility = 'private'): void {
+    this.slots.set(name, { value, mutable, visibility })
+  }
+
+  defineStruct(name: string, info: StructInfo): void {
+    this.structMap.set(name, info)
+  }
+
+  getStruct(name: string): StructInfo | undefined {
+    return this.structMap.get(name) ?? this.parent?.getStruct(name)
+  }
+
+  defineMethod(typeName: string, name: string, fn: Extract<ZeeValue, { type: 'fn' }>): void {
+    let bucket = this.methodMap.get(typeName)
+    if (!bucket) {
+      bucket = new Map()
+      this.methodMap.set(typeName, bucket)
+    }
+    bucket.set(name, fn)
+  }
+
+  ownMethod(typeName: string, name: string): Extract<ZeeValue, { type: 'fn' }> | undefined {
+    return this.methodMap.get(typeName)?.get(name)
+  }
+
+  getMethod(typeName: string, name: string): Extract<ZeeValue, { type: 'fn' }> | undefined {
+    return this.ownMethod(typeName, name) ?? this.parent?.getMethod(typeName, name)
+  }
+
+  own(name: string): { value: ZeeValue; mutable: boolean; visibility: Visibility } | undefined {
+    return this.slots.get(name)
+  }
+
+  assign(name: string, value: ZeeValue, loc: { file: string; line: number; column: number }): void {
+    const slot = this.slots.get(name)
+    if (slot) {
+      if (!slot.mutable) {
+        throw new ZeeError(`cannot assign to const \`${name}\``, loc.line, loc.column, loc.file)
+      }
+      slot.value = value
+      return
+    }
+    if (this.parent) {
+      this.parent.assign(name, value, loc)
+      return
+    }
+    throw new ZeeError(`undefined name \`${name}\``, loc.line, loc.column, loc.file)
   }
 
   get(name: string, loc: { file: string; line: number; column: number }): ZeeValue {
-    const value = this.values.get(name) ?? this.parent?.getUnchecked(name)
+    const value = this.slots.get(name)?.value ?? this.parent?.getUnchecked(name)
     if (!value) throw new ZeeError(`undefined name \`${name}\``, loc.line, loc.column, loc.file)
     return value
   }
 
+  lookup(name: string): { value: ZeeValue; mutable: boolean } | undefined {
+    return this.slots.get(name) ?? this.parent?.lookup(name)
+  }
+
   private getUnchecked(name: string): ZeeValue | undefined {
-    return this.values.get(name) ?? this.parent?.getUnchecked(name)
+    return this.slots.get(name)?.value ?? this.parent?.getUnchecked(name)
   }
 
   child(): Env {
-    return new Env(this)
+    const env = new Env(this)
+    env.file = this.file
+    env.module = this.module
+    env.moduleHome = this.moduleHome
+    return env
+  }
+
+  markFunctionFrame(): void {
+    this.defers = []
+  }
+
+  functionFrame(): Env | undefined {
+    if (this.defers) return this
+    return this.parent?.functionFrame()
+  }
+
+  pushDefer(thunk: () => ZeeValue, loc: { file: string; line: number; column: number }): void {
+    const frame = this.functionFrame()
+    if (!frame?.defers) {
+      throw new ZeeError('`defer` outside of a function', loc.line, loc.column, loc.file)
+    }
+    frame.defers.push(thunk)
   }
 
   root(): Env {
@@ -54,43 +238,226 @@ export interface RunResult {
 }
 
 export function interpret(program: Program, io: RuntimeIo, options: { callMain?: boolean } = {}): RunResult {
-  const globals = new Env(undefined)
-  globals.define('print', { type: 'builtin', name: 'print' })
-  globals.define('println', { type: 'builtin', name: 'println' })
-  globals.define('str', { type: 'builtin', name: 'str' })
+  const units = program.units ?? [{ file: program.file, module: '', stmts: program.stmts }]
+  const builtins = new Env(undefined)
+  builtins.define('print', { type: 'builtin', name: 'print' })
+  builtins.define('println', { type: 'builtin', name: 'println' })
+  builtins.define('str', { type: 'builtin', name: 'str' })
+  builtins.define('error', { type: 'builtin', name: 'error' })
+  builtins.define('panic', { type: 'builtin', name: 'panic' })
+  builtins.define('Some', { type: 'builtin', name: 'Some' })
+  builtins.define('None', { type: 'option', tag: 'none' })
+  builtins.defineStruct('Fail', {
+    name: 'Fail',
+    module: '',
+    data: true,
+    readonly: false,
+    identity: false,
+    fields: [{ name: 'text', mutable: false }],
+  })
 
-  for (const stmt of program.stmts) {
-    if (stmt.kind === 'fn') {
-      globals.define(stmt.name, {
-        type: 'fn',
-        name: stmt.name,
-        params: stmt.params.map((param) => param.name),
-        body: stmt.body,
-      })
+  const moduleIds = [...new Set(units.map((unit) => unit.module))]
+  const moduleEnvs = new Map<string, Env>()
+  for (const module of moduleIds) {
+    const env = builtins.child()
+    env.file = `<module:${module || 'root'}>`
+    env.module = module
+    env.moduleHome = env
+    moduleEnvs.set(module, env)
+  }
+  builtins.attachModules(moduleEnvs)
+
+  const fileEnvs = new Map<string, Env>()
+  for (const unit of units) {
+    const moduleEnv = moduleEnvs.get(unit.module)!
+    const fileEnv = moduleEnv.child()
+    fileEnv.file = unit.file
+    fileEnv.module = unit.module
+    fileEnv.moduleHome = moduleEnv
+    fileEnvs.set(unit.file, fileEnv)
+  }
+
+  for (const unit of units) {
+    const fileEnv = fileEnvs.get(unit.file)!
+    for (const stmt of unit.stmts) {
+      if (stmt.kind === 'fn') {
+        const mutatingReceiver = stmt.params[0]?.name === 'self' && stmt.params[0].mutable
+        const fn: ZeeValue = {
+          type: 'fn',
+          name: stmt.name,
+          params: stmt.params.map((param) => param.name),
+          body: stmt.body,
+          env: fileEnv,
+          mutatingReceiver,
+        }
+        fileEnv.define(stmt.name, fn, false, stmt.visibility)
+        if (stmt.visibility !== 'private') {
+          fileEnv.moduleHome.define(stmt.name, fn, false, stmt.visibility)
+        }
+        const selfAst = stmt.params[0]?.type
+        if (stmt.params[0]?.name === 'self' && selfAst?.kind === 'named') {
+          fileEnv.defineMethod(selfAst.name, stmt.name, fn)
+          if (stmt.visibility !== 'private') {
+            fileEnv.moduleHome.defineMethod(selfAst.name, stmt.name, fn)
+          }
+        }
+      } else if (stmt.kind === 'structDecl') {
+        if (stmt.sealed) {
+          const ns: ZeeValue = {
+            type: 'typeNs',
+            tag: 'sealed',
+            name: stmt.name,
+            module: unit.module,
+            identity: stmt.identity,
+            variants: stmt.variants.map((variant) => ({
+              name: variant.name,
+              data: variant.data,
+              readonly: variant.readonly,
+              fields: variant.fields.map((field) => ({ name: field.name, mutable: field.mutable })),
+            })),
+          }
+          fileEnv.define(stmt.name, ns, false, stmt.visibility)
+          if (stmt.visibility !== 'private') {
+            fileEnv.moduleHome.define(stmt.name, ns, false, stmt.visibility)
+          }
+        } else {
+          const info: StructInfo = {
+            name: stmt.name,
+            module: unit.module,
+            data: stmt.data,
+            readonly: stmt.readonly,
+            identity: stmt.identity,
+            fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable })),
+          }
+          fileEnv.defineStruct(stmt.name, info)
+          if (stmt.visibility !== 'private') {
+            fileEnv.moduleHome.defineStruct(stmt.name, info)
+          }
+          for (const method of stmt.methods) {
+            const mutatingReceiver = method.params[0]?.name === 'self' && method.params[0].mutable
+            const fn: ZeeValue = {
+              type: 'fn',
+              name: method.name,
+              params: method.params.map((param) => param.name),
+              body: method.body,
+              env: fileEnv,
+              mutatingReceiver,
+            }
+            fileEnv.define(method.name, fn, false, method.visibility)
+            if (method.visibility !== 'private') {
+              fileEnv.moduleHome.define(method.name, fn, false, method.visibility)
+            }
+            fileEnv.defineMethod(stmt.name, method.name, fn)
+            if (method.visibility !== 'private') {
+              fileEnv.moduleHome.defineMethod(stmt.name, method.name, fn)
+            }
+          }
+        }
+      } else if (stmt.kind === 'enumDecl') {
+        const ns: ZeeValue = {
+          type: 'typeNs',
+          tag: 'enum',
+          name: stmt.name,
+          module: unit.module,
+          variants: stmt.variants.map((variant) => variant.name),
+        }
+        fileEnv.define(stmt.name, ns, false, stmt.visibility)
+        if (stmt.visibility !== 'private') {
+          fileEnv.moduleHome.define(stmt.name, ns, false, stmt.visibility)
+        }
+      } else if (stmt.kind === 'newtypeDecl') {
+        const ctor: ZeeValue = { type: 'newtypeCtor', name: stmt.name, module: unit.module }
+        fileEnv.define(stmt.name, ctor, false, stmt.visibility)
+        if (stmt.visibility !== 'private') {
+          fileEnv.moduleHome.define(stmt.name, ctor, false, stmt.visibility)
+        }
+      }
+    }
+  }
+
+  for (const unit of units) {
+    const fileEnv = fileEnvs.get(unit.file)!
+    for (const stmt of unit.stmts) {
+      if (stmt.kind === 'import') applyRuntimeImport(stmt, fileEnv, moduleEnvs)
     }
   }
 
   let last: ZeeValue = UNIT
   try {
-    for (const stmt of program.stmts) {
-      if (stmt.kind === 'fn') continue
-      last = execStmt(stmt, globals, io)
+    for (const unit of units) {
+      const fileEnv = fileEnvs.get(unit.file)!
+      for (const stmt of unit.stmts) {
+        if (
+          stmt.kind === 'fn' ||
+          stmt.kind === 'structDecl' ||
+          stmt.kind === 'enumDecl' ||
+          stmt.kind === 'typeAliasDecl' ||
+          stmt.kind === 'newtypeDecl' ||
+          stmt.kind === 'interfaceDecl' ||
+          stmt.kind === 'import'
+        ) {
+          continue
+        }
+        last = execStmt(stmt, fileEnv, io)
+      }
     }
   } catch (signal) {
     if (signal instanceof ReturnSignal) {
       throw new ZeeError('`return` outside of a function', 1, 1, program.file)
     }
+    if (signal instanceof BreakSignal) {
+      throw new ZeeError('`break` outside of a loop', 1, 1, program.file)
+    }
+    if (signal instanceof ContinueSignal) {
+      throw new ZeeError('`continue` outside of a loop', 1, 1, program.file)
+    }
     throw signal
   }
 
   const callMain = options.callMain !== false
-  const main = maybeGet(globals, 'main')
+  const mainEnv =
+    fileEnvs.get(program.file) ?? [...fileEnvs.values()].find((env) => env.module === '') ?? builtins
+  const main = maybeGet(mainEnv, 'main')
   if (callMain && main?.type === 'fn') {
-    last = callFn(main, [], io, globals, { file: program.file, line: 1, column: 1 })
+    last = callFn(main, [], io, { file: program.file, line: 1, column: 1 })
   }
 
   const exitCode = last.type === 'i32' ? last.value : 0
   return { value: last, exitCode }
+}
+
+function applyRuntimeImport(
+  stmt: Extract<Stmt, { kind: 'import' }>,
+  fileEnv: Env,
+  moduleEnvs: Map<string, Env>,
+): void {
+  const joined = stmt.path.join('.')
+  if (stmt.names) {
+    const moduleEnv = moduleEnvs.get(joined)
+    if (!moduleEnv) return
+    for (const item of stmt.names) {
+      bindRuntimeName(fileEnv, moduleEnv, item.name, item.alias ?? item.name)
+    }
+    return
+  }
+  if (moduleEnvs.has(joined)) {
+    const bindAs = stmt.alias ?? stmt.path[stmt.path.length - 1]!
+    fileEnv.define(bindAs, { type: 'module', name: joined, env: moduleEnvs.get(joined)! })
+    return
+  }
+  if (stmt.path.length < 2) return
+  const parent = stmt.path.slice(0, -1).join('.')
+  const name = stmt.path[stmt.path.length - 1]!
+  const moduleEnv = moduleEnvs.get(parent)
+  if (!moduleEnv) return
+  bindRuntimeName(fileEnv, moduleEnv, name, stmt.alias ?? name)
+}
+
+function bindRuntimeName(fileEnv: Env, moduleEnv: Env, name: string, bindAs: string): void {
+  const slot = moduleEnv.own(name)
+  if (slot) fileEnv.define(bindAs, slot.value, slot.mutable, 'pub')
+  const info = moduleEnv.getStruct(name)
+  if (info) fileEnv.defineStruct(bindAs, info)
 }
 
 function maybeGet(env: Env, name: string): ZeeValue | undefined {
@@ -103,13 +470,82 @@ function maybeGet(env: Env, name: string): ZeeValue | undefined {
 
 function execStmt(stmt: Stmt, env: Env, io: RuntimeIo): ZeeValue {
   switch (stmt.kind) {
-    case 'let':
-      env.define(stmt.name, evalExpr(stmt.init, env, io))
+    case 'bind': {
+      const value = copyValue(evalExpr(stmt.init, env, io))
+      env.define(stmt.name, value, stmt.mutable, stmt.visibility)
+      if (stmt.visibility !== 'private') {
+        env.moduleHome.define(stmt.name, value, stmt.mutable, stmt.visibility)
+      }
       return UNIT
+    }
+    case 'destructure': {
+      const value = evalExpr(stmt.init, env, io)
+      if (value.type !== 'tuple') {
+        throw new ZeeError('cannot destructure this value', stmt.init.loc.line, stmt.init.loc.column, stmt.init.loc.file)
+      }
+      if (value.items.length !== stmt.names.length) {
+        throw new ZeeError(
+          `destructure expected ${stmt.names.length} value(s), got ${value.items.length}`,
+          stmt.loc.line,
+          stmt.loc.column,
+          stmt.loc.file,
+        )
+      }
+      stmt.names.forEach((name, index) => {
+        if (name === '_') return
+        env.define(name, copyValue(value.items[index]!), stmt.mutable)
+      })
+      return UNIT
+    }
+    case 'assign':
+      return execAssign(stmt, env, io)
+    case 'indexAssign':
+      return execIndexAssign(stmt, env, io)
+    case 'fieldAssign':
+      return execFieldAssign(stmt, env, io)
+    case 'redim': {
+      const current = env.get(stmt.name, stmt.loc)
+      const target = intKindFromTypeAst(stmt.type)
+      if (!isIntValue(current)) {
+        throw new ZeeError('`redim` expects an integer', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+      }
+      env.assign(stmt.name, intValue(target, intBigInt(current)), stmt.loc)
+      return UNIT
+    }
+    case 'redimArray':
+      return execRedimArray(stmt, env, io)
     case 'return':
       throw new ReturnSignal(stmt.expr ? evalExpr(stmt.expr, env, io) : UNIT)
+    case 'loop':
+      return execLoop(stmt, env, io)
+    case 'forC':
+      return execForC(stmt, env, io)
+    case 'forForever':
+      return execForForever(stmt, env, io)
+    case 'forRange':
+      return execForRange(stmt, env, io)
+    case 'forIn':
+      return execForIn(stmt, env, io)
+    case 'break':
+      throw new BreakSignal()
+    case 'continue':
+      throw new ContinueSignal()
+    case 'defer':
+      return execDefer(stmt, env, io)
     case 'fn':
       throw new ZeeError('nested functions are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    case 'structDecl':
+      throw new ZeeError('nested structs are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    case 'enumDecl':
+      throw new ZeeError('nested enums are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    case 'typeAliasDecl':
+      throw new ZeeError('nested type aliases are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    case 'newtypeDecl':
+      throw new ZeeError('nested newtypes are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    case 'interfaceDecl':
+      throw new ZeeError('nested interfaces are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    case 'import':
+      return UNIT
     case 'expr':
       return evalExpr(stmt.expr, env, io)
   }
@@ -122,23 +558,150 @@ function execBlock(block: Block, env: Env, io: RuntimeIo): ZeeValue {
     last = execStmt(stmt, local, io)
   }
   const lastStmt = block.stmts[block.stmts.length - 1]
-  if (lastStmt?.kind === 'let') return UNIT
+  if (
+    lastStmt?.kind === 'bind' ||
+    lastStmt?.kind === 'assign' ||
+    lastStmt?.kind === 'indexAssign' ||
+    lastStmt?.kind === 'fieldAssign' ||
+    lastStmt?.kind === 'redim' ||
+    lastStmt?.kind === 'redimArray' ||
+    lastStmt?.kind === 'destructure' ||
+    lastStmt?.kind === 'loop' ||
+    lastStmt?.kind === 'forC' ||
+    lastStmt?.kind === 'forForever' ||
+    lastStmt?.kind === 'forRange' ||
+    lastStmt?.kind === 'forIn' ||
+    lastStmt?.kind === 'break' ||
+    lastStmt?.kind === 'continue' ||
+    lastStmt?.kind === 'defer'
+  ) {
+    return UNIT
+  }
   return last
+}
+
+function runLoopBody(body: Block, env: Env, io: RuntimeIo): 'break' | 'ok' {
+  try {
+    execBlock(body, env, io)
+    return 'ok'
+  } catch (signal) {
+    if (signal instanceof ContinueSignal) return 'ok'
+    if (signal instanceof BreakSignal) return 'break'
+    throw signal
+  }
+}
+
+function execLoop(stmt: Extract<Stmt, { kind: 'loop' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const post = stmt.mode === 'do-while' || stmt.mode === 'do-until'
+  const invert = stmt.mode === 'until' || stmt.mode === 'do-until'
+  const condTrue = (): boolean => {
+    const value = evalExpr(stmt.cond, env, io)
+    if (value.type !== 'bool') {
+      throw new ZeeError('loop condition must be bool', stmt.cond.loc.line, stmt.cond.loc.column, stmt.cond.loc.file)
+    }
+    return invert ? !value.value : value.value
+  }
+  if (post) {
+    do {
+      if (runLoopBody(stmt.body, env, io) === 'break') break
+    } while (condTrue())
+  } else {
+    while (condTrue()) {
+      if (runLoopBody(stmt.body, env, io) === 'break') break
+    }
+  }
+  return UNIT
+}
+
+function execForC(stmt: Extract<Stmt, { kind: 'forC' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const local = env.child()
+  if (stmt.init) execStmt(stmt.init, local, io)
+  const condTrue = (): boolean => {
+    if (!stmt.cond) return true
+    const value = evalExpr(stmt.cond, local, io)
+    if (value.type !== 'bool') {
+      throw new ZeeError('loop condition must be bool', stmt.cond.loc.line, stmt.cond.loc.column, stmt.cond.loc.file)
+    }
+    return value.value
+  }
+  while (condTrue()) {
+    if (runLoopBody(stmt.body, local, io) === 'break') break
+    if (stmt.step) execStmt(stmt.step, local, io)
+  }
+  return UNIT
+}
+
+function execForForever(stmt: Extract<Stmt, { kind: 'forForever' }>, env: Env, io: RuntimeIo): ZeeValue {
+  while (true) {
+    if (runLoopBody(stmt.body, env, io) === 'break') break
+  }
+  return UNIT
+}
+
+function execForRange(stmt: Extract<Stmt, { kind: 'forRange' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const start = evalExpr(stmt.start, env, io)
+  const end = evalExpr(stmt.end, env, io)
+  if (!isIntValue(start) || !isIntValue(end) || start.type !== end.type) {
+    throw new ZeeError('range bounds must be integers of the same type', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  const local = env.child()
+  local.define(stmt.name, start, true)
+  while (intBigInt(local.get(stmt.name, stmt.loc) as Extract<ZeeValue, { type: IntKind }>) < intBigInt(end)) {
+    if (runLoopBody(stmt.body, local, io) === 'break') break
+    const current = local.get(stmt.name, stmt.loc)
+    if (!isIntValue(current)) {
+      throw new ZeeError('range index must stay an integer', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    }
+    local.assign(stmt.name, intChecked(current.type, intBigInt(current) + 1n, stmt.loc), stmt.loc)
+  }
+  return UNIT
+}
+
+function execForIn(stmt: Extract<Stmt, { kind: 'forIn' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const seq = evalExpr(stmt.seq, env, io)
+  if (seq.type === 'map') {
+    if (!stmt.indexName) {
+      throw new ZeeError('for-in on Map needs `(k, v)`', stmt.seq.loc.line, stmt.seq.loc.column, stmt.seq.loc.file)
+    }
+    for (const entry of seq.entries.values()) {
+      const local = env.child()
+      local.define(stmt.indexName, copyValue(entry.key), false)
+      local.define(stmt.name, copyValue(entry.value), false)
+      if (runLoopBody(stmt.body, local, io) === 'break') break
+    }
+    return UNIT
+  }
+  if (seq.type !== 'array' && seq.type !== 'list') {
+    throw new ZeeError('for-in expects an array or List', stmt.seq.loc.line, stmt.seq.loc.column, stmt.seq.loc.file)
+  }
+  for (let i = 0; i < seq.items.length; i += 1) {
+    const local = env.child()
+    if (stmt.indexName) {
+      local.define(stmt.indexName, intValue('usize', BigInt(i)), false)
+    }
+    local.define(stmt.name, copyValue(seq.items[i]!), false)
+    if (runLoopBody(stmt.body, local, io) === 'break') break
+  }
+  return UNIT
 }
 
 function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
   switch (expr.kind) {
     case 'int':
-      return { type: 'i32', value: expr.value }
+      return intValue(expr.suffix ?? 'i32', expr.value)
     case 'bool':
       return { type: 'bool', value: expr.value }
     case 'string':
       return { type: 'string', value: expr.value }
+    case 'unit':
+      return UNIT
     case 'ident':
       return env.get(expr.name, expr.loc)
     case 'unary': {
       const inner = evalExpr(expr.expr, env, io)
-      if (expr.op === '-' && inner.type === 'i32') return { type: 'i32', value: i32(-inner.value) }
+      if (expr.op === '-' && isIntValue(inner)) {
+        return intChecked(inner.type, -intBigInt(inner), expr.loc)
+      }
       if (expr.op === '!' && inner.type === 'bool') return { type: 'bool', value: !inner.value }
       throw new ZeeError('invalid unary operand', expr.loc.line, expr.loc.column, expr.loc.file)
     }
@@ -146,6 +709,41 @@ function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
       return evalBinary(expr, env, io)
     case 'call':
       return evalCall(expr, env, io)
+    case 'tuple':
+      return { type: 'tuple', items: expr.items.map((item) => copyValue(evalExpr(item, env, io))) }
+    case 'tupleIndex': {
+      const target = evalExpr(expr.target, env, io)
+      if (target.type !== 'tuple') {
+        throw new ZeeError('tuple index requires a tuple', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const item = target.items[expr.index]
+      if (item === undefined) {
+        throw new ZeeError(
+          `tuple index ${expr.index} is out of range`,
+          expr.loc.line,
+          expr.loc.column,
+          expr.loc.file,
+        )
+      }
+      return copyValue(item)
+    }
+    case 'index':
+      return evalIndex(expr, env, io)
+    case 'member':
+      return evalMember(expr, env, io)
+    case 'arrayLit': {
+      const items = expr.items.map((item) => copyValue(evalExpr(item, env, io)))
+      const elem = expr.elemType ?? (items[0] ? typeOfValue(items[0]) : undefined)
+      if (!elem) {
+        throw new ZeeError('empty array needs a type', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      if (expr.asList) return { type: 'list', items, elem }
+      return { type: 'array', items, elem }
+    }
+    case 'mapLit':
+      return evalMapLit(expr, env, io)
+    case 'structLit':
+      return evalStructLit(expr, env, io)
     case 'if': {
       const cond = evalExpr(expr.cond, env, io)
       if (cond.type !== 'bool') {
@@ -156,11 +754,601 @@ function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
       return UNIT
     }
     case 'block':
+      if (expr.lambdaParams) {
+        return { type: 'closure', params: expr.lambdaParams, body: expr.block, env }
+      }
+      if (expr.mapType) {
+        return {
+          type: 'map',
+          entries: new Map(),
+          key: expr.mapType.key,
+          value: expr.mapType.value,
+        }
+      }
       return execBlock(expr.block, env, io)
+    case 'lambda':
+      return { type: 'closure', params: expr.params, body: expr.body, env }
+    case 'match': {
+      const value = evalExpr(expr.scrutinee, env, io)
+      for (const arm of expr.arms) {
+        for (const pattern of arm.patterns) {
+          const local = env.child()
+          if (matchPattern(pattern, value, env, io, local)) {
+            return evalExpr(arm.body, local, io)
+          }
+        }
+      }
+      throw new ZeeError('match is not exhaustive', expr.loc.line, expr.loc.column, expr.loc.file)
+    }
+    case 'copy':
+      return evalCopy(expr, env, io)
+    case 'returnExpr':
+      throw new ReturnSignal(expr.expr ? evalExpr(expr.expr, env, io) : UNIT)
+    case 'isType': {
+      const value = evalExpr(expr.expr, env, io)
+      const name = expr.type.kind === 'named' ? expr.type.name : undefined
+      if (!name) return { type: 'bool', value: false }
+      if (value.type === 'error') return { type: 'bool', value: name === 'Fail' }
+      if (value.type === 'struct' || value.type === 'enum' || value.type === 'sealed' || value.type === 'newtype') {
+        return { type: 'bool', value: value.name === name }
+      }
+      return { type: 'bool', value: false }
+    }
   }
 }
 
+function execAssign(
+  stmt: Extract<Stmt, { kind: 'assign' }>,
+  env: Env,
+  io: RuntimeIo,
+): ZeeValue {
+  if (stmt.op === '=') {
+    env.assign(stmt.name, copyValue(evalExpr(stmt.value, env, io)), stmt.loc)
+    return UNIT
+  }
+  const current = env.get(stmt.name, stmt.loc)
+  if (stmt.op === '??=') {
+    if (current.type === 'option' && current.tag === 'none') {
+      env.assign(stmt.name, { type: 'option', tag: 'some', value: evalExpr(stmt.value, env, io) }, stmt.loc)
+    }
+    return UNIT
+  }
+  if (stmt.op === '!!=') {
+    if (current.type === 'option' && current.tag === 'some') {
+      env.assign(stmt.name, { type: 'option', tag: 'some', value: evalExpr(stmt.value, env, io) }, stmt.loc)
+    }
+    return UNIT
+  }
+  if (stmt.op === '&&=' || stmt.op === '||=') {
+    if (current.type !== 'bool') {
+      throw new ZeeError(`\`${stmt.op}\` requires bool`, stmt.loc.line, stmt.loc.column, stmt.loc.file)
+    }
+    const skip = stmt.op === '&&=' ? !current.value : current.value
+    if (!skip) {
+      const right = evalExpr(stmt.value, env, io)
+      if (right.type !== 'bool') {
+        throw new ZeeError(`\`${stmt.op}\` requires bool`, stmt.loc.line, stmt.loc.column, stmt.loc.file)
+      }
+      env.assign(stmt.name, right, stmt.loc)
+    }
+    return UNIT
+  }
+  const right = evalExpr(stmt.value, env, io)
+  env.assign(stmt.name, applyCompound(stmt.op, current, right, stmt.loc), stmt.loc)
+  return UNIT
+}
+
+function applyCompound(
+  op: AssignOp,
+  left: ZeeValue,
+  right: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (op === '+=' && left.type === 'string' && right.type === 'string') {
+    return { type: 'string', value: left.value + right.value }
+  }
+  if (isIntValue(left) && isIntValue(right) && left.type === right.type) {
+    const kind = left.type
+    const l = intBigInt(left)
+    const r = intBigInt(right)
+    switch (op) {
+      case '+=':
+        return intChecked(kind, l + r, loc)
+      case '-=':
+        return intChecked(kind, l - r, loc)
+      case '*=':
+        return intChecked(kind, l * r, loc)
+      case '/=':
+        if (r === 0n) {
+          throw new ZeeError('division by zero', loc.line, loc.column, loc.file)
+        }
+        return intValue(kind, l / r)
+      case '%=':
+        if (r === 0n) {
+          throw new ZeeError('division by zero', loc.line, loc.column, loc.file)
+        }
+        return intValue(kind, l % r)
+    }
+  }
+  throw new ZeeError(
+    `operator \`${op}\` is not defined for these values`,
+    loc.line,
+    loc.column,
+    loc.file,
+  )
+}
+
+function execIndexAssign(
+  stmt: Extract<Stmt, { kind: 'indexAssign' }>,
+  env: Env,
+  io: RuntimeIo,
+): ZeeValue {
+  if (stmt.target.kind === 'ident') {
+    const slot = env.lookup(stmt.target.name)
+    if (slot && !slot.mutable) {
+      throw new ZeeError(
+        `cannot assign to const \`${stmt.target.name}\``,
+        stmt.loc.line,
+        stmt.loc.column,
+        stmt.loc.file,
+      )
+    }
+  }
+  const target = evalExpr(stmt.target, env, io)
+  if (target.type === 'map') {
+    const key = evalExpr(stmt.index, env, io)
+    const hashed = mapHashKey(key, stmt.loc)
+    const right = evalExpr(stmt.value, env, io)
+    const current = target.entries.get(hashed)?.value
+    const next =
+      stmt.op === '=' || !current
+        ? copyValue(right)
+        : applyCompound(stmt.op, current, right, stmt.loc)
+    target.entries.set(hashed, { key: copyValue(key), value: next })
+    return UNIT
+  }
+  if (target.type !== 'array') {
+    throw new ZeeError('index assign requires an array', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  const i = indexNumber(evalExpr(stmt.index, env, io), stmt.loc)
+  if (i < 0 || i >= target.items.length) {
+    throw new ZeeError('index out of bounds', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  const current = target.items[i]!
+  const right = evalExpr(stmt.value, env, io)
+  target.items[i] = stmt.op === '=' ? copyValue(right) : applyCompound(stmt.op, current, right, stmt.loc)
+  return UNIT
+}
+
+function execFieldAssign(
+  stmt: Extract<Stmt, { kind: 'fieldAssign' }>,
+  env: Env,
+  io: RuntimeIo,
+): ZeeValue {
+  if (stmt.target.kind === 'ident') {
+    const slot = env.lookup(stmt.target.name)
+    if (slot && !slot.mutable) {
+      throw new ZeeError(
+        `cannot assign to const \`${stmt.target.name}\``,
+        stmt.loc.line,
+        stmt.loc.column,
+        stmt.loc.file,
+      )
+    }
+  }
+  const target = evalExpr(stmt.target, env, io)
+  if (target.type !== 'struct') {
+    throw new ZeeError('field assign requires a struct or class', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  if (target.readonly) {
+    throw new ZeeError(
+      `cannot assign to field \`${stmt.field}\` on readonly type \`${target.name}\``,
+      stmt.loc.line,
+      stmt.loc.column,
+      stmt.loc.file,
+    )
+  }
+  if (!target.fieldMut[stmt.field]) {
+    throw new ZeeError(
+      `cannot assign to const field \`${stmt.field}\``,
+      stmt.loc.line,
+      stmt.loc.column,
+      stmt.loc.file,
+    )
+  }
+  target.fields[stmt.field] = stmt.op === '='
+    ? copyValue(evalExpr(stmt.value, env, io))
+    : applyCompound(stmt.op, target.fields[stmt.field]!, evalExpr(stmt.value, env, io), stmt.loc)
+  return UNIT
+}
+
+function execRedimArray(
+  stmt: Extract<Stmt, { kind: 'redimArray' }>,
+  env: Env,
+  io: RuntimeIo,
+): ZeeValue {
+  const slot = env.lookup(stmt.name)
+  if (slot && !slot.mutable) {
+    throw new ZeeError(`cannot redim const \`${stmt.name}\``, stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  const current = env.get(stmt.name, stmt.loc)
+  if (current.type === 'list' || current.type === 'map') {
+    throw new ZeeError(
+      `cannot redim ${current.type === 'list' ? 'List' : 'Map'}`,
+      stmt.loc.line,
+      stmt.loc.column,
+      stmt.loc.file,
+    )
+  }
+  if (current.type !== 'array') {
+    throw new ZeeError('array `redim` requires an array', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  const n = indexNumber(evalExpr(stmt.length, env, io), stmt.loc)
+  if (n < current.items.length) {
+    current.items.length = n
+    return UNIT
+  }
+  if (stmt.preserve) {
+    while (current.items.length < n) {
+      current.items.push(zeroValue(current.elem, stmt.loc))
+    }
+    return UNIT
+  }
+  current.items.length = 0
+  for (let i = 0; i < n; i += 1) {
+    current.items.push(zeroValue(current.elem, stmt.loc))
+  }
+  return UNIT
+}
+
+function evalIndex(expr: Extract<Expr, { kind: 'index' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const target = evalExpr(expr.target, env, io)
+  if (target.type === 'map') {
+    const hashed = mapHashKey(evalExpr(expr.index, env, io), expr.loc)
+    const entry = target.entries.get(hashed)
+    if (!entry) return { type: 'option', tag: 'none' }
+    return { type: 'option', tag: 'some', value: copyValue(entry.value) }
+  }
+  const i = indexNumber(evalExpr(expr.index, env, io), expr.loc)
+  if (target.type === 'array' || target.type === 'list') {
+    const item = target.items[i]
+    if (item === undefined) {
+      throw new ZeeError('index out of bounds', expr.loc.line, expr.loc.column, expr.loc.file)
+    }
+    return copyValue(item)
+  }
+  if (target.type === 'string') {
+    const bytes = new TextEncoder().encode(target.value)
+    const byte = bytes[i]
+    if (byte === undefined) {
+      throw new ZeeError('index out of bounds', expr.loc.line, expr.loc.column, expr.loc.file)
+    }
+    return intValue('u8', BigInt(byte))
+  }
+  throw new ZeeError('index requires an array, List, Map, or String', expr.loc.line, expr.loc.column, expr.loc.file)
+}
+
+function evalMapLit(expr: Extract<Expr, { kind: 'mapLit' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const entries = new Map<string, { key: ZeeValue; value: ZeeValue }>()
+  for (const entry of expr.entries) {
+    const key = evalExpr(entry.key, env, io)
+    const hashed = mapHashKey(key, expr.loc)
+    entries.set(hashed, {
+      key: copyValue(key),
+      value: copyValue(evalExpr(entry.value, env, io)),
+    })
+  }
+  const key = expr.keyType
+  const value = expr.valueType
+  if (!key || !value) {
+    throw new ZeeError('empty `{}` needs a type', expr.loc.line, expr.loc.column, expr.loc.file)
+  }
+  return { type: 'map', entries, key, value }
+}
+
+function mapHashKey(
+  value: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): string {
+  if (value.type === 'newtype') {
+    return `nt:${value.module}:${value.name}:${mapHashKey(value.inner, loc)}`
+  }
+  if (isIntValue(value)) return `int:${value.type}:${intBigInt(value)}`
+  if (value.type === 'bool') return `bool:${value.value}`
+  if (value.type === 'string') return `str:${JSON.stringify(value.value)}`
+  if (value.type === 'enum') return `enum:${value.module}:${value.name}:${value.variant}`
+  throw new ZeeError('Map key type is not Hash', loc.line, loc.column, loc.file)
+}
+
+function callCollectionMethod(
+  target: ZeeValue,
+  name: string,
+  args: ZeeValue[],
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue | undefined {
+  if (target.type === 'list') {
+    if (name === 'toArray') {
+      return { type: 'array', items: target.items.map(copyValue), elem: target.elem }
+    }
+    if (name === 'map') {
+      const mapped = target.items.map((item) => applyFnValue(args[0]!, [item], io, loc))
+      const elem = mapped[0] ? typeOfValue(mapped[0]) : target.elem
+      return { type: 'list', items: mapped, elem }
+    }
+    if (name === 'filter') {
+      const items: ZeeValue[] = []
+      for (const item of target.items) {
+        const keep = applyFnValue(args[0]!, [item], io, loc)
+        if (keep.type !== 'bool') {
+          throw new ZeeError('`filter` expects `(T) -> bool`', loc.line, loc.column, loc.file)
+        }
+        if (keep.value) items.push(copyValue(item))
+      }
+      return { type: 'list', items, elem: target.elem }
+    }
+    if (name === 'forEach') {
+      for (const item of target.items) {
+        applyFnValue(args[0]!, [item], io, loc)
+      }
+      return UNIT
+    }
+  }
+  if (target.type === 'array' && name === 'toList') {
+    return { type: 'list', items: target.items.map(copyValue), elem: target.elem }
+  }
+  return undefined
+}
+
+function applyFnValue(
+  fn: ZeeValue,
+  args: ZeeValue[],
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (fn.type === 'fn') return callFn(fn, args, io, loc)
+  if (fn.type === 'closure') return callClosure(fn, args, io, loc)
+  throw new ZeeError('expected a function', loc.line, loc.column, loc.file)
+}
+
+function evalMember(expr: Extract<Expr, { kind: 'member' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const target = evalExpr(expr.target, env, io)
+  return memberOnValue(target, expr.field, env, expr.loc)
+}
+
+function memberOnValue(
+  target: ZeeValue,
+  field: string,
+  env: Env,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (field === 'len') {
+    if (target.type === 'array' || target.type === 'list') {
+      return intValue('usize', BigInt(target.items.length))
+    }
+    if (target.type === 'map') return intValue('usize', BigInt(target.entries.size))
+    if (target.type === 'string') {
+      return intValue('usize', BigInt(new TextEncoder().encode(target.value).length))
+    }
+  }
+  if (target.type === 'module') {
+    const slot = target.env.own(field)
+    if (!slot || (env.module !== target.name && slot.visibility !== 'pub')) {
+      throw new ZeeError(
+        `undefined name \`${field}\` on module \`${target.name}\``,
+        loc.line,
+        loc.column,
+        loc.file,
+      )
+    }
+    return copyValue(slot.value)
+  }
+  if (target.type === 'typeNs') {
+    if (target.tag === 'enum') {
+      const ordinal = target.variants.indexOf(field)
+      if (ordinal < 0) {
+        throw new ZeeError(
+          `unknown variant \`${field}\` on ${target.name}`,
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      return { type: 'enum', name: target.name, module: target.module, variant: field, ordinal }
+    }
+    throw new ZeeError(
+      `sealed variant \`${field}\` needs a struct literal`,
+      loc.line,
+      loc.column,
+      loc.file,
+    )
+  }
+  if (target.type !== 'struct') {
+    throw new ZeeError(`no field \`${field}\` on this value`, loc.line, loc.column, loc.file)
+  }
+  const value = target.fields[field]
+  if (value === undefined) {
+    throw new ZeeError(`unknown field \`${field}\` on ${target.name}`, loc.line, loc.column, loc.file)
+  }
+  return copyValue(value)
+}
+
+function evalStructLit(expr: Extract<Expr, { kind: 'structLit' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const sealed = resolveRuntimeSealed(expr, env)
+  if (sealed) {
+    const fields: Record<string, ZeeValue> = {}
+    const fieldMut: Record<string, boolean> = {}
+    const inits = new Map(expr.fields.map((field) => [field.name, field.value]))
+    for (const field of sealed.variant.fields) {
+      const init = inits.get(field.name)
+      if (!init) {
+        throw new ZeeError(
+          `missing field \`${field.name}\` in ${sealed.ns.name}.${sealed.variant.name}`,
+          expr.loc.line,
+          expr.loc.column,
+          expr.loc.file,
+        )
+      }
+      fields[field.name] = copyValue(evalExpr(init, env, io))
+      fieldMut[field.name] = field.mutable
+    }
+    return {
+      type: 'sealed',
+      name: sealed.ns.name,
+      module: sealed.ns.module,
+      variant: sealed.variant.name,
+      data: sealed.variant.data,
+      readonly: sealed.variant.readonly,
+      identity: sealed.ns.identity,
+      fields,
+      fieldMut,
+    }
+  }
+  const info = resolveRuntimeStruct(expr, env)
+  const fields: Record<string, ZeeValue> = {}
+  const fieldMut: Record<string, boolean> = {}
+  const inits = new Map(expr.fields.map((field) => [field.name, field.value]))
+  for (const field of info.fields) {
+    const init = inits.get(field.name)
+    if (!init) {
+      throw new ZeeError(
+        `missing field \`${field.name}\` in ${info.name}`,
+        expr.loc.line,
+        expr.loc.column,
+        expr.loc.file,
+      )
+    }
+    fields[field.name] = copyValue(evalExpr(init, env, io))
+    fieldMut[field.name] = field.mutable
+  }
+  return {
+    type: 'struct',
+    name: info.name,
+    module: info.module,
+    data: info.data,
+    readonly: info.readonly,
+    identity: info.identity,
+    fields,
+    fieldMut,
+  }
+}
+
+function resolveRuntimeSealed(
+  expr: Extract<Expr, { kind: 'structLit' }>,
+  env: Env,
+): { ns: Extract<ZeeValue, { type: 'typeNs'; tag: 'sealed' }>; variant: RuntimeSealedVariant } | undefined {
+  if (!expr.qualifier || expr.qualifier.length === 0) return undefined
+  if (expr.qualifier.length === 1) {
+    const first = env.get(expr.qualifier[0]!, expr.loc)
+    if (first.type === 'typeNs' && first.tag === 'sealed') {
+      const variant = first.variants.find((item) => item.name === expr.name)
+      if (!variant) {
+        throw new ZeeError(
+          `unknown variant \`${expr.name}\` on ${first.name}`,
+          expr.loc.line,
+          expr.loc.column,
+          expr.loc.file,
+        )
+      }
+      return { ns: first, variant }
+    }
+    return undefined
+  }
+  if (expr.qualifier.length === 2) {
+    const first = env.get(expr.qualifier[0]!, expr.loc)
+    if (first.type !== 'module') return undefined
+    const ns = first.env.own(expr.qualifier[1]!)?.value
+    if (!ns || ns.type !== 'typeNs' || ns.tag !== 'sealed') return undefined
+    const variant = ns.variants.find((item) => item.name === expr.name)
+    if (!variant) {
+      throw new ZeeError(
+        `unknown variant \`${expr.name}\` on ${ns.name}`,
+        expr.loc.line,
+        expr.loc.column,
+        expr.loc.file,
+      )
+    }
+    return { ns, variant }
+  }
+  return undefined
+}
+
+function resolveRuntimeStruct(expr: Extract<Expr, { kind: 'structLit' }>, env: Env): StructInfo {
+  if (!expr.qualifier || expr.qualifier.length === 0) {
+    const info = env.getStruct(expr.name)
+    if (!info) {
+      throw new ZeeError(`unknown type \`${expr.name}\``, expr.loc.line, expr.loc.column, expr.loc.file)
+    }
+    return info
+  }
+  const first = env.get(expr.qualifier[0]!, expr.loc)
+  if (first.type !== 'module' || expr.qualifier.length !== 1) {
+    throw new ZeeError(
+      `unknown type \`${[...expr.qualifier, expr.name].join('.')}\``,
+      expr.loc.line,
+      expr.loc.column,
+      expr.loc.file,
+    )
+  }
+  const info = first.env.getStruct(expr.name)
+  if (!info) {
+    throw new ZeeError(
+      `unknown type \`${first.name}.${expr.name}\``,
+      expr.loc.line,
+      expr.loc.column,
+      expr.loc.file,
+    )
+  }
+  return info
+}
+
+function matchPattern(
+  pattern: MatchPattern,
+  value: ZeeValue,
+  env: Env,
+  io: RuntimeIo,
+  bindEnv: Env,
+): boolean {
+  if (pattern.kind === 'wildcard') return true
+  if (pattern.kind === 'value') {
+    return valuesEqual(value, evalExpr(pattern.expr, env, io))
+  }
+  if (value.type === 'enum') {
+    const variant = pattern.path[pattern.path.length - 1]
+    return value.variant === variant
+  }
+  if (value.type === 'struct') {
+    const name = pattern.path[pattern.path.length - 1]
+    if (value.name !== name) return false
+    for (const field of pattern.fields ?? []) {
+      if (field.name === '_') continue
+      const bound = value.fields[field.name]
+      if (bound === undefined) return false
+      bindEnv.define(field.name, copyValue(bound))
+    }
+    return true
+  }
+  if (value.type !== 'sealed') return false
+  const variant = pattern.path[pattern.path.length - 1]
+  if (value.variant !== variant) return false
+  for (const field of pattern.fields ?? []) {
+    if (field.name === '_') continue
+    const bound = value.fields[field.name]
+    if (bound === undefined) return false
+    bindEnv.define(field.name, copyValue(bound))
+  }
+  return true
+}
+
 function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: RuntimeIo): ZeeValue {
+  if (expr.op === '?:') {
+    const left = evalExpr(expr.left, env, io)
+    if (left.type !== 'option') {
+      throw new ZeeError('operator `?:` expects Option', expr.loc.line, expr.loc.column, expr.loc.file)
+    }
+    if (left.tag === 'some') return left.value
+    return evalExpr(expr.right, env, io)
+  }
   if (expr.op === '&&' || expr.op === '||') {
     const left = evalExpr(expr.left, env, io)
     if (left.type !== 'bool') {
@@ -183,60 +1371,287 @@ function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: Runti
   }
 
   const left = evalExpr(expr.left, env, io)
-  const right = evalExpr(expr.right, env, io)
-  if (expr.op === '+' && left.type === 'string' && right.type === 'string') {
-    return { type: 'string', value: left.value + right.value }
+  let right = evalExpr(expr.right, env, io)
+  if (expr.op === '===' || expr.op === '!==') {
+    const same = left === right
+    return { type: 'bool', value: expr.op === '===' ? same : !same }
   }
-  if (left.type === 'i32' && right.type === 'i32') {
+  if (expr.op === '==' || expr.op === '!=') {
+    const equal = valuesEqual(left, right)
+    return { type: 'bool', value: expr.op === '==' ? equal : !equal }
+  }
+  const ord =
+    expr.op === '<' ||
+    expr.op === '<=' ||
+    expr.op === '>' ||
+    expr.op === '>=' ||
+    expr.op === '<===>'
+  let leftVal = left
+  if (
+    ord &&
+    leftVal.type === 'newtype' &&
+    right.type === 'newtype' &&
+    leftVal.name === right.name &&
+    leftVal.module === right.module
+  ) {
+    leftVal = leftVal.inner
+    right = right.inner
+  }
+  if (expr.op === '+' && leftVal.type === 'string' && right.type === 'string') {
+    return { type: 'string', value: leftVal.value + right.value }
+  }
+  if (leftVal.type === 'string' && right.type === 'string') {
+    const cmp = leftVal.value < right.value ? -1 : leftVal.value > right.value ? 1 : 0
     switch (expr.op) {
-      case '+':
-        return { type: 'i32', value: i32(left.value + right.value) }
-      case '-':
-        return { type: 'i32', value: i32(left.value - right.value) }
-      case '*':
-        return { type: 'i32', value: i32(left.value * right.value) }
-      case '/':
-        if (right.value === 0) {
-          throw new ZeeError('division by zero', expr.loc.line, expr.loc.column, expr.loc.file)
-        }
-        return { type: 'i32', value: i32(truncTowardZero(left.value / right.value)) }
+      case '<===>':
+        return { type: 'i32', value: cmp }
       case '<':
-        return { type: 'bool', value: left.value < right.value }
+        return { type: 'bool', value: cmp < 0 }
       case '<=':
-        return { type: 'bool', value: left.value <= right.value }
+        return { type: 'bool', value: cmp <= 0 }
       case '>':
-        return { type: 'bool', value: left.value > right.value }
+        return { type: 'bool', value: cmp > 0 }
       case '>=':
-        return { type: 'bool', value: left.value >= right.value }
-      case '==':
-        return { type: 'bool', value: left.value === right.value }
-      case '!=':
-        return { type: 'bool', value: left.value !== right.value }
+        return { type: 'bool', value: cmp >= 0 }
     }
   }
-  if ((left.type === 'bool' && right.type === 'bool') || (left.type === 'string' && right.type === 'string')) {
-    if (expr.op === '==') return { type: 'bool', value: left.value === right.value }
-    if (expr.op === '!=') return { type: 'bool', value: left.value !== right.value }
+  if (isIntValue(leftVal) && isIntValue(right) && leftVal.type === right.type) {
+    const kind = leftVal.type
+    const l = intBigInt(leftVal)
+    const r = intBigInt(right)
+    switch (expr.op) {
+      case '+':
+        return intChecked(kind, l + r, expr.loc)
+      case '-':
+        return intChecked(kind, l - r, expr.loc)
+      case '*':
+        return intChecked(kind, l * r, expr.loc)
+      case '/':
+        if (r === 0n) {
+          throw new ZeeError('division by zero', expr.loc.line, expr.loc.column, expr.loc.file)
+        }
+        return intValue(kind, l / r)
+      case '%':
+        if (r === 0n) {
+          throw new ZeeError('division by zero', expr.loc.line, expr.loc.column, expr.loc.file)
+        }
+        return intValue(kind, l % r)
+      case '<===>':
+        return { type: 'i32', value: l < r ? -1 : l > r ? 1 : 0 }
+      case '<':
+        return { type: 'bool', value: l < r }
+      case '<=':
+        return { type: 'bool', value: l <= r }
+      case '>':
+        return { type: 'bool', value: l > r }
+      case '>=':
+        return { type: 'bool', value: l >= r }
+    }
+  }
+  if (
+    leftVal.type === 'enum' &&
+    right.type === 'enum' &&
+    leftVal.name === right.name &&
+    leftVal.module === right.module
+  ) {
+    const l = leftVal.ordinal
+    const r = right.ordinal
+    switch (expr.op) {
+      case '<===>':
+        return { type: 'i32', value: l < r ? -1 : l > r ? 1 : 0 }
+      case '<':
+        return { type: 'bool', value: l < r }
+      case '<=':
+        return { type: 'bool', value: l <= r }
+      case '>':
+        return { type: 'bool', value: l > r }
+      case '>=':
+        return { type: 'bool', value: l >= r }
+    }
   }
   throw new ZeeError(`operator \`${expr.op}\` is not defined for these values`, expr.loc.line, expr.loc.column, expr.loc.file)
 }
 
 function evalCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo): ZeeValue {
-  if (expr.callee.kind !== 'ident') {
-    throw new ZeeError('only named functions can be called', expr.callee.loc.line, expr.callee.loc.column, expr.callee.loc.file)
+  return bindCall(expr, env, io)()
+}
+
+function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo): () => ZeeValue {
+  if (expr.callee.kind === 'ident') {
+    const name = expr.callee.name
+    if (name === 'narrow') {
+      if (!expr.typeArgs || expr.typeArgs.length !== 1 || expr.args.length !== 1) {
+        throw new ZeeError('`narrow` takes one type argument and one value', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const target = intKindFromTypeAst(expr.typeArgs[0]!)
+      const arg = evalExpr(expr.args[0]!, env, io)
+      if (!isIntValue(arg)) {
+        throw new ZeeError('`narrow` expects an integer', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const n = intBigInt(arg)
+      return () => {
+        if (!intFits(n, target)) return { type: 'option', tag: 'none' }
+        return { type: 'option', tag: 'some', value: intValue(target, n) }
+      }
+    }
+    if (isIntKind(name)) {
+      if (expr.args.length !== 1) {
+        throw new ZeeError(`\`${name}\` takes one argument`, expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const arg = evalExpr(expr.args[0]!, env, io)
+      return () => {
+        if (arg.type === 'newtype') {
+          if (!isIntValue(arg.inner) || arg.inner.type !== name) {
+            throw new ZeeError(`cannot convert ${arg.name} to ${name}`, expr.loc.line, expr.loc.column, expr.loc.file)
+          }
+          return arg.inner
+        }
+        if (!isIntValue(arg)) {
+          throw new ZeeError(`cannot convert this value to ${name}`, expr.loc.line, expr.loc.column, expr.loc.file)
+        }
+        if (arg.type !== name && !canWidenInt(arg.type, name)) {
+          throw new ZeeError(`cannot convert ${arg.type} to ${name}`, expr.loc.line, expr.loc.column, expr.loc.file)
+        }
+        return intValue(name, intBigInt(arg))
+      }
+    }
+    if ((name === 'String' || name === 'bool' || name === 'Unit') && expr.args.length === 1) {
+      const arg = evalExpr(expr.args[0]!, env, io)
+      return () => {
+        if (arg.type === 'newtype') {
+          if (name === 'String' && arg.inner.type === 'string') return copyValue(arg.inner)
+          if (name === 'bool' && arg.inner.type === 'bool') return copyValue(arg.inner)
+          if (name === 'Unit' && arg.inner.type === 'unit') return copyValue(arg.inner)
+        }
+        throw new ZeeError(`cannot convert this value to ${name}`, expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+    }
   }
-  const callee = env.get(expr.callee.name, expr.callee.loc)
+  if (expr.callee.kind === 'member') {
+    const target = evalExpr(expr.callee.target, env, io)
+    const args = expr.args.map((arg) => evalExpr(arg, env, io))
+    return () => invokeMemberCall(expr, target, args, env, io)
+  }
+  const callee = evalExpr(expr.callee, env, io)
   const args = expr.args.map((arg) => evalExpr(arg, env, io))
-  if (callee.type === 'builtin') return callBuiltin(callee.name, args, io, expr.loc)
-  if (callee.type === 'fn') return callFn(callee, args, io, env, expr.loc)
-  throw new ZeeError('cannot call this value', expr.callee.loc.line, expr.callee.loc.column, expr.callee.loc.file)
+  return () => invokeValue(callee, args, io, expr.loc)
+}
+
+function invokeMemberCall(
+  expr: Extract<Expr, { kind: 'call' }>,
+  target: ZeeValue,
+  args: ZeeValue[],
+  env: Env,
+  io: RuntimeIo,
+): ZeeValue {
+  if (expr.callee.kind !== 'member') {
+    throw new ZeeError('cannot call this value', expr.loc.line, expr.loc.column, expr.loc.file)
+  }
+  if (expr.callee.field === 'message' && args.length === 0) {
+    if (target.type === 'error') return { type: 'string', value: target.message }
+    if (target.type === 'struct' && target.name === 'Fail') {
+      const text = target.fields.text
+      if (text?.type === 'string') return text
+    }
+  }
+  const builtin = callCollectionMethod(target, expr.callee.field, args, io, expr.loc)
+  if (builtin) return builtin
+  const method = lookupRuntimeMethod(target, expr.callee.field, env)
+  if (method) {
+    return callFn(method, [target, ...args], io, expr.loc)
+  }
+  return invokeValue(memberOnValue(target, expr.callee.field, env, expr.callee.loc), args, io, expr.loc)
+}
+
+function invokeValue(
+  callee: ZeeValue,
+  args: ZeeValue[],
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (callee.type === 'newtypeCtor') {
+    if (args.length !== 1) {
+      throw new ZeeError(`\`${callee.name}\` takes one argument`, loc.line, loc.column, loc.file)
+    }
+    return { type: 'newtype', name: callee.name, module: callee.module, inner: copyValue(args[0]!) }
+  }
+  if (callee.type === 'builtin') return callBuiltin(callee.name, args, io, loc)
+  if (callee.type === 'fn') return callFn(callee, args, io, loc)
+  if (callee.type === 'closure') return callClosure(callee, args, io, loc)
+  throw new ZeeError('cannot call this value', loc.line, loc.column, loc.file)
+}
+
+function lookupRuntimeMethod(
+  target: ZeeValue,
+  name: string,
+  env: Env,
+): Extract<ZeeValue, { type: 'fn' }> | undefined {
+  const typeName =
+    target.type === 'struct' || target.type === 'enum' || target.type === 'sealed' ? target.name : undefined
+  if (!typeName) return undefined
+  const found = env.getMethod(typeName, name)
+  if (found) return found
+  const moduleName =
+    target.type === 'struct' || target.type === 'enum' || target.type === 'sealed' ? target.module : undefined
+  if (moduleName === undefined) return undefined
+  return env.getModule(moduleName)?.ownMethod(typeName, name)
+}
+
+function execDefer(stmt: Extract<Stmt, { kind: 'defer' }>, env: Env, io: RuntimeIo): ZeeValue {
+  if (stmt.body.kind === 'call') {
+    const thunk = bindCall(stmt.body, env, io)
+    env.pushDefer(thunk, stmt.loc)
+    return UNIT
+  }
+  env.pushDefer(() => evalExpr(stmt.body, env, io), stmt.loc)
+  return UNIT
+}
+
+function runDefers(env: Env, _io: RuntimeIo): void {
+  const frame = env.functionFrame()
+  if (!frame?.defers) return
+  const stack = frame.defers
+  frame.defers = []
+  let first: unknown
+  while (stack.length > 0) {
+    const thunk = stack.pop()!
+    try {
+      thunk()
+    } catch (err) {
+      if (!first) first = err
+    }
+  }
+  if (first) throw first
+}
+
+function runWithDefers(env: Env, io: RuntimeIo, run: () => ZeeValue): ZeeValue {
+  let outcome: { ok: ZeeValue } | { err: unknown }
+  try {
+    outcome = { ok: run() }
+  } catch (err) {
+    if (err instanceof ReturnSignal) {
+      outcome = { ok: err.value }
+    } else if (err instanceof BreakSignal || err instanceof ContinueSignal) {
+      throw err
+    } else {
+      outcome = { err }
+    }
+  }
+  let deferErr: unknown
+  try {
+    runDefers(env, io)
+  } catch (err) {
+    deferErr = err
+  }
+  if ('err' in outcome) throw outcome.err
+  if (deferErr) throw deferErr
+  return outcome.ok
 }
 
 function callFn(
   fn: Extract<ZeeValue, { type: 'fn' }>,
   args: ZeeValue[],
   io: RuntimeIo,
-  globals: Env,
   loc: { file: string; line: number; column: number },
 ): ZeeValue {
   if (args.length !== fn.params.length) {
@@ -247,14 +1662,37 @@ function callFn(
       loc.file,
     )
   }
-  const local = globals.root().child()
-  fn.params.forEach((name, index) => local.define(name, args[index]!))
-  try {
-    return execBlock(fn.body, local, io)
-  } catch (signal) {
-    if (signal instanceof ReturnSignal) return signal.value
-    throw signal
+  const local = fn.env.child()
+  local.markFunctionFrame()
+  fn.params.forEach((name, index) => {
+    const arg = args[index]!
+    const shareSelf = fn.mutatingReceiver && index === 0
+    local.define(name, shareSelf ? arg : copyValue(arg), shareSelf)
+  })
+  return runWithDefers(local, io, () => execBlock(fn.body, local, io))
+}
+
+function callClosure(
+  fn: Extract<ZeeValue, { type: 'closure' }>,
+  args: ZeeValue[],
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (args.length !== fn.params.length) {
+    throw new ZeeError(
+      `lambda expects ${fn.params.length} argument(s)`,
+      loc.line,
+      loc.column,
+      loc.file,
+    )
   }
+  const local = fn.env.child()
+  local.markFunctionFrame()
+  fn.params.forEach((name, index) => {
+    if (name === '_') return
+    local.define(name, copyValue(args[index]!))
+  })
+  return runWithDefers(local, io, () => execBlock(fn.body, local, io))
 }
 
 function callBuiltin(
@@ -271,30 +1709,374 @@ function callBuiltin(
   if (name === 'str') {
     return { type: 'string', value: display(args[0] ?? UNIT) }
   }
+  if (name === 'error') {
+    const message = args[0]
+    if (!message || message.type !== 'string') {
+      throw new ZeeError('`error` expects a String', loc.line, loc.column, loc.file)
+    }
+    return {
+      type: 'struct',
+      name: 'Fail',
+      module: '',
+      data: true,
+      readonly: false,
+      identity: false,
+      fields: { text: { type: 'string', value: message.value } },
+      fieldMut: { text: false },
+    }
+  }
+  if (name === 'panic') {
+    const message = args[0]
+    if (!message || message.type !== 'string') {
+      throw new ZeeError('`panic` expects a String', loc.line, loc.column, loc.file)
+    }
+    throw new PanicError(message.value, loc.line, loc.column, loc.file)
+  }
+  if (name === 'Some') {
+    if (args.length !== 1) {
+      throw new ZeeError('`Some` takes one argument', loc.line, loc.column, loc.file)
+    }
+    return { type: 'option', tag: 'some', value: args[0]! }
+  }
   throw new ZeeError(`unknown builtin \`${name}\``, loc.line, loc.column, loc.file)
 }
 
 export function display(value: ZeeValue): string {
+  if (isIntValue(value)) return String(value.value)
   switch (value.type) {
-    case 'i32':
-      return String(value.value)
     case 'bool':
       return value.value ? 'true' : 'false'
     case 'string':
       return value.value
     case 'unit':
       return '()'
+    case 'error':
+      return value.message
+    case 'newtype':
+      return `${value.name}(${display(value.inner)})`
+    case 'newtypeCtor':
+      return `fn ${value.name}`
+    case 'option':
+      return value.tag === 'none' ? 'None' : `Some(${display(value.value)})`
+    case 'tuple':
+      return `(${value.items.map(display).join(', ')})`
+    case 'array':
+    case 'list':
+      return `[${value.items.map(display).join(', ')}]`
+    case 'map': {
+      const body = [...value.entries.values()]
+        .map((entry) => `${display(entry.key)}: ${display(entry.value)}`)
+        .join(', ')
+      return `{ ${body} }`
+    }
+    case 'struct': {
+      const body = Object.entries(value.fields)
+        .map(([name, field]) => `${name}: ${display(field)}`)
+        .join(', ')
+      return `${value.name} { ${body} }`
+    }
+    case 'enum':
+      return `${value.name}.${value.variant}`
+    case 'sealed': {
+      const body = Object.entries(value.fields)
+        .map(([name, field]) => `${name}: ${display(field)}`)
+        .join(', ')
+      return `${value.name}.${value.variant} { ${body} }`
+    }
+    case 'typeNs':
+      return value.name
     case 'fn':
       return `fn ${value.name}`
+    case 'closure':
+      return 'fn'
     case 'builtin':
       return `fn ${value.name}`
+    case 'module':
+      return `module ${value.name}`
   }
 }
 
-function i32(value: number): number {
-  return value | 0
+function valuesEqual(left: ZeeValue, right: ZeeValue): boolean {
+  if (isIntValue(left) && isIntValue(right)) {
+    return left.type === right.type && intBigInt(left) === intBigInt(right)
+  }
+  if (left.type !== right.type) return false
+  switch (left.type) {
+    case 'bool':
+    case 'string':
+      return right.type === left.type && left.value === right.value
+    case 'unit':
+      return true
+    case 'error':
+      return right.type === 'error' && left.message === right.message
+    case 'newtype':
+      return (
+        right.type === 'newtype' &&
+        left.name === right.name &&
+        left.module === right.module &&
+        valuesEqual(left.inner, right.inner)
+      )
+    case 'newtypeCtor':
+      return right.type === 'newtypeCtor' && left.name === right.name && left.module === right.module
+    case 'option':
+      if (right.type !== 'option') return false
+      if (left.tag === 'none') return right.tag === 'none'
+      return right.tag === 'some' && valuesEqual(left.value, right.value)
+    case 'tuple':
+      return (
+        right.type === 'tuple' &&
+        left.items.length === right.items.length &&
+        left.items.every((item, index) => valuesEqual(item, right.items[index]!))
+      )
+    case 'array':
+      return false
+    case 'list':
+      return (
+        right.type === 'list' &&
+        left.items.length === right.items.length &&
+        left.items.every((item, index) => valuesEqual(item, right.items[index]!))
+      )
+    case 'map': {
+      if (right.type !== 'map' || left.entries.size !== right.entries.size) return false
+      for (const [hashed, entry] of left.entries) {
+        const other = right.entries.get(hashed)
+        if (!other || !valuesEqual(entry.value, other.value)) return false
+      }
+      return true
+    }
+    case 'struct':
+      if (right.type !== 'struct' || left.name !== right.name || !left.data) return false
+      return Object.keys(left.fields).every((name) =>
+        valuesEqual(left.fields[name]!, right.fields[name]!),
+      )
+    case 'enum':
+      return (
+        right.type === 'enum' &&
+        left.name === right.name &&
+        left.module === right.module &&
+        left.variant === right.variant
+      )
+    case 'sealed':
+      if (right.type !== 'sealed' || left.name !== right.name || left.module !== right.module) {
+        return false
+      }
+      if (!left.data || !right.data || left.variant !== right.variant) return false
+      return Object.keys(left.fields).every((name) =>
+        valuesEqual(left.fields[name]!, right.fields[name]!),
+      )
+    case 'fn':
+    case 'closure':
+    case 'builtin':
+    case 'module':
+    case 'typeNs':
+      return false
+    default:
+      return false
+  }
 }
 
-function truncTowardZero(value: number): number {
-  return value < 0 ? Math.ceil(value) : Math.floor(value)
+function evalCopy(
+  expr: Extract<Expr, { kind: 'copy' }>,
+  env: Env,
+  io: RuntimeIo,
+): ZeeValue {
+  const target = evalExpr(expr.target, env, io)
+  if (target.type !== 'struct' || !target.data) {
+    throw new ZeeError(
+      '`copy` is only defined on `data` struct and `data` class',
+      expr.loc.line,
+      expr.loc.column,
+      expr.loc.file,
+    )
+  }
+  const fields: Record<string, ZeeValue> = {}
+  for (const [name, field] of Object.entries(target.fields)) {
+    fields[name] = copyValue(field)
+  }
+  for (const field of expr.fields) {
+    fields[field.name] = copyValue(evalExpr(field.value, env, io))
+  }
+  return { ...target, fields }
+}
+
+function copyValue(value: ZeeValue): ZeeValue {
+  if ((value.type === 'struct' || value.type === 'sealed') && value.identity) {
+    return value
+  }
+  if (value.type === 'struct' || value.type === 'sealed') {
+    const fields: Record<string, ZeeValue> = {}
+    for (const [name, field] of Object.entries(value.fields)) {
+      fields[name] = copyValue(field)
+    }
+    return { ...value, fields }
+  }
+  if (value.type === 'tuple') {
+    return { type: 'tuple', items: value.items.map(copyValue) }
+  }
+  if (value.type === 'option' && value.tag === 'some') {
+    return { type: 'option', tag: 'some', value: copyValue(value.value) }
+  }
+  if (value.type === 'newtype') {
+    return { ...value, inner: copyValue(value.inner) }
+  }
+  return value
+}
+
+function typeOfValue(value: ZeeValue): ZeeType {
+  if (isIntValue(value)) return { kind: value.type }
+  switch (value.type) {
+    case 'bool':
+      return { kind: 'bool' }
+    case 'string':
+      return { kind: 'string' }
+    case 'unit':
+      return { kind: 'unit' }
+    case 'error':
+      return {
+        kind: 'struct',
+        name: 'Fail',
+        module: '',
+        data: true,
+        readonly: false,
+        identity: false,
+        fields: [{ name: 'text', type: { kind: 'string' }, mutable: false, visibility: 'pub', file: '<builtin>' }],
+        implements: [],
+      }
+    case 'newtype':
+      return {
+        kind: 'newtype',
+        name: value.name,
+        module: value.module,
+        inner: typeOfValue(value.inner),
+        implements: [],
+      }
+    case 'newtypeCtor':
+      return { kind: 'fn', params: [], ret: { kind: 'unit' } }
+    case 'option':
+      return {
+        kind: 'option',
+        inner: value.tag === 'some' ? typeOfValue(value.value) : { kind: 'unit' },
+      }
+    case 'tuple':
+      return { kind: 'tuple', parts: value.items.map(typeOfValue) }
+    case 'array':
+      return { kind: 'array', elem: value.elem }
+    case 'list':
+      return { kind: 'list', elem: value.elem }
+    case 'map':
+      return { kind: 'map', key: value.key, value: value.value }
+    case 'struct': {
+      const info = value
+      return {
+        kind: 'struct',
+        name: info.name,
+        module: info.module,
+        data: info.data,
+        readonly: info.readonly,
+        identity: info.identity,
+        fields: Object.keys(info.fields).map((name) => ({
+          name,
+          type: typeOfValue(info.fields[name]!),
+          mutable: info.fieldMut[name] ?? false,
+          visibility: 'private' as const,
+          file: '',
+        })),
+        implements: [],
+      }
+    }
+    case 'enum':
+      return { kind: 'enum', name: value.name, module: value.module, variants: [], implements: [] }
+    case 'sealed':
+      return {
+        kind: 'sealed',
+        name: value.name,
+        module: value.module,
+        identity: value.identity,
+        variants: [],
+        implements: [],
+      }
+    case 'typeNs':
+      return value.tag === 'enum'
+        ? { kind: 'enum', name: value.name, module: value.module, variants: value.variants, implements: [] }
+        : {
+            kind: 'sealed',
+            name: value.name,
+            module: value.module,
+            identity: value.identity,
+            variants: [],
+            implements: [],
+          }
+    case 'fn':
+    case 'closure':
+    case 'builtin':
+      return { kind: 'fn', params: [], ret: { kind: 'unit' } }
+    case 'module':
+      return { kind: 'module', name: value.name }
+  }
+}
+
+function zeroValue(type: ZeeType, loc: { file: string; line: number; column: number }): ZeeValue {
+  if (isIntKind(type.kind)) return intValue(type.kind, 0n)
+  switch (type.kind) {
+    case 'bool':
+      return { type: 'bool', value: false }
+    case 'string':
+      return { type: 'string', value: '' }
+    case 'option':
+      return { type: 'option', tag: 'none' }
+    case 'unit':
+      return UNIT
+    default:
+      throw new ZeeError(
+        `cannot grow array of ${typeName(type)}; no dummy value`,
+        loc.line,
+        loc.column,
+        loc.file,
+      )
+  }
+}
+
+function indexNumber(
+  value: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): number {
+  if (!isIntValue(value) || value.type !== 'usize') {
+    throw new ZeeError('index requires usize', loc.line, loc.column, loc.file)
+  }
+  return Number(intBigInt(value))
+}
+
+function isIntValue(
+  value: ZeeValue,
+): value is Extract<ZeeValue, { type: IntKind }> {
+  return (INT_KINDS as readonly string[]).includes(value.type)
+}
+
+function intBigInt(value: Extract<ZeeValue, { type: IntKind }>): bigint {
+  return typeof value.value === 'bigint' ? value.value : BigInt(value.value)
+}
+
+function intValue(kind: IntKind, n: bigint): ZeeValue {
+  if (kind === 'i64' || kind === 'u64' || kind === 'isize' || kind === 'usize') {
+    return { type: kind, value: n }
+  }
+  return { type: kind, value: Number(n) }
+}
+
+function intChecked(
+  kind: IntKind,
+  n: bigint,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (!intFits(n, kind)) {
+    throw new ZeeError('integer overflow', loc.line, loc.column, loc.file)
+  }
+  return intValue(kind, n)
+}
+
+function intKindFromTypeAst(ast: TypeAst): IntKind {
+  if (ast.kind !== 'named' || !isIntKind(ast.name)) {
+    throw new ZeeError(`expected integer type, got \`${ast.kind}\``, ast.loc.line, ast.loc.column, ast.loc.file)
+  }
+  return ast.name
 }

@@ -14,12 +14,12 @@ describe('parser', () => {
     if (fn?.kind !== 'fn') return
     expect(fn.name).toBe('factorial')
     expect(fn.params).toHaveLength(1)
-    expect(fn.returnType?.name).toBe('i32')
+    expect(fn.returnType).toMatchObject({ kind: 'named', name: 'i32' })
     expect(fn.body.stmts[0]?.kind).toBe('expr')
   })
 
-  it('parses let with inferred and annotated types', () => {
-    const program = parse('let x = 1\nlet y: String = "zee"')
-    expect(program.stmts.map((stmt) => stmt.kind)).toEqual(['let', 'let'])
+  it('parses const and var with inferred and annotated types', () => {
+    const program = parse('const x = 1\nvar y: String = "zee"')
+    expect(program.stmts.map((stmt) => stmt.kind)).toEqual(['bind', 'bind'])
   })
 })

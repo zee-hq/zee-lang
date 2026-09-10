@@ -5,6 +5,7 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#keywords" },
+    { "include": "#operators" },
     { "include": "#types" },
     { "include": "#literals" },
     { "include": "#functions" }
@@ -38,11 +39,11 @@
       "patterns": [
         {
           "name": "keyword.declaration.zee",
-          "match": "\\b(fn|let|return)\\b"
+          "match": "\\b(fn|const|var|redim|struct|class|data|readonly|enum|sealed|type|newtype|interface|implements|is|preserve|return|defer|panic|import|pub|internal|as)\\b"
         },
         {
           "name": "keyword.control.zee",
-          "match": "\\b(if|else)\\b"
+          "match": "\\b(if|else|match|while|until|do|for|in|is|break|continue|defer|panic)\\b"
         },
         {
           "name": "constant.language.boolean.zee",
@@ -50,13 +51,17 @@
         }
       ]
     },
+    "operators": {
+      "name": "keyword.operator.zee",
+      "match": "\\+=|-=|\\*=|/=|%=|<===>|===|!==|\\?\\?=|!!=|&&=|\\|\\|=|\\?:|\\.\\."
+    },
     "types": {
       "name": "support.type.zee",
-      "match": "\\b(i32|bool|String|Unit)\\b"
+          "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64|isize|usize|bool|String|Unit|Never|Error|Option|List|Map)\\b"
     },
     "literals": {
       "name": "constant.numeric.integer.zee",
-      "match": "\\b\\d+\\b"
+      "match": "\\b(?:0[xX][0-9A-Fa-f_]+|0[bB][01_]+|\\d[\\d_]*)(?:usize|isize|u(?:8|16|32|64)|i(?:8|16|32|64))?\\b"
     },
     "functions": {
       "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
