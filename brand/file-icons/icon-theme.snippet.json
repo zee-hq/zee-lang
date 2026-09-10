@@ -1,0 +1,11 @@
+{
+  "iconDefinitions": {
+    "_zee_file": { "iconPath": "./zee-file-icon.svg" },
+    "_zee_spec_file": { "iconPath": "./zee-spec-file-icon.svg" }
+  },
+  "fileExtensions": {
+    "zee": "_zee_file",
+    "spec.zee": "_zee_spec_file"
+  },
+  "file": "_zee_file"
+}

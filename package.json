@@ -14,6 +14,8 @@
     "check": "tsx src/cli.ts check",
     "test": "vitest run",
     "test:watch": "vitest",
+    "editor:link": "node editor/vscode/link.mjs",
+    "editor:icons": "node editor/vscode/file-icons/generate.mjs",
     "build": "npm run typecheck",
     "typecheck": "tsc --noEmit --pretty false"
   },
@@ -22,7 +24,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RR-IT-Solutions/zee-lang.git"
+    "url": "git+https://github.com/zee-hq/zee-lang.git"
   },
   "keywords": [
     "zee",

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 100">
+  
+  <g transform="translate(0,0)">
+    <path d="M24,26 L76,26 L24,74 L76,74" stroke="#0B0E14" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+  </g>
+  <text x="112" y="68" font-family="'JetBrains Mono','Space Mono',ui-monospace,'SFMono-Regular',Menlo,monospace" font-weight="700" font-size="54" letter-spacing="-1" fill="#0B0E14">zee</text>
+</svg>

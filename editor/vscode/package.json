@@ -1,23 +1,42 @@
 {
   "name": "zee",
   "displayName": "Zee",
-  "description": "Language support for Zee — syntax highlighting and Run File.",
+  "description": "Zee language — syntax, file icons, check on save, Run File.",
   "version": "0.1.0",
-  "publisher": "zethsell",
+  "publisher": "zee-hq",
   "license": "MIT",
+  "icon": "media/zee-icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zee-hq/zee-lang"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Programming Languages"],
+  "categories": ["Programming Languages", "Themes"],
   "main": "./extension.js",
   "activationEvents": ["onLanguage:zee"],
   "contributes": {
+    "configuration": {
+      "title": "Zee",
+      "properties": {
+        "zee.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run zee check when a .zee file is saved and show errors in Problems."
+        }
+      }
+    },
     "languages": [
       {
         "id": "zee",
         "aliases": ["Zee", "zee"],
         "extensions": [".zee"],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./file-icons/zee-zee.svg",
+          "dark": "./file-icons/zee-zee.svg"
+        }
       }
     ],
     "grammars": [
@@ -25,6 +44,33 @@
         "language": "zee",
         "scopeName": "source.zee",
         "path": "./syntaxes/zee.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "zee",
+        "path": "./snippets/zee.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "zee-icons",
+        "label": "Zee",
+        "path": "./file-icons/zee-icon-theme.json"
+      }
+    ],
+    "themes": [
+      {
+        "id": "Zee Dark",
+        "label": "Zee Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/zee-dark.json"
+      },
+      {
+        "id": "Zee Light",
+        "label": "Zee Light",
+        "uiTheme": "vs",
+        "path": "./themes/zee-light.json"
       }
     ],
     "commands": [
@@ -37,8 +83,23 @@
         "title": "Zee: Check File"
       }
     ],
+    "keybindings": [
+      {
+        "command": "zee.runFile",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorLangId == zee"
+      }
+    ],
     "menus": {
       "editor/title/run": [
+        {
+          "command": "zee.runFile",
+          "when": "resourceLangId == zee",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
         {
           "command": "zee.runFile",
           "when": "resourceLangId == zee",

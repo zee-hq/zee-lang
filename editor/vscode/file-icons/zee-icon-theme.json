@@ -1,0 +1,211 @@
+{
+  "iconDefinitions": {
+    "_zee_folder": {
+      "iconPath": "./zee-folder.svg"
+    },
+    "_zee_folder_open": {
+      "iconPath": "./zee-folder-open.svg"
+    },
+    "_zee_toml": {
+      "iconPath": "./zee-toml.svg"
+    },
+    "_zee_main": {
+      "iconPath": "./zee-main.svg"
+    },
+    "_zee_main_spec": {
+      "iconPath": "./zee-main-spec.svg"
+    },
+    "_zee_main_test": {
+      "iconPath": "./zee-main-test.svg"
+    },
+    "_file": {
+      "iconPath": "./zee-file.svg"
+    },
+    "_env": {
+      "iconPath": "./zee-env.svg"
+    },
+    "_gitignore": {
+      "iconPath": "./zee-gitignore.svg"
+    },
+    "_lock": {
+      "iconPath": "./zee-lock.svg"
+    },
+    "_json": {
+      "iconPath": "./zee-json.svg"
+    },
+    "_md": {
+      "iconPath": "./zee-md.svg"
+    },
+    "_zee": {
+      "iconPath": "./zee-zee.svg"
+    },
+    "_zee_spec": {
+      "iconPath": "./zee-zee-spec.svg"
+    },
+    "_zee_test": {
+      "iconPath": "./zee-zee-test.svg"
+    },
+    "_module": {
+      "iconPath": "./zee-module.svg"
+    },
+    "_module_spec": {
+      "iconPath": "./zee-module-spec.svg"
+    },
+    "_module_test": {
+      "iconPath": "./zee-module-test.svg"
+    },
+    "_controller": {
+      "iconPath": "./zee-controller.svg"
+    },
+    "_controller_spec": {
+      "iconPath": "./zee-controller-spec.svg"
+    },
+    "_controller_test": {
+      "iconPath": "./zee-controller-test.svg"
+    },
+    "_service": {
+      "iconPath": "./zee-service.svg"
+    },
+    "_service_spec": {
+      "iconPath": "./zee-service-spec.svg"
+    },
+    "_service_test": {
+      "iconPath": "./zee-service-test.svg"
+    },
+    "_resource": {
+      "iconPath": "./zee-resource.svg"
+    },
+    "_resource_spec": {
+      "iconPath": "./zee-resource-spec.svg"
+    },
+    "_resource_test": {
+      "iconPath": "./zee-resource-test.svg"
+    },
+    "_struct": {
+      "iconPath": "./zee-struct.svg"
+    },
+    "_struct_spec": {
+      "iconPath": "./zee-struct-spec.svg"
+    },
+    "_struct_test": {
+      "iconPath": "./zee-struct-test.svg"
+    },
+    "_class": {
+      "iconPath": "./zee-class.svg"
+    },
+    "_class_spec": {
+      "iconPath": "./zee-class-spec.svg"
+    },
+    "_class_test": {
+      "iconPath": "./zee-class-test.svg"
+    },
+    "_data": {
+      "iconPath": "./zee-data.svg"
+    },
+    "_data_spec": {
+      "iconPath": "./zee-data-spec.svg"
+    },
+    "_data_test": {
+      "iconPath": "./zee-data-test.svg"
+    },
+    "_enum": {
+      "iconPath": "./zee-enum.svg"
+    },
+    "_enum_spec": {
+      "iconPath": "./zee-enum-spec.svg"
+    },
+    "_enum_test": {
+      "iconPath": "./zee-enum-test.svg"
+    },
+    "_interface": {
+      "iconPath": "./zee-interface.svg"
+    },
+    "_interface_spec": {
+      "iconPath": "./zee-interface-spec.svg"
+    },
+    "_interface_test": {
+      "iconPath": "./zee-interface-test.svg"
+    },
+    "_newtype": {
+      "iconPath": "./zee-newtype.svg"
+    },
+    "_newtype_spec": {
+      "iconPath": "./zee-newtype-spec.svg"
+    },
+    "_newtype_test": {
+      "iconPath": "./zee-newtype-test.svg"
+    },
+    "_error": {
+      "iconPath": "./zee-error.svg"
+    },
+    "_error_spec": {
+      "iconPath": "./zee-error-spec.svg"
+    },
+    "_error_test": {
+      "iconPath": "./zee-error-test.svg"
+    }
+  },
+  "fileNames": {
+    "main.zee": "_zee_main",
+    "main.spec.zee": "_zee_main_spec",
+    "main.test.zee": "_zee_main_test",
+    "zee.toml": "_zee_toml",
+    "libs.toml": "_zee_toml",
+    "zee.lock": "_lock",
+    ".gitignore": "_gitignore",
+    ".env": "_env",
+    ".env.local": "_env",
+    ".env.dev": "_env",
+    ".env.development": "_env",
+    ".env.test": "_env",
+    ".env.production": "_env",
+    ".env.example": "_env"
+  },
+  "fileExtensions": {
+    "zee": "_zee",
+    "spec.zee": "_zee_spec",
+    "test.zee": "_zee_test",
+    "module.zee": "_module",
+    "module.spec.zee": "_module_spec",
+    "module.test.zee": "_module_test",
+    "controller.zee": "_controller",
+    "controller.spec.zee": "_controller_spec",
+    "controller.test.zee": "_controller_test",
+    "service.zee": "_service",
+    "service.spec.zee": "_service_spec",
+    "service.test.zee": "_service_test",
+    "resource.zee": "_resource",
+    "resource.spec.zee": "_resource_spec",
+    "resource.test.zee": "_resource_test",
+    "struct.zee": "_struct",
+    "struct.spec.zee": "_struct_spec",
+    "struct.test.zee": "_struct_test",
+    "class.zee": "_class",
+    "class.spec.zee": "_class_spec",
+    "class.test.zee": "_class_test",
+    "data.zee": "_data",
+    "data.spec.zee": "_data_spec",
+    "data.test.zee": "_data_test",
+    "enum.zee": "_enum",
+    "enum.spec.zee": "_enum_spec",
+    "enum.test.zee": "_enum_test",
+    "interface.zee": "_interface",
+    "interface.spec.zee": "_interface_spec",
+    "interface.test.zee": "_interface_test",
+    "newtype.zee": "_newtype",
+    "newtype.spec.zee": "_newtype_spec",
+    "newtype.test.zee": "_newtype_test",
+    "error.zee": "_error",
+    "error.spec.zee": "_error_spec",
+    "error.test.zee": "_error_test",
+    "toml": "_zee_toml",
+    "lock": "_lock",
+    "json": "_json",
+    "md": "_md"
+  },
+  "file": "_file",
+  "folder": "_zee_folder",
+  "folderExpanded": "_zee_folder_open",
+  "rootFolder": "_zee_folder",
+  "rootFolderExpanded": "_zee_folder_open"
+}

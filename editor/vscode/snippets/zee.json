@@ -1,0 +1,22 @@
+{
+  "function": {
+    "prefix": "fn",
+    "body": ["fn ${1:name}(${2}) -> ${3:Unit} {", "  $0", "}"],
+    "description": "Zee function"
+  },
+  "struct": {
+    "prefix": "struct",
+    "body": ["pub struct ${1:Name} {", "  pub const ${2:field}: ${3:i32}", "}"],
+    "description": "Zee struct"
+  },
+  "match": {
+    "prefix": "match",
+    "body": ["match ${1:value} {", "  ${2:pattern} => $0", "  _ => {}", "}"],
+    "description": "Zee match"
+  },
+  "option": {
+    "prefix": "Option",
+    "body": ["Option<${1:T}>"],
+    "description": "Option type"
+  }
+}
