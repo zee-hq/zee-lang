@@ -452,6 +452,19 @@ export function check(program: Program): CheckedProgram {
     }
   }
 
+  const deps = new Map<string, Set<string>>()
+  for (const module of moduleIds) deps.set(module, new Set())
+  for (const unit of units) {
+    const fileEnv = fileEnvs.get(unit.file)!
+    for (const stmt of unit.stmts) {
+      if (stmt.kind !== 'import') continue
+      const target = resolveImportTarget(stmt, moduleEnvs, stmt.loc)
+      if (target.module !== unit.module) deps.get(unit.module)!.add(target.module)
+      applyImport(stmt, fileEnv, moduleEnvs, { skipMissing: true })
+    }
+  }
+  detectImportCycle(deps, { file: program.file, line: 1, column: 1 })
+
   for (const unit of units) {
     const fileEnv = fileEnvs.get(unit.file)!
     for (const stmt of unit.stmts) {
@@ -526,7 +539,6 @@ export function check(program: Program): CheckedProgram {
     unitModule: string,
     unitFile: string,
   ): void => {
-    defineTopLevelName(stmt.name, stmt.visibility, fileEnv, stmt.loc)
     const seenParams = new Set<string>()
     const sigEnv = fileEnv.child()
     for (const typeParam of stmt.typeParams) {
@@ -542,14 +554,10 @@ export function check(program: Program): CheckedProgram {
       ret,
       typeParams: stmt.typeParams.length > 0 ? stmt.typeParams : undefined,
     }
-    fileEnv.define(stmt.name, fnType, false, stmt.visibility)
-    if (stmt.visibility !== 'private') {
-      fileEnv.moduleHome.define(stmt.name, fnType, false, stmt.visibility)
-    }
-    functions.set(stmt.name, fnType)
     const first = stmt.params[0]
     const selfType = params[0]
-    if (first?.name === 'self' && selfType && isReceiverType(selfType)) {
+    const asMethod = first?.name === 'self' && !!selfType && isReceiverType(selfType)
+    if (asMethod) {
       const typeKey = namedTypeKey(selfType)!
       if (fileEnv.ownMethod(typeKey, stmt.name) || fileEnv.moduleHome.ownMethod(typeKey, stmt.name)) {
         throw error(stmt.loc, `duplicate method \`${stmt.name}\` on ${typeName(selfType)}`)
@@ -570,7 +578,14 @@ export function check(program: Program): CheckedProgram {
         fileEnv.markMutatingFn(stmt.name)
         if (stmt.visibility !== 'private') fileEnv.moduleHome.markMutatingFn(stmt.name)
       }
+      return
     }
+    defineTopLevelName(stmt.name, stmt.visibility, fileEnv, stmt.loc)
+    fileEnv.define(stmt.name, fnType, false, stmt.visibility)
+    if (stmt.visibility !== 'private') {
+      fileEnv.moduleHome.define(stmt.name, fnType, false, stmt.visibility)
+    }
+    functions.set(stmt.name, fnType)
   }
   for (const unit of units) {
     const fileEnv = fileEnvs.get(unit.file)!
@@ -581,19 +596,6 @@ export function check(program: Program): CheckedProgram {
       }
     }
   }
-
-  const deps = new Map<string, Set<string>>()
-  for (const module of moduleIds) deps.set(module, new Set())
-  for (const unit of units) {
-    const fileEnv = fileEnvs.get(unit.file)!
-    for (const stmt of unit.stmts) {
-      if (stmt.kind !== 'import') continue
-      const target = resolveImportTarget(stmt, moduleEnvs, stmt.loc)
-      deps.get(unit.module)!.add(target.module)
-      applyImport(stmt, fileEnv, moduleEnvs)
-    }
-  }
-  detectImportCycle(deps, { file: program.file, line: 1, column: 1 })
 
   for (const unit of units) {
     const fileEnv = fileEnvs.get(unit.file)!
@@ -610,21 +612,27 @@ export function check(program: Program): CheckedProgram {
     }
   }
 
-  for (const unit of units) {
-    const fileEnv = fileEnvs.get(unit.file)!
-    for (const stmt of unit.stmts) {
-      if (
-        stmt.kind === 'fn' ||
-        stmt.kind === 'structDecl' ||
-        stmt.kind === 'enumDecl' ||
-        stmt.kind === 'typeAliasDecl' ||
-        stmt.kind === 'newtypeDecl' ||
-        stmt.kind === 'interfaceDecl' ||
-        stmt.kind === 'import'
-      ) {
-        continue
+  for (const module of topoModules(moduleIds, deps)) {
+    for (const unit of units) {
+      if (unit.module !== module) continue
+      const fileEnv = fileEnvs.get(unit.file)!
+      for (const stmt of unit.stmts) {
+        if (stmt.kind === 'import') applyImport(stmt, fileEnv, moduleEnvs)
       }
-      checkStmt(stmt, fileEnv, T_UNIT)
+      for (const stmt of unit.stmts) {
+        if (
+          stmt.kind === 'fn' ||
+          stmt.kind === 'structDecl' ||
+          stmt.kind === 'enumDecl' ||
+          stmt.kind === 'typeAliasDecl' ||
+          stmt.kind === 'newtypeDecl' ||
+          stmt.kind === 'interfaceDecl' ||
+          stmt.kind === 'import'
+        ) {
+          continue
+        }
+        checkStmt(stmt, fileEnv, T_UNIT)
+      }
     }
   }
 
@@ -652,13 +660,28 @@ export function check(program: Program): CheckedProgram {
   return { program, functions }
 }
 
+function fnTypeForCheck(
+  stmt: Extract<Stmt, { kind: 'fn' }>,
+  fileEnv: TypeEnv,
+  fnTypeHint?: ZeeType,
+): Extract<ZeeType, { kind: 'fn' }> | undefined {
+  if (fnTypeHint?.kind === 'fn') return fnTypeHint
+  const named = fileEnv.get(stmt.name)
+  if (named?.kind === 'fn') return named
+  const first = stmt.params[0]
+  if (first?.name !== 'self') return undefined
+  const selfType = resolveTypeAst(first.type, fileEnv)
+  if (!isReceiverType(selfType)) return undefined
+  return lookupMethod(selfType, stmt.name, fileEnv)?.type
+}
+
 function checkFnBody(
   stmt: Extract<Stmt, { kind: 'fn' }>,
   fileEnv: TypeEnv,
   fnTypeHint?: ZeeType,
 ): void {
-  const fnType = fnTypeHint ?? fileEnv.get(stmt.name)
-  if (!fnType || fnType.kind !== 'fn') return
+  const fnType = fnTypeForCheck(stmt, fileEnv, fnTypeHint)
+  if (!fnType) return
   const bodyEnv = fileEnv.child()
   bodyEnv.fnDepth += 1
   for (const typeParam of stmt.typeParams) {
@@ -1013,24 +1036,23 @@ function applyImport(
   stmt: Extract<Stmt, { kind: 'import' }>,
   fileEnv: TypeEnv,
   moduleEnvs: Map<string, TypeEnv>,
+  options: { skipMissing?: boolean } = {},
 ): void {
   const target = resolveImportTarget(stmt, moduleEnvs, stmt.loc)
   const moduleEnv = moduleEnvs.get(target.module)!
   if (stmt.names) {
     for (const item of stmt.names) {
-      bindImportedName(fileEnv, moduleEnv, item.name, item.alias ?? item.name, stmt.loc)
+      bindImportedName(fileEnv, moduleEnv, item.name, item.alias ?? item.name, stmt.loc, options)
     }
     return
   }
   if (!target.name) {
     const bindAs = stmt.alias ?? stmt.path[stmt.path.length - 1]!
-    if (fileEnv.hasOwn(bindAs) || fileEnv.hasOwnType(bindAs)) {
-      throw error(stmt.loc, `duplicate definition of \`${bindAs}\``)
-    }
+    if (fileEnv.hasOwn(bindAs) || fileEnv.hasOwnType(bindAs)) return
     fileEnv.define(bindAs, { kind: 'module', name: target.module })
     return
   }
-  bindImportedName(fileEnv, moduleEnv, target.name, stmt.alias ?? target.name, stmt.loc)
+  bindImportedName(fileEnv, moduleEnv, target.name, stmt.alias ?? target.name, stmt.loc, options)
 }
 
 function bindImportedName(
@@ -1039,10 +1061,9 @@ function bindImportedName(
   name: string,
   bindAs: string,
   loc: { file: string; line: number; column: number },
+  options: { skipMissing?: boolean } = {},
 ): void {
-  if (fileEnv.hasOwn(bindAs) || fileEnv.hasOwnType(bindAs)) {
-    throw error(loc, `duplicate definition of \`${bindAs}\``)
-  }
+  if (fileEnv.hasOwn(bindAs) && fileEnv.hasOwnType(bindAs)) return
   const binding = moduleEnv.own(name)
   const struct = moduleEnv.hasOwnStruct(name) ? moduleEnv.getStruct(name) : undefined
   const enumType = moduleEnv.hasOwnEnum(name) ? moduleEnv.getEnum(name) : undefined
@@ -1059,18 +1080,19 @@ function bindImportedName(
     (newtype ? moduleEnv.newtypeVisibility(name) : undefined) ??
     (iface ? moduleEnv.interfaceVisibility(name) : undefined)
   if (!binding && !struct && !enumType && !sealed && !alias && !newtype && !iface) {
+    if (options.skipMissing) return
     throw error(loc, `\`${name}\` is not exported from this module`)
   }
   if (vis !== 'pub') {
     throw error(loc, `\`${name}\` is internal and is not exported`)
   }
-  if (struct) fileEnv.defineStruct(bindAs, struct, 'pub')
-  if (enumType) fileEnv.defineEnum(bindAs, enumType, 'pub')
-  if (sealed) fileEnv.defineSealed(bindAs, sealed, 'pub')
-  if (alias) fileEnv.defineAlias({ ...alias, name: bindAs, visibility: 'pub' })
-  if (newtype) fileEnv.defineNewtype(bindAs, newtype, 'pub')
-  if (iface) fileEnv.defineInterface(bindAs, iface, 'pub')
-  if (binding) fileEnv.define(bindAs, binding.type, binding.mutable, 'pub')
+  if (struct && !fileEnv.hasOwnStruct(bindAs)) fileEnv.defineStruct(bindAs, struct, 'pub')
+  if (enumType && !fileEnv.hasOwnEnum(bindAs)) fileEnv.defineEnum(bindAs, enumType, 'pub')
+  if (sealed && !fileEnv.hasOwnSealed(bindAs)) fileEnv.defineSealed(bindAs, sealed, 'pub')
+  if (alias && !fileEnv.hasOwnAlias(bindAs)) fileEnv.defineAlias({ ...alias, name: bindAs, visibility: 'pub' })
+  if (newtype && !fileEnv.hasOwnNewtype(bindAs)) fileEnv.defineNewtype(bindAs, newtype, 'pub')
+  if (iface && !fileEnv.hasOwnInterface(bindAs)) fileEnv.defineInterface(bindAs, iface, 'pub')
+  if (binding && !fileEnv.hasOwn(bindAs)) fileEnv.define(bindAs, binding.type, binding.mutable, 'pub')
 }
 
 function detectImportCycle(
@@ -1090,6 +1112,34 @@ function detectImportCycle(
     seen.add(module)
   }
   for (const module of deps.keys()) visit(module)
+}
+
+function topoModules(moduleIds: string[], deps: Map<string, Set<string>>): string[] {
+  const indegree = new Map<string, number>()
+  const importers = new Map<string, string[]>()
+  for (const id of moduleIds) {
+    indegree.set(id, 0)
+    importers.set(id, [])
+  }
+  for (const [importer, targets] of deps) {
+    for (const target of targets) {
+      if (target === importer) continue
+      importers.get(target)?.push(importer)
+      indegree.set(importer, (indegree.get(importer) ?? 0) + 1)
+    }
+  }
+  const ready = moduleIds.filter((id) => (indegree.get(id) ?? 0) === 0)
+  const ordered: string[] = []
+  while (ready.length > 0) {
+    const current = ready.shift()!
+    ordered.push(current)
+    for (const next of importers.get(current) ?? []) {
+      const nextDegree = (indegree.get(next) ?? 0) - 1
+      indegree.set(next, nextDegree)
+      if (nextDegree === 0) ready.push(next)
+    }
+  }
+  return ordered.length === moduleIds.length ? ordered : moduleIds
 }
 
 function defineBuiltins(env: TypeEnv): void {

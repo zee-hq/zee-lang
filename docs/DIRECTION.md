@@ -1495,13 +1495,13 @@ Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id
 9. `slice` vs `take`/`drop` — one window API, not both styles.
 10. `find` / `any` / `all` / `fold` extras (`count`, `zip`, `groupBy`, `flatMap`, `min`/`max`) wait until this table is in the interpreter.
 
-### 9d. Checker holes the demo hit (implementation, not syntax)
+### 9d. Checker holes the demo hit — **in the interpreter** (ZEE-7)
 
-Not new grammar. Fix in the interpreter when touching constructors/DI:
+Not new grammar. Was a check-order bug:
 
-- Imported types in **signatures and fields** are resolved before imports apply — a controller cannot declare `const service: UserService` if `UserService` is imported. Same-module types work.
-- `pub var` is published in `checkStmt`, **after** import resolution — `import users.usersService` fails; `import users` then `users.usersService` in a **body** works.
-- Method names are **module-level**. `UserService.create` and `UsersController.create` collide. Services should keep distinct names (`add` / `save`) until methods are namespaced under the type.
+- Imported types work in signatures and fields (`import users.UserService` + `const service: UserService`).
+- `import users.usersService` resolves a `pub var` (module graph: exporter binds, then importer).
+- Methods are names **on the type**, not the module: `UserService.create` and `UsersController.create` coexist. Call is `svc.create()`, not a free `create`.
 
 ### 9e. Emptiness, blank, none (Kotlin predicates)
 

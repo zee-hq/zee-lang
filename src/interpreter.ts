@@ -304,15 +304,16 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
           env: fileEnv,
           mutatingReceiver,
         }
-        fileEnv.define(stmt.name, fn, false, stmt.visibility)
-        if (stmt.visibility !== 'private') {
-          fileEnv.moduleHome.define(stmt.name, fn, false, stmt.visibility)
-        }
         const selfAst = stmt.params[0]?.type
         if (stmt.params[0]?.name === 'self' && selfAst?.kind === 'named') {
           fileEnv.defineMethod(selfAst.name, stmt.name, fn)
           if (stmt.visibility !== 'private') {
             fileEnv.moduleHome.defineMethod(selfAst.name, stmt.name, fn)
+          }
+        } else {
+          fileEnv.define(stmt.name, fn, false, stmt.visibility)
+          if (stmt.visibility !== 'private') {
+            fileEnv.moduleHome.define(stmt.name, fn, false, stmt.visibility)
           }
         }
       } else if (stmt.kind === 'structDecl') {
@@ -366,23 +367,47 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
     }
   }
 
+  const runtimeDeps = new Map<string, Set<string>>()
+  for (const module of moduleIds) runtimeDeps.set(module, new Set())
+  for (const unit of units) {
+    for (const stmt of unit.stmts) {
+      if (stmt.kind !== 'import') continue
+      const joined = stmt.path.join('.')
+      if (stmt.names || moduleEnvs.has(joined)) {
+        if (joined !== unit.module) runtimeDeps.get(unit.module)!.add(joined)
+        continue
+      }
+      if (stmt.path.length >= 2) {
+        const parent = stmt.path.slice(0, -1).join('.')
+        if (parent !== unit.module) runtimeDeps.get(unit.module)!.add(parent)
+      }
+    }
+  }
+
   let last: ZeeValue = UNIT
   try {
-    for (const unit of units) {
-      const fileEnv = fileEnvs.get(unit.file)!
-      for (const stmt of unit.stmts) {
-        if (
-          stmt.kind === 'fn' ||
-          stmt.kind === 'structDecl' ||
-          stmt.kind === 'enumDecl' ||
-          stmt.kind === 'typeAliasDecl' ||
-          stmt.kind === 'newtypeDecl' ||
-          stmt.kind === 'interfaceDecl' ||
-          stmt.kind === 'import'
-        ) {
-          continue
+    const bindOrder = runtimeTopoModules(moduleIds, runtimeDeps)
+    for (const module of bindOrder) {
+      for (const unit of units) {
+        if (unit.module !== module) continue
+        const fileEnv = fileEnvs.get(unit.file)!
+        for (const stmt of unit.stmts) {
+          if (stmt.kind === 'import') applyRuntimeImport(stmt, fileEnv, moduleEnvs)
         }
-        last = execStmt(stmt, fileEnv, io)
+        for (const stmt of unit.stmts) {
+          if (
+            stmt.kind === 'fn' ||
+            stmt.kind === 'structDecl' ||
+            stmt.kind === 'enumDecl' ||
+            stmt.kind === 'typeAliasDecl' ||
+            stmt.kind === 'newtypeDecl' ||
+            stmt.kind === 'interfaceDecl' ||
+            stmt.kind === 'import'
+          ) {
+            continue
+          }
+          last = execStmt(stmt, fileEnv, io)
+        }
       }
     }
   } catch (signal) {
@@ -442,6 +467,34 @@ function bindRuntimeName(fileEnv: Env, moduleEnv: Env, name: string, bindAs: str
   if (slot) fileEnv.define(bindAs, slot.value, slot.mutable, 'pub')
   const info = moduleEnv.getStruct(name)
   if (info) fileEnv.defineStruct(bindAs, info)
+}
+
+function runtimeTopoModules(moduleIds: string[], deps: Map<string, Set<string>>): string[] {
+  const indegree = new Map<string, number>()
+  const importers = new Map<string, string[]>()
+  for (const id of moduleIds) {
+    indegree.set(id, 0)
+    importers.set(id, [])
+  }
+  for (const [importer, targets] of deps) {
+    for (const target of targets) {
+      if (target === importer || !indegree.has(target)) continue
+      importers.get(target)?.push(importer)
+      indegree.set(importer, (indegree.get(importer) ?? 0) + 1)
+    }
+  }
+  const ready = moduleIds.filter((id) => (indegree.get(id) ?? 0) === 0)
+  const ordered: string[] = []
+  while (ready.length > 0) {
+    const current = ready.shift()!
+    ordered.push(current)
+    for (const next of importers.get(current) ?? []) {
+      const nextDegree = (indegree.get(next) ?? 0) - 1
+      indegree.set(next, nextDegree)
+      if (nextDegree === 0) ready.push(next)
+    }
+  }
+  return ordered.length === moduleIds.length ? ordered : moduleIds
 }
 
 function registerRuntimeStruct(
@@ -505,10 +558,6 @@ function registerRuntimeStruct(
       mutatingReceiver,
     }
     if (method.params[0]?.name === 'self') {
-      fileEnv.define(method.name, fn, false, method.visibility)
-      if (method.visibility !== 'private') {
-        fileEnv.moduleHome.define(method.name, fn, false, method.visibility)
-      }
       fileEnv.defineMethod(name, method.name, fn)
       if (method.visibility !== 'private') {
         fileEnv.moduleHome.defineMethod(name, method.name, fn)
