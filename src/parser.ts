@@ -5,6 +5,7 @@ import type {
   Block,
   Expr,
   ImportName,
+  InterpPart,
   InterfaceMethod,
   LoopMode,
   MatchArm,
@@ -1056,6 +1057,11 @@ class Parser {
       const tok = this.previous()
       return { kind: 'string', value: tok.lexeme, loc: tok.loc }
     }
+    if (this.match('char')) {
+      const tok = this.previous()
+      return { kind: 'char', value: tok.lexeme, loc: tok.loc }
+    }
+    if (this.match('interpStart')) return this.parseInterp(this.previous().loc)
     if (this.match('ident')) {
       const tok = this.previous()
       return { kind: 'ident', name: tok.lexeme, loc: tok.loc }
@@ -1083,6 +1089,31 @@ class Parser {
     }
     const tok = this.peek()
     throw new ZeeError(`expected expression, found \`${tok.lexeme || tok.kind}\``, tok.loc.line, tok.loc.column, this.file)
+  }
+
+  private parseInterp(loc: Loc): Expr {
+    const parts: InterpPart[] = []
+    while (!this.check('interpEnd') && !this.isAtEnd()) {
+      if (this.match('string')) {
+        parts.push({ kind: 'text', value: this.previous().lexeme })
+        continue
+      }
+      if (this.match('{')) {
+        const expr = this.parseExpression()
+        this.consume('}', 'expected `}` after interpolation')
+        parts.push({ kind: 'expr', expr })
+        continue
+      }
+      const tok = this.peek()
+      throw new ZeeError(
+        `expected interpolating text or \`{\`, found \`${tok.lexeme || tok.kind}\``,
+        tok.loc.line,
+        tok.loc.column,
+        this.file,
+      )
+    }
+    this.consume('interpEnd', 'unterminated interpolating string')
+    return { kind: 'interp', parts, loc }
   }
 
   private parseIf(loc: Loc): Expr {
@@ -1207,7 +1238,8 @@ class Parser {
 
   private looksLikeMapLit(): boolean {
     if (!this.check('{')) return false
-    return this.peekAt(1).kind === 'string' && this.peekAt(2).kind === ':'
+    const key = this.peekAt(1).kind
+    return (key === 'string' || key === 'char') && this.peekAt(2).kind === ':'
   }
 
   private parseMapLit(): Expr {

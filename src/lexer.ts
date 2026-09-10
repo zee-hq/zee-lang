@@ -5,6 +5,9 @@ export type TokenKind =
   | 'eof'
   | 'number'
   | 'string'
+  | 'char'
+  | 'interpStart'
+  | 'interpEnd'
   | 'ident'
   | 'fn'
   | 'const'
@@ -250,6 +253,13 @@ class Lexer {
       case '"':
         this.string()
         break
+      case '`':
+        if (this.peek() === '`' && this.peekNext() === '`') this.rawString()
+        else this.interpolating()
+        break
+      case "'":
+        this.charLiteral()
+        break
       case ' ':
       case '\r':
       case '\t':
@@ -304,6 +314,208 @@ class Lexer {
       lexeme: value,
       loc: locOf(this.file, this.line, this.tokenColumn),
     })
+  }
+
+  private interpolating(): void {
+    this.add('interpStart')
+    let text = ''
+    let textLine = this.line
+    let textColumn = this.column
+    const flush = (): void => {
+      if (text.length === 0) return
+      this.tokens.push({
+        kind: 'string',
+        lexeme: text,
+        loc: locOf(this.file, textLine, textColumn),
+      })
+      text = ''
+    }
+    while (!this.isAtEnd()) {
+      if (this.peek() === '`') {
+        flush()
+        this.start = this.current
+        this.tokenColumn = this.column
+        this.advance()
+        this.add('interpEnd')
+        return
+      }
+      if (this.peek() === '\\') {
+        const escLine = this.line
+        const escColumn = this.column
+        this.advance()
+        if (this.isAtEnd()) this.error('unterminated interpolating string')
+        const escaped = this.advance()
+        if (escaped === '\n') {
+          this.line += 1
+          this.column = 1
+        }
+        const mapped = unescapeInterp(escaped)
+        if (mapped === undefined) this.error(`unknown escape \\${escaped}`)
+        if (text.length === 0) {
+          textLine = escLine
+          textColumn = escColumn
+        }
+        text += mapped
+        continue
+      }
+      if (this.peek() === '{') {
+        flush()
+        this.start = this.current
+        this.tokenColumn = this.column
+        this.scanToken()
+        this.scanInterpExpr()
+        textLine = this.line
+        textColumn = this.column
+        continue
+      }
+      const line = this.line
+      const column = this.column
+      const char = this.advance()
+      if (char === '\n') {
+        this.line += 1
+        this.column = 1
+      }
+      if (text.length === 0) {
+        textLine = line
+        textColumn = column
+      }
+      text += char
+    }
+    this.error('unterminated interpolating string')
+  }
+
+  private scanInterpExpr(): void {
+    let depth = 1
+    while (depth > 0 && !this.isAtEnd()) {
+      this.start = this.current
+      this.tokenColumn = this.column
+      const before = this.tokens.length
+      this.scanToken()
+      if (this.tokens.length === before) continue
+      const last = this.tokens[this.tokens.length - 1]!
+      if (last.kind === 'interpEnd' || last.kind === 'interpStart') continue
+      if (last.kind === '{') depth += 1
+      if (last.kind === '}') depth -= 1
+    }
+    if (depth !== 0) this.error('unterminated interpolation')
+  }
+
+  private charLiteral(): void {
+    if (this.isAtEnd() || this.peek() === "'") this.error('empty character literal')
+    let value: string
+    if (this.peek() === '\\') {
+      this.advance()
+      if (this.isAtEnd()) this.error('unterminated character literal')
+      const escaped = this.advance()
+      const mapped = unescapeChar(escaped)
+      if (mapped === undefined) this.error(`unknown escape \\${escaped}`)
+      value = mapped
+    } else {
+      value = this.readCodePoint()
+    }
+    if (this.peek() !== "'") {
+      if (this.isAtEnd()) this.error('unterminated character literal')
+      this.error('character literal must be one Unicode scalar')
+    }
+    this.advance()
+    this.tokens.push({
+      kind: 'char',
+      lexeme: value,
+      loc: locOf(this.file, this.line, this.tokenColumn),
+    })
+  }
+
+  private readCodePoint(): string {
+    const first = this.advance()
+    const code = first.charCodeAt(0)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = this.peek().charCodeAt(0)
+      if (next >= 0xdc00 && next <= 0xdfff) return first + this.advance()
+    }
+    return first
+  }
+
+  private rawString(): void {
+    let n = 1
+    while (this.peek() === '`') {
+      this.advance()
+      n += 1
+    }
+    while (isIdentPart(this.peek())) this.advance()
+    if (this.peek() === '\r' && this.peekNext() === '\n') this.advance()
+    if (this.peek() === '\n') {
+      this.advance()
+      this.line += 1
+      this.column = 1
+    }
+    const lines: string[] = []
+    let line = ''
+    while (!this.isAtEnd()) {
+      if (line.length === 0) {
+        const close = this.matchClosingFence(n)
+        if (close) {
+          this.consumeRawFence(close.indent + n)
+          const value = lines.map((item) => stripRawIndent(item, close.indent)).join('\n')
+          this.tokens.push({
+            kind: 'string',
+            lexeme: value,
+            loc: locOf(this.file, this.line, this.tokenColumn),
+          })
+          return
+        }
+      } else if (this.matchFenceOnly(n)) {
+        this.consumeRawFence(n)
+        this.tokens.push({
+          kind: 'string',
+          lexeme: line,
+          loc: locOf(this.file, this.line, this.tokenColumn),
+        })
+        return
+      }
+      if (this.peek() === '\n') {
+        this.advance()
+        this.line += 1
+        this.column = 1
+        lines.push(line)
+        line = ''
+        continue
+      }
+      const char = this.advance()
+      if (char === '\r' && this.peek() === '\n') continue
+      line += char
+    }
+    this.error('unterminated raw string')
+  }
+
+  private matchClosingFence(n: number): { indent: number } | undefined {
+    let i = 0
+    let indent = 0
+    while (this.charAt(i) === ' ' || this.charAt(i) === '\t') {
+      indent += 1
+      i += 1
+    }
+    let ticks = 0
+    while (this.charAt(i) === '`') {
+      ticks += 1
+      i += 1
+    }
+    if (ticks !== n) return undefined
+    const next = this.charAt(i)
+    if (next !== '\0' && next !== '\n' && next !== '\r' && next !== ' ' && next !== '\t') return undefined
+    return { indent }
+  }
+
+  private matchFenceOnly(n: number): boolean {
+    let ticks = 0
+    while (this.charAt(ticks) === '`') ticks += 1
+    if (ticks !== n) return false
+    const next = this.charAt(n)
+    return next === '\0' || next === '\n' || next === '\r' || next === ' ' || next === '\t'
+  }
+
+  private consumeRawFence(count: number): void {
+    for (let i = 0; i < count; i += 1) this.advance()
+    while (this.peek() === ' ' || this.peek() === '\t') this.advance()
   }
 
   private number(): void {
@@ -435,4 +647,42 @@ function unescape(char: string): string | undefined {
     default:
       return undefined
   }
+}
+
+function unescapeInterp(char: string): string | undefined {
+  switch (char) {
+    case 'n':
+      return '\n'
+    case 't':
+      return '\t'
+    case '\\':
+      return '\\'
+    case '`':
+      return '`'
+    case '{':
+      return '{'
+    default:
+      return undefined
+  }
+}
+
+function unescapeChar(char: string): string | undefined {
+  switch (char) {
+    case 'n':
+      return '\n'
+    case 't':
+      return '\t'
+    case '\\':
+      return '\\'
+    case "'":
+      return "'"
+    default:
+      return undefined
+  }
+}
+
+function stripRawIndent(line: string, indent: number): string {
+  let i = 0
+  while (i < indent && i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1
+  return line.slice(i)
 }

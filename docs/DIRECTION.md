@@ -770,7 +770,7 @@ const z = "a" <===> "a"      // 0
 const p = 3 <===> 1          // 1
 ```
 
-- Same type both sides. `Ord` only: integers and `String` (`Char` / `enum` later). Not `bool`, not float, not `Option`.
+- Same type both sides. `Ord` only: integers, `String`, `Char`, and `enum` (declaration order). Not `bool`, not float, not `Option`.
 - Result is **`i32`**: `-1` if left `<` right, `0` if equal, `1` if left `>` right.
 - String order is UTF-8 bytes, same as `<` / `<=` / `>` / `>=`.
 
@@ -1015,7 +1015,7 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 14. `class` (reference) + `===` / `!==` + `copy()` on `data`  *(in the interpreter; closed — no `open` / `abstract`)*  
 15. `type` / `newtype`  *(in the interpreter; generic aliases `type Table<K, V> = …` included)*  
 16. `interface` / `sealed interface` / `implements` + stdlib `Error`  *(in the interpreter; existential + `is` smart-cast; no `open` / `abstract`, no `fn f<T: Closeable>`)*
-17. `panic` / `Never` + `defer`  *(in the interpreter; hosted abort is `PanicError`; interpolation in `panic(\`…{x}…\`)` waits)*
+17. `panic` / `Never` + `defer`  *(in the interpreter; hosted abort is `PanicError`; `panic(\`…{x}…\`)` interpolates)*
 18. associated names + nested types  *(in the interpreter; `Type.origin()` / `Type.CONST` / `Outer.Inner`; no Java inner; associated names are not constructor fields)*
 19. user generics `fn f<T>`  *(in the interpreter; infer from args or `f<i32>(…)`; invariant; unconstrained `T` only — bounds `T: Closeable` / `T: Eq` and `struct Box<T>` wait)*
 20. constructors beyond `Name { fields }`  *(radar §9a — not in the interpreter; associated factories are the v0 stand-in)*

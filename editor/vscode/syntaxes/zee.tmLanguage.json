@@ -3,6 +3,7 @@
   "name": "Zee",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#rawStrings" },
     { "include": "#strings" },
     { "include": "#typeNames" },
     { "include": "#functions" },
@@ -36,8 +37,21 @@
         }
       ]
     },
+    "rawStrings": {
+      "patterns": [
+        {
+          "name": "string.quoted.other.raw.zee",
+          "begin": "(`{3,})[A-Za-z_]*",
+          "end": "\\1"
+        }
+      ]
+    },
     "strings": {
       "patterns": [
+        {
+          "name": "string.quoted.single.zee",
+          "match": "'(?:\\\\[nt\\\\']|[^'\\\\])'"
+        },
         {
           "name": "string.quoted.interpolated.zee",
           "begin": "`",

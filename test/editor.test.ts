@@ -111,7 +111,7 @@ describe('editor grammar', () => {
 
   it('closes brackets, quotes, and backticks', () => {
     const pairs = languageConfig.autoClosingPairs.map((pair: { open: string }) => pair.open)
-    expect(pairs).toEqual(expect.arrayContaining(['{', '(', '[', '"', '`']))
+    expect(pairs).toEqual(expect.arrayContaining(['{', '(', '[', '"', "'", '`']))
   })
 
   it('registers go-to-definition and a word pattern (AC-editor-navigate)', () => {

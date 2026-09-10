@@ -248,4 +248,20 @@ describe('lexer', () => {
       'eof',
     ])
   })
+
+  it('tokenizes interpolating strings, Char literals, and raw blocks', () => {
+    expect(tokenize('`hello, {name}`').map((token) => token.kind)).toEqual([
+      'interpStart',
+      'string',
+      '{',
+      'ident',
+      '}',
+      'interpEnd',
+      'eof',
+    ])
+    expect(tokenize("'a'")[0]).toMatchObject({ kind: 'char', lexeme: 'a' })
+    const raw = tokenize('```\nline one\nline two\n```')
+    expect(raw[0]?.kind).toBe('string')
+    expect(raw[0]?.lexeme).toBe('line one\nline two')
+  })
 })

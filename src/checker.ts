@@ -9,12 +9,14 @@ import {
   isIdentityType,
   isIntKind,
   isIntType,
+  isInterpolable,
   isNeverType,
   isOrdType,
   isReceiverType,
   isAssignable,
   namedTypeKey,
   T_BOOL,
+  T_CHAR,
   T_ERROR,
   T_FAIL,
   T_I32,
@@ -1559,8 +1561,19 @@ function checkStmt(stmt: Stmt, env: TypeEnv, returnType: ZeeType, expected?: Zee
         checkBlock(stmt.body, loopEnv.withLoop(), returnType)
         return T_UNIT
       }
+      if (seqType.kind === 'string') {
+        if (stmt.indexName) {
+          if (stmt.indexName === stmt.name) {
+            throw error(stmt.loc, `duplicate binding \`${stmt.name}\``)
+          }
+          loopEnv.define(stmt.indexName, T_USIZE, false)
+        }
+        loopEnv.define(stmt.name, T_CHAR, false)
+        checkBlock(stmt.body, loopEnv.withLoop(), returnType)
+        return T_UNIT
+      }
       if (seqType.kind !== 'array' && seqType.kind !== 'list') {
-        throw error(stmt.seq.loc, `for-in expects an array or List, got ${typeName(seqType)}`)
+        throw error(stmt.seq.loc, `for-in expects an array, List, or String, got ${typeName(seqType)}`)
       }
       if (stmt.indexName) {
         if (stmt.indexName === stmt.name) {
@@ -1690,6 +1703,18 @@ function inferExpr(expr: Expr, env: TypeEnv, returnType: ZeeType, expected?: Zee
       return T_BOOL
     case 'string':
       return T_STRING
+    case 'char':
+      return T_CHAR
+    case 'interp': {
+      for (const part of expr.parts) {
+        if (part.kind !== 'expr') continue
+        const partType = checkExpr(part.expr, env, returnType)
+        if (!isInterpolable(partType)) {
+          throw error(part.expr.loc, `cannot interpolate ${typeName(partType)}`)
+        }
+      }
+      return T_STRING
+    }
     case 'unit':
       return T_UNIT
     case 'ident': {
@@ -2484,6 +2509,18 @@ function checkCall(
     }
   }
   if (expr.callee.kind === 'member') {
+    if (
+      expr.callee.target.kind === 'ident' &&
+      expr.callee.target.name === 'String' &&
+      expr.callee.field === 'fromBytes'
+    ) {
+      if (expr.args.length !== 1) throw error(expr.loc, '`String.fromBytes` takes one argument')
+      const from = checkExpr(expr.args[0]!, env, returnType)
+      if (from.kind !== 'array' || from.elem.kind !== 'u8') {
+        throw error(expr.args[0]!.loc, '`String.fromBytes` expects `u8[]`')
+      }
+      return { kind: 'tuple', parts: [T_STRING, { kind: 'option', inner: T_ERROR }] }
+    }
     const targetType = checkExpr(expr.callee.target, env, returnType)
     const builtin = checkBuiltinMethod(targetType, expr.callee.field, expr, env, returnType)
     if (builtin) return builtin
@@ -3022,6 +3059,8 @@ function exprHasReturn(expr: Expr): boolean {
       return expr.fields.some((field) => exprHasReturn(field.value))
     case 'copy':
       return exprHasReturn(expr.target) || expr.fields.some((field) => exprHasReturn(field.value))
+    case 'interp':
+      return expr.parts.some((part) => part.kind === 'expr' && exprHasReturn(part.expr))
     default:
       return false
   }

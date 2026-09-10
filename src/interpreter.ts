@@ -16,6 +16,7 @@ export type ZeeValue =
   | { type: 'i64' | 'u64' | 'isize' | 'usize'; value: bigint }
   | { type: 'bool'; value: boolean }
   | { type: 'string'; value: string }
+  | { type: 'char'; value: string }
   | { type: 'unit' }
   | { type: 'error'; message: string }
   | {
@@ -780,8 +781,21 @@ function execForIn(stmt: Extract<Stmt, { kind: 'forIn' }>, env: Env, io: Runtime
     }
     return UNIT
   }
+  if (seq.type === 'string') {
+    let i = 0
+    for (const scalar of seq.value) {
+      const local = env.child()
+      if (stmt.indexName) {
+        local.define(stmt.indexName, intValue('usize', BigInt(i)), false)
+      }
+      local.define(stmt.name, { type: 'char', value: scalar }, false)
+      if (runLoopBody(stmt.body, local, io) === 'break') break
+      i += 1
+    }
+    return UNIT
+  }
   if (seq.type !== 'array' && seq.type !== 'list') {
-    throw new ZeeError('for-in expects an array or List', stmt.seq.loc.line, stmt.seq.loc.column, stmt.seq.loc.file)
+    throw new ZeeError('for-in expects an array, List, or String', stmt.seq.loc.line, stmt.seq.loc.column, stmt.seq.loc.file)
   }
   for (let i = 0; i < seq.items.length; i += 1) {
     const local = env.child()
@@ -802,6 +816,19 @@ function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
       return { type: 'bool', value: expr.value }
     case 'string':
       return { type: 'string', value: expr.value }
+    case 'char':
+      return { type: 'char', value: expr.value }
+    case 'interp': {
+      let text = ''
+      for (const part of expr.parts) {
+        if (part.kind === 'text') {
+          text += part.value
+          continue
+        }
+        text += interpolateValue(evalExpr(part.expr, env, io), part.expr.loc)
+      }
+      return { type: 'string', value: text }
+    }
     case 'unit':
       return UNIT
     case 'ident':
@@ -1165,6 +1192,7 @@ function mapHashKey(
   if (isIntValue(value)) return `int:${value.type}:${intBigInt(value)}`
   if (value.type === 'bool') return `bool:${value.value}`
   if (value.type === 'string') return `str:${JSON.stringify(value.value)}`
+  if (value.type === 'char') return `char:${JSON.stringify(value.value)}`
   if (value.type === 'enum') return `enum:${value.module}:${value.name}:${value.variant}`
   throw new ZeeError('Map key type is not Hash', loc.line, loc.column, loc.file)
 }
@@ -1526,8 +1554,11 @@ function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: Runti
   if (expr.op === '+' && leftVal.type === 'string' && right.type === 'string') {
     return { type: 'string', value: leftVal.value + right.value }
   }
-  if (leftVal.type === 'string' && right.type === 'string') {
-    const cmp = leftVal.value < right.value ? -1 : leftVal.value > right.value ? 1 : 0
+  if (
+    (leftVal.type === 'string' && right.type === 'string') ||
+    (leftVal.type === 'char' && right.type === 'char')
+  ) {
+    const cmp = utf8Compare(leftVal.value, right.value)
     switch (expr.op) {
       case '<===>':
         return { type: 'i32', value: cmp }
@@ -1654,6 +1685,17 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
     }
   }
   if (expr.callee.kind === 'member') {
+    if (
+      expr.callee.target.kind === 'ident' &&
+      expr.callee.target.name === 'String' &&
+      expr.callee.field === 'fromBytes'
+    ) {
+      if (expr.args.length !== 1) {
+        throw new ZeeError('`String.fromBytes` takes one argument', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const buf = evalExpr(expr.args[0]!, env, io)
+      return () => stringFromBytes(buf, expr.loc)
+    }
     const target = evalExpr(expr.callee.target, env, io)
     const args = expr.args.map((arg) => evalExpr(arg, env, io))
     return () => invokeMemberCall(expr, target, args, env, io)
@@ -1893,12 +1935,80 @@ function callBuiltin(
   throw new ZeeError(`unknown builtin \`${name}\``, loc.line, loc.column, loc.file)
 }
 
+function interpolateValue(
+  value: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): string {
+  if (value.type === 'string' || value.type === 'char') return value.value
+  if (value.type === 'bool' || isIntValue(value)) return display(value)
+  throw new ZeeError(`cannot interpolate ${value.type}`, loc.line, loc.column, loc.file)
+}
+
+function utf8Compare(left: string, right: string): number {
+  const a = new TextEncoder().encode(left)
+  const b = new TextEncoder().encode(right)
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i += 1) {
+    if (a[i] !== b[i]) return a[i]! < b[i]! ? -1 : 1
+  }
+  return a.length < b.length ? -1 : a.length > b.length ? 1 : 0
+}
+
+function failError(message: string): ZeeValue {
+  return {
+    type: 'struct',
+    name: 'Fail',
+    module: '',
+    data: true,
+    readonly: false,
+    identity: false,
+    fields: { text: { type: 'string', value: message } },
+    fieldMut: { text: false },
+  }
+}
+
+function stringFromBytes(
+  buf: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (buf.type !== 'array' || buf.elem.kind !== 'u8') {
+    throw new ZeeError('`String.fromBytes` expects `u8[]`', loc.line, loc.column, loc.file)
+  }
+  const bytes = new Uint8Array(buf.items.length)
+  for (let i = 0; i < buf.items.length; i += 1) {
+    const item = buf.items[i]!
+    if (item.type !== 'u8') {
+      throw new ZeeError('`String.fromBytes` expects `u8[]`', loc.line, loc.column, loc.file)
+    }
+    bytes[i] = item.value
+  }
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return {
+      type: 'tuple',
+      items: [
+        { type: 'string', value: text },
+        { type: 'option', tag: 'none' },
+      ],
+    }
+  } catch {
+    return {
+      type: 'tuple',
+      items: [
+        { type: 'string', value: '' },
+        { type: 'option', tag: 'some', value: failError('invalid UTF-8') },
+      ],
+    }
+  }
+}
+
 export function display(value: ZeeValue): string {
   if (isIntValue(value)) return String(value.value)
   switch (value.type) {
     case 'bool':
       return value.value ? 'true' : 'false'
     case 'string':
+    case 'char':
       return value.value
     case 'unit':
       return '()'
@@ -1956,6 +2066,7 @@ function valuesEqual(left: ZeeValue, right: ZeeValue): boolean {
   switch (left.type) {
     case 'bool':
     case 'string':
+    case 'char':
       return right.type === left.type && left.value === right.value
     case 'unit':
       return true
@@ -2081,6 +2192,8 @@ function typeOfValue(value: ZeeValue): ZeeType {
       return { kind: 'bool' }
     case 'string':
       return { kind: 'string' }
+    case 'char':
+      return { kind: 'char' }
     case 'unit':
       return { kind: 'unit' }
     case 'error':
@@ -2187,6 +2300,8 @@ function zeroValue(type: ZeeType, loc: { file: string; line: number; column: num
       return { type: 'bool', value: false }
     case 'string':
       return { type: 'string', value: '' }
+    case 'char':
+      return { type: 'char', value: '\0' }
     case 'option':
       return { type: 'option', tag: 'none' }
     case 'unit':

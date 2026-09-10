@@ -94,6 +94,10 @@ export interface InterfaceMethod {
   loc: Loc
 }
 
+export type InterpPart =
+  | { kind: 'text'; value: string }
+  | { kind: 'expr'; expr: Expr }
+
 export type MatchPattern =
   | { kind: 'wildcard'; loc: Loc }
   | { kind: 'value'; expr: Expr; loc: Loc }
@@ -109,6 +113,8 @@ export type Expr =
   | { kind: 'int'; value: bigint; suffix?: IntKind; loc: Loc }
   | { kind: 'bool'; value: boolean; loc: Loc }
   | { kind: 'string'; value: string; loc: Loc }
+  | { kind: 'char'; value: string; loc: Loc }
+  | { kind: 'interp'; parts: InterpPart[]; loc: Loc }
   | { kind: 'unit'; loc: Loc }
   | { kind: 'ident'; name: string; loc: Loc }
   | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr; loc: Loc }

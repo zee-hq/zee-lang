@@ -75,6 +75,7 @@ export type ZeeType =
   | { kind: IntKind }
   | { kind: 'bool' }
   | { kind: 'string' }
+  | { kind: 'char' }
   | { kind: 'unit' }
   | { kind: 'option'; inner: ZeeType }
   | { kind: 'tuple'; parts: ZeeType[] }
@@ -106,6 +107,7 @@ export const T_U8: ZeeType = { kind: 'u8' }
 export const T_USIZE: ZeeType = { kind: 'usize' }
 export const T_BOOL: ZeeType = { kind: 'bool' }
 export const T_STRING: ZeeType = { kind: 'string' }
+export const T_CHAR: ZeeType = { kind: 'char' }
 export const T_UNIT: ZeeType = { kind: 'unit' }
 export const T_ERROR: InterfaceType = {
   kind: 'interface',
@@ -139,7 +141,7 @@ export function isIntType(type: ZeeType): type is { kind: IntKind } {
 
 export function isOrdType(type: ZeeType): boolean {
   if (type.kind === 'newtype') return isOrdType(type.inner)
-  return isIntType(type) || type.kind === 'string' || type.kind === 'enum'
+  return isIntType(type) || type.kind === 'string' || type.kind === 'char' || type.kind === 'enum'
 }
 
 export function isNeverType(type: ZeeType): boolean {
@@ -315,6 +317,7 @@ export function isEquatable(type: ZeeType): boolean {
   switch (type.kind) {
     case 'bool':
     case 'string':
+    case 'char':
     case 'unit':
       return true
     case 'option':
@@ -352,7 +355,11 @@ export function isEquatable(type: ZeeType): boolean {
 export function isHashable(type: ZeeType): boolean {
   if (type.kind === 'newtype') return isHashable(type.inner)
   if (isIntType(type)) return true
-  return type.kind === 'bool' || type.kind === 'string' || type.kind === 'enum'
+  return type.kind === 'bool' || type.kind === 'string' || type.kind === 'char' || type.kind === 'enum'
+}
+
+export function isInterpolable(type: ZeeType): boolean {
+  return type.kind === 'string' || type.kind === 'char' || type.kind === 'bool' || isIntType(type)
 }
 
 export function typeName(type: ZeeType): string {
@@ -362,6 +369,8 @@ export function typeName(type: ZeeType): string {
       return 'bool'
     case 'string':
       return 'String'
+    case 'char':
+      return 'Char'
     case 'unit':
       return 'Unit'
     case 'option':
@@ -402,6 +411,8 @@ export function typeFromName(name: string): ZeeType | undefined {
       return T_BOOL
     case 'String':
       return T_STRING
+    case 'Char':
+      return T_CHAR
     case 'Unit':
       return T_UNIT
     case 'Error':

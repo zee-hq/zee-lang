@@ -1,0 +1,4 @@
+fn main() {
+  const name = "zee"
+  println(`hello, {name}`)
+}
