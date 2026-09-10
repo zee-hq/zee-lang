@@ -2,7 +2,19 @@
 import { cwd, stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { ZeeError, PanicError, VERSION } from './error.ts'
-import { generateController, generateModule, generateResource, generateService, controllerKindFromFlags } from './generate.ts'
+import {
+  controllerKindFromFlags,
+  generateAction,
+  generateApi,
+  generateController,
+  generateFeature,
+  generateModel,
+  generateModule,
+  generateRepository,
+  generateResource,
+  generateService,
+  type GeneratedFile,
+} from './generate.ts'
 import { getPackages, updatePackages } from './pkg.ts'
 import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
 import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
@@ -16,11 +28,10 @@ Usage:
   zee                 Start a REPL
   zee new <name>                 Create a new project in ./<name>
   zee init [name]                Scaffold a project in the current directory
-  zee generate module <path>          Nest module (user → src/users/users.module.zee)
-  zee generate controller <path>      Nest controller; --api or -i like Laravel
-  zee generate service <path>         Nest service
-  zee generate resource <path>        Module + controller + service
-  zee g module <path>                 Alias (also: zee g m / mo / co / s / res)
+  zee generate feature <path>        HTTP slice (controller → action → service → …)
+  zee generate controller <path>      HTTP in; --api or -i like Laravel
+  zee generate resource <path>        HTTP response mapper (not the whole stack)
+  zee g feat <path>                   Alias (also: zee g co / act / s / re / repo / mod / api / mo)
   zee get [alias...]             Add libs.toml aliases and fetch [deps] into .zee/ (honors zee.lock)
   zee update [name...]           Re-resolve deps within current constraints and rewrite zee.lock
   zee publish                    Publish this package to ZEE_REGISTRY or [registry] url
@@ -236,42 +247,53 @@ function generateCommand(argv: string[]): number {
   }
 
   const cwdNow = cwd()
-  if (isModuleSchematic(parsed.schematic)) {
-    const created = generateModule({ cwd: cwdNow, path: parsed.path })
-    stdout.write(`created module ${created.importPath}\n`)
-    stdout.write(`  ${created.file}\n`)
+  const options = { cwd: cwdNow, path: parsed.path }
+  const controllerFlags = isControllerSchematic(parsed.schematic) || isFeatureSchematic(parsed.schematic)
+  if ((parsed.api || parsed.invokable) && !controllerFlags) {
+    stderr('`--api` and `-i` apply to controller and feature only')
+    return 1
+  }
+
+  if (isFeatureSchematic(parsed.schematic)) {
+    const created = generateFeature({ ...options, kind: controllerKindFromFlags(parsed) })
+    stdout.write(`created feature ${created.module.importPath}\n`)
+    for (const file of featureFiles(created)) stdout.write(`  ${file}\n`)
     return 0
   }
+  if (isModuleSchematic(parsed.schematic)) return createdOne('module', generateModule(options))
   if (isControllerSchematic(parsed.schematic)) {
-    const created = generateController({
-      cwd: cwdNow,
-      path: parsed.path,
-      kind: controllerKindFromFlags(parsed),
-    })
-    stdout.write(`created controller ${created.importPath}\n`)
-    stdout.write(`  ${created.file}\n`)
-    return 0
+    return createdOne(
+      'controller',
+      generateController({ ...options, kind: controllerKindFromFlags(parsed) }),
+    )
   }
-  if (isServiceSchematic(parsed.schematic)) {
-    const created = generateService({ cwd: cwdNow, path: parsed.path })
-    stdout.write(`created service ${created.importPath}\n`)
-    stdout.write(`  ${created.file}\n`)
-    return 0
-  }
-  if (isResourceSchematic(parsed.schematic)) {
-    const created = generateResource({
-      cwd: cwdNow,
-      path: parsed.path,
-      kind: controllerKindFromFlags(parsed),
-    })
-    stdout.write(`created resource ${created.module.importPath}\n`)
-    stdout.write(`  ${created.module.file}\n`)
-    stdout.write(`  ${created.controller.file}\n`)
-    stdout.write(`  ${created.service.file}\n`)
-    return 0
-  }
+  if (isActionSchematic(parsed.schematic)) return createdOne('action', generateAction(options))
+  if (isServiceSchematic(parsed.schematic)) return createdOne('service', generateService(options))
+  if (isResourceSchematic(parsed.schematic)) return createdOne('resource', generateResource(options))
+  if (isRepositorySchematic(parsed.schematic)) return createdOne('repository', generateRepository(options))
+  if (isModelSchematic(parsed.schematic)) return createdOne('model', generateModel(options))
+  if (isApiSchematic(parsed.schematic)) return createdOne('api', generateApi(options))
   stderr(`unknown schematic \`${parsed.schematic}\`\n${generateUsage()}`)
   return 1
+}
+
+function createdOne(label: string, created: GeneratedFile): number {
+  stdout.write(`created ${label} ${created.importPath}\n`)
+  stdout.write(`  ${created.file}\n`)
+  return 0
+}
+
+function featureFiles(created: ReturnType<typeof generateFeature>): string[] {
+  return [
+    created.module.file,
+    created.controller.file,
+    created.action.file,
+    created.service.file,
+    created.resource.file,
+    created.repository.file,
+    created.model.file,
+    created.api.file,
+  ]
 }
 
 function parseGenerateArgv(argv: string[]): {
@@ -319,28 +341,51 @@ function isControllerSchematic(name: string): boolean {
   return name === 'controller' || name === 'co'
 }
 
+function isActionSchematic(name: string): boolean {
+  return name === 'action' || name === 'act'
+}
+
 function isServiceSchematic(name: string): boolean {
   return name === 'service' || name === 's'
 }
 
 function isResourceSchematic(name: string): boolean {
-  return name === 'resource' || name === 'res' || name === 'r'
+  return name === 'resource' || name === 'res' || name === 're'
+}
+
+function isRepositorySchematic(name: string): boolean {
+  return name === 'repository' || name === 'repo'
+}
+
+function isModelSchematic(name: string): boolean {
+  return name === 'model' || name === 'mod'
+}
+
+function isApiSchematic(name: string): boolean {
+  return name === 'api'
+}
+
+function isFeatureSchematic(name: string): boolean {
+  return name === 'feature' || name === 'feat'
 }
 
 function generateUsage(): string {
   return `Usage:
-  zee generate module <name>           src/<plural>/<plural>.module.zee
-  zee generate controller <name>       src/<plural>/<plural>.controller.zee
-  zee generate controller <name> --api Laravel API (index/store/show/update/destroy)
-  zee generate controller <name> -i    Laravel invokable (invoke)
-  zee generate service <name>          src/<plural>/<plural>.service.zee
-  zee generate resource <name> [--api|-i]
+  zee generate feature <name> [--api|-i]   whole HTTP slice
+  zee generate controller <name> [--api|-i]
+  zee generate action <name>
+  zee generate service <name>
+  zee generate resource <name>             HTTP mapper (not the stack)
+  zee generate repository <name>
+  zee generate model <name>
+  zee generate api <name>
+  zee generate module <name>               DI stub until §9b
 
 Examples:
-  zee generate module user             → src/users/users.module.zee
-  zee generate controller user --api   → src/users/users.controller.zee
+  zee generate feature user --api
+  zee generate controller user --api
   zee g co user -i
-  zee g resource user --api            → module + controller + service
+  zee g re user                             → src/users/users.resource.zee
 `
 }
 

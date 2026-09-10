@@ -73,8 +73,12 @@ Chrome da marca continua ink / signal / amber. No tree view cada tipo precisa de
 | fonte Zee | `*.zee` | Signal | `#14E0B4` |
 | module | `*.module.zee` | Pine | `#0FAE8C` |
 | controller | `*.controller.zee` | Azure | `#4C8DFF` |
+| action | `*.action.zee` | Ember | `#F97316` |
 | service | `*.service.zee` | Violet | `#8B7CFF` |
 | resource | `*.resource.zee` | Aqua | `#2EC4B6` |
+| repository | `*.repository.zee` | Moss | `#65A30D` |
+| model | `*.model.zee` | Honey | `#CA8A04` |
+| api | `*.api.zee` | Indigo | `#6366F1` |
 | struct | `*.struct.zee` | Mint | `#3DDC97` |
 | class | `*.class.zee` | Coral | `#FF6B6B` |
 | data | `*.data.zee` | Sky | `#38BDF8` |

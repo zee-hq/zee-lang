@@ -21,8 +21,12 @@ describe('file icon kinds', () => {
       'zee',
       'module',
       'controller',
+      'action',
       'service',
       'resource',
+      'repository',
+      'model',
+      'api',
       'struct',
       'class',
       'data',
@@ -33,11 +37,15 @@ describe('file icon kinds', () => {
     ])
   })
 
-  it('maps Nest-style and type-role suffixes, plus spec/test compounds', () => {
+  it('maps layer and type-role suffixes, plus spec/test compounds', () => {
     expect(theme.fileExtensions['module.zee']).toBe('_module')
     expect(theme.fileExtensions['module.spec.zee']).toBe('_module_spec')
     expect(theme.fileExtensions['module.test.zee']).toBe('_module_test')
     expect(theme.fileExtensions['controller.zee']).toBe('_controller')
+    expect(theme.fileExtensions['action.zee']).toBe('_action')
+    expect(theme.fileExtensions['repository.zee']).toBe('_repository')
+    expect(theme.fileExtensions['model.zee']).toBe('_model')
+    expect(theme.fileExtensions['api.zee']).toBe('_api')
     expect(theme.fileExtensions['class.zee']).toBe('_class')
     expect(theme.fileExtensions['class.spec.zee']).toBe('_class_spec')
     expect(theme.fileExtensions['struct.test.zee']).toBe('_struct_test')

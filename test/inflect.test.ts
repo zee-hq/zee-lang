@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { pluralize } from '../src/inflect.ts'
 
 describe('pluralize (AC-generate-inflect)', () => {
-  it('turns a resource name into the Nest folder/file stem', () => {
+  it('turns a resource name into the layer folder/file stem', () => {
     expect(pluralize('user')).toBe('users')
     expect(pluralize('users')).toBe('users')
     expect(pluralize('city')).toBe('cities')

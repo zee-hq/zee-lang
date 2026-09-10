@@ -63,6 +63,15 @@
     "_controller_test": {
       "iconPath": "./zee-controller-test.svg"
     },
+    "_action": {
+      "iconPath": "./zee-action.svg"
+    },
+    "_action_spec": {
+      "iconPath": "./zee-action-spec.svg"
+    },
+    "_action_test": {
+      "iconPath": "./zee-action-test.svg"
+    },
     "_service": {
       "iconPath": "./zee-service.svg"
     },
@@ -80,6 +89,33 @@
     },
     "_resource_test": {
       "iconPath": "./zee-resource-test.svg"
+    },
+    "_repository": {
+      "iconPath": "./zee-repository.svg"
+    },
+    "_repository_spec": {
+      "iconPath": "./zee-repository-spec.svg"
+    },
+    "_repository_test": {
+      "iconPath": "./zee-repository-test.svg"
+    },
+    "_model": {
+      "iconPath": "./zee-model.svg"
+    },
+    "_model_spec": {
+      "iconPath": "./zee-model-spec.svg"
+    },
+    "_model_test": {
+      "iconPath": "./zee-model-test.svg"
+    },
+    "_api": {
+      "iconPath": "./zee-api.svg"
+    },
+    "_api_spec": {
+      "iconPath": "./zee-api-spec.svg"
+    },
+    "_api_test": {
+      "iconPath": "./zee-api-test.svg"
     },
     "_struct": {
       "iconPath": "./zee-struct.svg"
@@ -171,12 +207,24 @@
     "controller.zee": "_controller",
     "controller.spec.zee": "_controller_spec",
     "controller.test.zee": "_controller_test",
+    "action.zee": "_action",
+    "action.spec.zee": "_action_spec",
+    "action.test.zee": "_action_test",
     "service.zee": "_service",
     "service.spec.zee": "_service_spec",
     "service.test.zee": "_service_test",
     "resource.zee": "_resource",
     "resource.spec.zee": "_resource_spec",
     "resource.test.zee": "_resource_test",
+    "repository.zee": "_repository",
+    "repository.spec.zee": "_repository_spec",
+    "repository.test.zee": "_repository_test",
+    "model.zee": "_model",
+    "model.spec.zee": "_model_spec",
+    "model.test.zee": "_model_test",
+    "api.zee": "_api",
+    "api.spec.zee": "_api_spec",
+    "api.test.zee": "_api_test",
     "struct.zee": "_struct",
     "struct.spec.zee": "_struct_spec",
     "struct.test.zee": "_struct_test",

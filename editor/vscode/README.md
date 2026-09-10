@@ -26,7 +26,12 @@ Reload the window after `npm run editor:link`. If the workspace setting does not
 | `hello.zee` | generic Z (teal) |
 | `users.module.zee` | module (pine) |
 | `users.controller.zee` | controller (azure) |
+| `users.action.zee` | action (ember) |
 | `users.service.zee` | service (violet) |
+| `users.resource.zee` | resource (aqua) |
+| `users.repository.zee` | repository (moss) |
+| `users.model.zee` | model (honey) |
+| `users.api.zee` | api (indigo) |
 | `point.struct.zee` / `user.class.zee` / `row.data.zee` | type roles |
 | `status.enum.zee` / `io.interface.zee` / `id.newtype.zee` | type roles |
 | `fail.error.zee` | error (amber) |

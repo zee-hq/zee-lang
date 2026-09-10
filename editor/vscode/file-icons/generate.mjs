@@ -20,6 +20,10 @@ export const PALETTE = {
   aqua: '#2EC4B6',
   pine: '#0FAE8C',
   rose: '#F472B6',
+  ember: '#F97316',
+  moss: '#65A30D',
+  honey: '#CA8A04',
+  indigo: '#6366F1',
 }
 
 /**
@@ -32,8 +36,12 @@ export const KINDS = [
   { id: 'zee', color: PALETTE.signal, stem: null },
   { id: 'module', color: PALETTE.pine, stem: 'module' },
   { id: 'controller', color: PALETTE.azure, stem: 'controller' },
+  { id: 'action', color: PALETTE.ember, stem: 'action' },
   { id: 'service', color: PALETTE.violet, stem: 'service' },
   { id: 'resource', color: PALETTE.aqua, stem: 'resource' },
+  { id: 'repository', color: PALETTE.moss, stem: 'repository' },
+  { id: 'model', color: PALETTE.honey, stem: 'model' },
+  { id: 'api', color: PALETTE.indigo, stem: 'api' },
   { id: 'struct', color: PALETTE.mint, stem: 'struct' },
   { id: 'class', color: PALETTE.coral, stem: 'class' },
   { id: 'data', color: PALETTE.sky, stem: 'data' },
@@ -148,12 +156,23 @@ const GLYPHS = {
     <path d="M17 12 H21.8"/>
     <path d="M4.6 9.6 L2.2 12 L4.6 14.4"/>
     <path d="M19.4 9.6 L21.8 12 L19.4 14.4"/>`,
+  action: `<path d="M13.2 3.8 L6.2 13.2 H11.4 L10.8 20.2 L17.8 10.8 H12.6 Z"/>`,
   service: `<polygon points="12,4 19,8 19,16 12,20 5,16 5,8"/>
     <circle cx="12" cy="12" r="2.1" fill="COLOR" stroke="none"/>`,
   resource: `<rect x="4" y="4" width="16" height="16" rx="3"/>
     <line x1="7" y1="9" x2="17" y2="9"/>
     <line x1="7" y1="12.5" x2="17" y2="12.5"/>
     <line x1="7" y1="16" x2="13" y2="16"/>`,
+  repository: `<ellipse cx="12" cy="6.2" rx="7.2" ry="2.6"/>
+    <path d="M4.8 6.2 V17.6 C4.8 19 8 20.4 12 20.4 C16 20.4 19.2 19 19.2 17.6 V6.2"/>
+    <path d="M4.8 12 C4.8 13.4 8 14.8 12 14.8 C16 14.8 19.2 13.4 19.2 12"/>`,
+  model: `<rect x="4" y="5" width="16" height="14" rx="1.6"/>
+    <line x1="4" y1="9.2" x2="20" y2="9.2"/>
+    <line x1="4" y1="13.4" x2="20" y2="13.4"/>
+    <line x1="10" y1="5" x2="10" y2="19"/>`,
+  api: `<circle cx="7.5" cy="12" r="3.1"/>
+    <path d="M10.6 12 H19.4"/>
+    <path d="M16.6 8.8 L20.2 12 L16.6 15.2"/>`,
   struct: `<rect x="4" y="4" width="16" height="16" rx="2.5"/>
     <line x1="4" y1="9" x2="20" y2="9"/>
     <line x1="7.5" y1="13" x2="16.5" y2="13"/>

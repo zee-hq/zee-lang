@@ -8,6 +8,17 @@ const MODULE_SEGMENT_RE = /^[a-z][a-z0-9_]*$/
 
 export type ControllerKind = 'empty' | 'api' | 'invokable'
 
+/** Layer file: src/<plural>/<plural>.<role>.zee. */
+export type LayerRole =
+  | 'module'
+  | 'controller'
+  | 'action'
+  | 'service'
+  | 'resource'
+  | 'repository'
+  | 'model'
+  | 'api'
+
 export interface GenerateOptions {
   cwd: string
   path: string
@@ -25,10 +36,15 @@ export interface GenerateControllerOptions extends GenerateOptions {
   kind?: ControllerKind
 }
 
-export interface GeneratedResource {
+export interface GeneratedFeature {
   module: GeneratedFile
   controller: GeneratedFile
+  action: GeneratedFile
   service: GeneratedFile
+  resource: GeneratedFile
+  repository: GeneratedFile
+  model: GeneratedFile
+  api: GeneratedFile
 }
 
 export interface GenerateFlags {
@@ -36,39 +52,74 @@ export interface GenerateFlags {
   invokable?: boolean
 }
 
-/** Nest/Laravel schematic: src/<plural>/<plural>.module.zee. AC-generate-module. */
+/** DI graph stub until §9b. AC-generate-module. */
 export function generateModule(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'module', moduleSource)
 }
 
-/** Nest file name + Laravel --api / --invokable. AC-generate-controller. */
+/** HTTP in. Laravel --api / --invokable. AC-generate-controller. */
 export function generateController(options: GenerateControllerOptions): GeneratedFile {
   const kind = options.kind ?? 'empty'
   return writeRole(options, 'controller', (importPath, name) => controllerSource(name, kind, importPath))
 }
 
-/** Nest-style <name>.service.zee. AC-generate-service. */
-export function generateService(options: GenerateOptions): GeneratedFile {
-  return writeRole(options, 'service', (_importPath, name) => serviceSource(name))
+/** Use-case between controller and service. AC-generate-layers. */
+export function generateAction(options: GenerateOptions): GeneratedFile {
+  return writeRole(options, 'action', (_importPath, name) => `// ${name}.action\n`)
 }
 
-/** Nest resource: module + controller + service. AC-generate-resource. */
-export function generateResource(options: GenerateControllerOptions): GeneratedResource {
+/** Domain rules. No HTTP, no SQL. AC-generate-service. */
+export function generateService(options: GenerateOptions): GeneratedFile {
+  return writeRole(options, 'service', (_importPath, name) => `// ${name}.service\n`)
+}
+
+/** HTTP response mapper (Laravel Resource). AC-generate-resource. */
+export function generateResource(options: GenerateOptions): GeneratedFile {
+  return writeRole(options, 'resource', (_importPath, name) => `// ${name}.resource\n`)
+}
+
+/** Persistence port. AC-generate-layers. */
+export function generateRepository(options: GenerateOptions): GeneratedFile {
+  return writeRole(options, 'repository', (_importPath, name) => `// ${name}.repository\n`)
+}
+
+/** DB shape. DI §9b. AC-generate-layers. */
+export function generateModel(options: GenerateOptions): GeneratedFile {
+  return writeRole(options, 'model', (_importPath, name) => `// ${name}.model\n`)
+}
+
+/** Outbound HTTP client. AC-generate-layers. */
+export function generateApi(options: GenerateOptions): GeneratedFile {
+  return writeRole(options, 'api', (_importPath, name) => `// ${name}.api\n`)
+}
+
+/** Whole HTTP slice. AC-generate-feature. */
+export function generateFeature(options: GenerateControllerOptions): GeneratedFeature {
   const layout = resolveLayout(options)
   const kind = options.kind ?? 'empty'
-  const files = [
-    join(layout.dir, `${layout.name}.module.zee`),
-    join(layout.dir, `${layout.name}.controller.zee`),
-    join(layout.dir, `${layout.name}.service.zee`),
+  const roles: LayerRole[] = [
+    'module',
+    'controller',
+    'action',
+    'service',
+    'resource',
+    'repository',
+    'model',
+    'api',
   ]
-  const existing = files.find((file) => existsSync(file))
+  const existing = roles.map((role) => join(layout.dir, `${layout.name}.${role}.zee`)).find((file) => existsSync(file))
   if (existing) {
     throw new ZeeError(`file \`${existing}\` already exists`, 1, 1, existing)
   }
   return {
     module: generateModule(options),
     controller: generateController({ ...options, kind }),
+    action: generateAction(options),
     service: generateService(options),
+    resource: generateResource(options),
+    repository: generateRepository(options),
+    model: generateModel(options),
+    api: generateApi(options),
   }
 }
 
@@ -106,7 +157,7 @@ export function parseModulePath(raw: string): string[] {
 
 function writeRole(
   options: GenerateOptions,
-  role: 'module' | 'controller' | 'service',
+  role: LayerRole,
   source: (importPath: string, name: string) => string,
 ): GeneratedFile {
   const layout = resolveLayout(options)
@@ -160,8 +211,4 @@ function controllerSource(name: string, kind: ControllerKind, importPath: string
     return `${header}fn invoke() {}\n`
   }
   return header
-}
-
-function serviceSource(name: string): string {
-  return `// ${name}.service\n`
 }

@@ -5,8 +5,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ZeeError } from '../src/error.ts'
 import {
   controllerKindFromFlags,
+  generateAction,
+  generateApi,
   generateController,
+  generateFeature,
+  generateModel,
   generateModule,
+  generateRepository,
   generateResource,
   generateService,
 } from '../src/generate.ts'
@@ -36,7 +41,7 @@ function assertChecks(file: string): void {
 }
 
 describe('zee generate module (AC-generate-module)', () => {
-  it('scaffolds src/<name>/<name>.module.zee like Nest', () => {
+  it('scaffolds src/<name>/<name>.module.zee', () => {
     const root = project()
     const created = generateModule({ cwd: root, path: 'http' })
 
@@ -115,7 +120,7 @@ describe('zee generate module (AC-generate-module)', () => {
 })
 
 describe('zee generate controller (AC-generate-controller)', () => {
-  it('writes Nest-style users.controller.zee from `user`', () => {
+  it('writes users.controller.zee from `user`', () => {
     const root = project()
     const created = generateController({ cwd: root, path: 'user' })
     expect(created.file).toBe(join(root, 'src/users/users.controller.zee'))
@@ -160,7 +165,7 @@ describe('zee generate controller (AC-generate-controller)', () => {
 })
 
 describe('zee generate service (AC-generate-service)', () => {
-  it('writes Nest-style users.service.zee', () => {
+  it('writes users.service.zee', () => {
     const root = project()
     const created = generateService({ cwd: root, path: 'user' })
     expect(created.file).toBe(join(root, 'src/users/users.service.zee'))
@@ -170,15 +175,61 @@ describe('zee generate service (AC-generate-service)', () => {
 })
 
 describe('zee generate resource (AC-generate-resource)', () => {
-  it('creates the Nest trio: module + controller + service', () => {
+  it('writes only the HTTP response mapper users.resource.zee', () => {
     const root = project()
-    const created = generateResource({ cwd: root, path: 'user', kind: 'api' })
+    const created = generateResource({ cwd: root, path: 'user' })
+    expect(created.file).toBe(join(root, 'src/users/users.resource.zee'))
+    expect(readFileSync(created.file, 'utf8')).toContain('users.resource')
+    expect(existsSync(join(root, 'src/users/users.module.zee'))).toBe(false)
+    expect(existsSync(join(root, 'src/users/users.controller.zee'))).toBe(false)
+    expect(existsSync(join(root, 'src/users/users.service.zee'))).toBe(false)
+    assertChecks(created.file)
+  })
+})
+
+describe('zee generate action / repository / model / api (AC-generate-layers)', () => {
+  it('writes each layer file next to the controller', () => {
+    const root = project()
+    const action = generateAction({ cwd: root, path: 'user' })
+    const repository = generateRepository({ cwd: root, path: 'user' })
+    const model = generateModel({ cwd: root, path: 'user' })
+    const api = generateApi({ cwd: root, path: 'user' })
+    expect(action.file).toBe(join(root, 'src/users/users.action.zee'))
+    expect(repository.file).toBe(join(root, 'src/users/users.repository.zee'))
+    expect(model.file).toBe(join(root, 'src/users/users.model.zee'))
+    expect(api.file).toBe(join(root, 'src/users/users.api.zee'))
+    expect(readFileSync(action.file, 'utf8')).toContain('users.action')
+    expect(readFileSync(repository.file, 'utf8')).toContain('users.repository')
+    expect(readFileSync(model.file, 'utf8')).toContain('users.model')
+    expect(readFileSync(api.file, 'utf8')).toContain('users.api')
+    assertChecks(action.file)
+    assertChecks(repository.file)
+    assertChecks(model.file)
+    assertChecks(api.file)
+  })
+})
+
+describe('zee generate feature (AC-generate-feature)', () => {
+  it('scaffolds the HTTP slice: controller → action → service → resource | repository → api | model', () => {
+    const root = project()
+    const created = generateFeature({ cwd: root, path: 'user', kind: 'api' })
     expect(created.module.file).toBe(join(root, 'src/users/users.module.zee'))
     expect(created.controller.file).toBe(join(root, 'src/users/users.controller.zee'))
+    expect(created.action.file).toBe(join(root, 'src/users/users.action.zee'))
     expect(created.service.file).toBe(join(root, 'src/users/users.service.zee'))
+    expect(created.resource.file).toBe(join(root, 'src/users/users.resource.zee'))
+    expect(created.repository.file).toBe(join(root, 'src/users/users.repository.zee'))
+    expect(created.model.file).toBe(join(root, 'src/users/users.model.zee'))
+    expect(created.api.file).toBe(join(root, 'src/users/users.api.zee'))
     expect(readFileSync(created.controller.file, 'utf8')).toContain('fn index()')
     assertChecks(created.module.file)
     assertChecks(created.controller.file)
+    assertChecks(created.action.file)
     assertChecks(created.service.file)
+    assertChecks(created.resource.file)
+    assertChecks(created.repository.file)
+    assertChecks(created.model.file)
+    assertChecks(created.api.file)
+    expect(() => generateFeature({ cwd: root, path: 'user' })).toThrow(/already exists/)
   })
 })

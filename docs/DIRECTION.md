@@ -1041,30 +1041,65 @@ hello/
 - `zee.toml` `entry` stays `src/main.zee`. `main` is not imported; it is the program start.
 - Import cycles are a compile error.
 
-### CLI schematic (Nest files + Laravel flags)
+### File layers (HTTP slice)
 
-The language does not require these files. The CLI creates Nest-style names and Laravel-style controller shapes. **Wiring is not generated** — `*.module.zee` is a comment stub until DI (§9b) is decided:
+The compiler does not require these suffixes. They are the **tooling convention** (`zee generate` + explorer icons). One directory is still one module.
 
 ```
-zee generate module user
+Request → controller → action → service ─┬─→ resource  → response
+                                         ├─→ repository → api
+                                         └─→ model      → db   (DI, §9b)
+```
+
+| Layer | File | Does |
+|---|---|---|
+| controller | `users.controller.zee` | HTTP in. Maps the request onto an action. |
+| action | `users.action.zee` | One use-case (or a small set). Calls the service. |
+| service | `users.service.zee` | Domain rules. No HTTP, no SQL. |
+| resource | `users.resource.zee` | Maps domain → HTTP body (Laravel Resource). **Not** “generate the whole stack”. |
+| repository | `users.repository.zee` | Persistence port. Talks to `api` or `model`. |
+| api | `users.api.zee` | Outbound HTTP client. |
+| model | `users.model.zee` | DB shape. Wired by DI (§9b), not constructed in the controller. |
+| module | `users.module.zee` | Graph stub until §9b. |
+
+Tests: **`.test.zee` only** (`users.service.test.zee`). No `foo_test.zee`. No `.spec.zee`. `fn testFoo()`. Tooling (`zee test`), not a `test` keyword.
+
+App entry stays `src/main.zee`. A published library uses `src/lib.zee` (no `main`).
+
+### CLI schematic
+
+```
 zee generate controller user --api      # or -i / --invokable
+zee generate action user
 zee generate service user
-zee generate resource user --api        # module + controller + service
+zee generate resource user               # HTTP mapper
+zee generate repository user
+zee generate model user
+zee generate api user
+zee generate module user                 # DI stub
+zee generate feature user --api        # the whole slice
 ```
 
 ```
-src/users/users.module.zee
 src/users/users.controller.zee
+src/users/users.action.zee
 src/users/users.service.zee
+src/users/users.resource.zee
+src/users/users.repository.zee
+src/users/users.api.zee
+src/users/users.model.zee
+src/users/users.module.zee
 ```
 
 - `user` inflects to `users` (Laravel). Uncountable names stay (`http`, `tls`, `math`, `auth`).
 - Only the **last** path segment inflects: `admin/user` → `src/admin/users/`.
-- `--api` is a Laravel API resource controller: `index`, `store`, `show`, `update`, `destroy` (no `create`/`edit` views).
+- `--api` on a **controller** or **feature** is Laravel API verbs: `index`, `store`, `show`, `update`, `destroy` (no `create`/`edit` views).
 - `-i` / `--invokable` is a single `invoke` (Laravel `__invoke`).
 - `--api` and `-i` cannot be combined.
-- Nest aliases: `mo`, `co`, `s`, `res`.
+- `zee generate feature` writes every layer file. `zee generate resource` writes **only** `*.resource.zee`.
+- Aliases: `co`, `act`, `s`, `re`, `repo`, `mod`, `api`, `feat`. `mo` is the module stub.
 - `zee new` stays **package**. Generate is **inside** a package. Path is relative to `src/`.
+- Wiring is not generated — `*.module.zee` is a comment until DI (§9b).
 
 ### Import (Kotlin-shaped)
 
@@ -1272,7 +1307,7 @@ unsafe { asm("nop") }
 - **No macros**, no `#define`, no compile-time AST plugins. `zee generate` is files on disk.
 - **`zee.toml`**: `[package]` + `[deps]`. `[package]` identity: required `name`; `version` (default `0.1.0`); `entry`; optional `description`, `author`, `company`, `contact`, `license`, `homepage`, `repository` (quoted strings). Prefer `{ lib = "json" }` from workspace `libs.toml`. Path/git inline still work. SemVer `json = "1.2"` is precision-based (`1.2` → latest `1.2.x`, `1.2.3` exact) via `ZEE_REGISTRY`, `[registry] url`, or `~/.zee/registry` — see [`docs/REGISTRY.md`](REGISTRY.md). Git catalog tags use the same precision (`version.ref = "1.0"` → latest `1.0.x` tag). `zee get` honors `zee.lock`; `zee update` [name...] re-resolves within the constraint and rewrites the lock (does not edit `libs.toml`). `zee publish` refuses overwrite. HTTP: `zee registry` serves `GET`/`PUT /api/v1/packages/…` (PUT needs `ZEE_REGISTRY_TOKEN`). Materialize in `.zee/`. `zee.lock` pins hashes.
 - **Official libs** are GitHub packages under `zee-hq`, versioned by Git tags matching `zee.toml`. First: [`zee-hq/env`](https://github.com/zee-hq/env) (`import env`; `zee get env` via `libs.toml` `{ git, version.ref }`; `zee update env` picks a newer matching tag). Profile `ZEE_PROFILE` then `ZEE_ENV` then `.env` then `dev`; files `.env`, `.env.local`, `.env.{profile}`, `.env.{profile}.local`; process env wins. Dotenv parsing is a host overlay until Zee has string split. No `$VAR` expansion in v0. In-tree `libs/env` is the language-test fixture.
-- **Tests:** `*_test.zee` / `test/` + `fn testFoo()`. Tooling (`zee test`), not a `test` keyword.
+- **Tests:** `.test.zee` (`users.service.test.zee`) + `fn testFoo()`. Tooling (`zee test`), not a `test` keyword. No `foo_test.zee`, no `.spec.zee`.
 - **Self-host, LLVM, WASM, JVM:** machines (§6c). Not dialects. Not open language questions.
 
 ### 8d. Explicit refusals (will not grow later “for a minute”)
@@ -1359,7 +1394,7 @@ const users = UsersController(usersService)   // or still UsersController { serv
 
 v0 today: pass the dependency as a field, or a module-level `pub var usersService` (process-wide mutable state — already discouraged).
 
-`zee generate module` / `controller` / `service` creates Nest **file names**. It does **not** create a container. `*.module.zee` is a comment. `main` wires by hand:
+`zee generate` creates **layer file names** (controller → action → service → resource | repository → api | model). It does **not** create a container. `*.module.zee` is a comment. `main` wires by hand:
 
 ```zee
 const users = users.UsersController { service: users.usersService }

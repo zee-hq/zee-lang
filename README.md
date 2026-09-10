@@ -121,16 +121,15 @@ fn main() {
 }
 ```
 
-Generators follow Nest file names and Laravel flags:
+Generators follow the HTTP slice. `zee generate resource` is the Laravel-style mapper; `zee generate feature` writes the whole stack:
 
 ```bash
-zee generate module user
+zee generate feature user --api
 zee generate controller user --api    # or -i
-zee generate service user
-zee generate resource user --api
+zee generate resource user
 ```
 
-`user` becomes `src/users/users.module.zee`, `users.controller.zee`, `users.service.zee`.
+`user` becomes `src/users/users.controller.zee`, `users.action.zee`, `users.service.zee`, `users.resource.zee`, `users.repository.zee`, `users.model.zee`, `users.api.zee`, `users.module.zee`. Tests are `*.test.zee` only.
 
 ```bash
 zee run examples/factorial.zee
@@ -282,10 +281,10 @@ editor/vscode   TextMate grammar + Run/Check commands
 | `npm run typecheck` | TypeScript strict check |
 | `zee new <name>` | create a new project |
 | `zee init [name]` | scaffold the current directory |
-| `zee generate module <name>` | Nest module (`user` → `src/users/users.module.zee`) |
-| `zee generate controller <name> [--api\|-i]` | Nest controller; Laravel `--api` or invokable `-i` |
-| `zee generate service <name>` | Nest service |
-| `zee generate resource <name>` | module + controller + service |
+| `zee generate feature <name> [--api\|-i]` | HTTP slice (`user` → `src/users/users.*.zee`) |
+| `zee generate controller <name> [--api\|-i]` | HTTP in; Laravel `--api` or invokable `-i` |
+| `zee generate resource <name>` | HTTP mapper (`users.resource.zee`) |
+| `zee generate action\|service\|repository\|model\|api\|module <name>` | one layer file |
 | `zee get [alias...]` | fetch `[deps]` into `.zee/` (catalog aliases optional; honors lock) |
 | `zee update [name...]` | re-resolve deps within current constraints and rewrite `zee.lock` |
 | `zee publish` | publish this package to `ZEE_REGISTRY` / `[registry] url` |

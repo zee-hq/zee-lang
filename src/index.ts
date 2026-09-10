@@ -15,8 +15,13 @@ export { getPackages, parseLockfile, parseCatalog, readCatalog } from './pkg.ts'
 export {
   generateModule,
   generateController,
+  generateAction,
   generateService,
   generateResource,
+  generateRepository,
+  generateModel,
+  generateApi,
+  generateFeature,
   parseModulePath,
   controllerKindFromFlags,
 } from './generate.ts'

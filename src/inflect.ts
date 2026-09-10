@@ -18,7 +18,7 @@ const UNCOUNTABLE = new Set([
   'xml',
 ])
 
-/** Laravel-style inflection for Nest file stems: user → users. AC-generate-inflect. */
+/** Laravel-style inflection for layer file stems: user → users. AC-generate-inflect. */
 export function pluralize(word: string): string {
   if (UNCOUNTABLE.has(word)) return word
   if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`
