@@ -1,0 +1,61 @@
+//! Official env package: process env plus dotenv files next to `zee.toml`.
+//! Profile: `ZEE_PROFILE`, else `ZEE_ENV`, else `.env`, else `dev`.
+//! Files: `.env`, `.env.local`, `.env.{profile}`, `.env.{profile}.local`.
+//! Process env always wins. Missing keys are `None` — never host null.
+//! App identity is `[package]` from the running app's `zee.toml`.
+
+pub fn get(name: String) -> Option<String> {
+  getenv(name)
+}
+
+pub fn require(name: String) -> String {
+  getenv(name) ?: panic("missing env " + name)
+}
+
+pub fn getOr(name: String, fallback: String) -> String {
+  getenv(name) ?: fallback
+}
+
+pub fn profile() -> String {
+  envProfile()
+}
+
+pub fn app(key: String) -> Option<String> {
+  envAppMeta(key)
+}
+
+pub fn appName() -> String {
+  envAppMeta("name") ?: panic("missing [package] name")
+}
+
+pub fn appVersion() -> String {
+  envAppMeta("version") ?: panic("missing [package] version")
+}
+
+pub fn appDescription() -> Option<String> {
+  envAppMeta("description")
+}
+
+pub fn appAuthor() -> Option<String> {
+  envAppMeta("author")
+}
+
+pub fn appCompany() -> Option<String> {
+  envAppMeta("company")
+}
+
+pub fn appContact() -> Option<String> {
+  envAppMeta("contact")
+}
+
+pub fn appLicense() -> Option<String> {
+  envAppMeta("license")
+}
+
+pub fn appHomepage() -> Option<String> {
+  envAppMeta("homepage")
+}
+
+pub fn appRepository() -> Option<String> {
+  envAppMeta("repository")
+}

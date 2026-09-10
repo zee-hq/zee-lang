@@ -27,7 +27,17 @@ export interface Manifest {
   name: string
   version: string
   entry: string
+  description?: string
+  author?: string
+  company?: string
+  contact?: string
+  license?: string
+  homepage?: string
+  repository?: string
+  /** All `[package]` quoted keys, including name/version/entry. */
+  meta: Map<string, string>
   deps: Map<string, DepSpec>
+  registryUrl?: string
 }
 
 export function validatePackageName(name: string): void {
@@ -173,7 +183,8 @@ export function defaultInitName(cwd: string): string {
 export function parseManifest(source: string, file = 'zee.toml'): Manifest {
   const values = new Map<string, string>()
   const deps = new Map<string, DepSpec>()
-  let section: 'package' | 'deps' | undefined
+  let registryUrl: string | undefined
+  let section: 'package' | 'deps' | 'registry' | undefined
   for (const raw of source.split(/\r?\n/)) {
     const line = raw.trim()
     if (line.length === 0 || line.startsWith('#')) continue
@@ -183,6 +194,10 @@ export function parseManifest(source: string, file = 'zee.toml'): Manifest {
     }
     if (line === '[deps]') {
       section = 'deps'
+      continue
+    }
+    if (line === '[registry]') {
+      section = 'registry'
       continue
     }
     if (line.startsWith('[')) {
@@ -195,6 +210,14 @@ export function parseManifest(source: string, file = 'zee.toml'): Manifest {
         throw new ZeeError(`invalid manifest line \`${line}\``, 1, 1, file)
       }
       values.set(match[1]!, match[2]!)
+      continue
+    }
+    if (section === 'registry') {
+      const match = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*"([^"]*)"\s*$/.exec(line)
+      if (!match) {
+        throw new ZeeError(`invalid registry line \`${line}\``, 1, 1, file)
+      }
+      if (match[1] === 'url') registryUrl = match[2]
       continue
     }
     if (section === 'deps') {
@@ -210,12 +233,30 @@ export function parseManifest(source: string, file = 'zee.toml'): Manifest {
   const name = values.get('name')
   if (!name) throw new ZeeError('zee.toml is missing package.name', 1, 1, file)
   validatePackageName(name)
+  const version = values.get('version') ?? '0.1.0'
+  if (!values.has('version')) values.set('version', version)
+  const entry = values.get('entry') ?? DEFAULT_ENTRY
   return {
     name,
-    version: values.get('version') ?? '0.1.0',
-    entry: values.get('entry') ?? DEFAULT_ENTRY,
+    version,
+    entry,
+    description: optionalMeta(values, 'description'),
+    author: optionalMeta(values, 'author'),
+    company: optionalMeta(values, 'company'),
+    contact: optionalMeta(values, 'contact'),
+    license: optionalMeta(values, 'license'),
+    homepage: optionalMeta(values, 'homepage'),
+    repository: optionalMeta(values, 'repository'),
+    meta: values,
     deps,
+    registryUrl,
   }
+}
+
+function optionalMeta(values: Map<string, string>, key: string): string | undefined {
+  const value = values.get(key)
+  if (value === undefined || value.length === 0) return undefined
+  return value
 }
 
 export function parseDepSpec(raw: string, name: string, file: string): DepSpec {

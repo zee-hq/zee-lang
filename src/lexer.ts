@@ -90,7 +90,7 @@ export interface Token {
   loc: Loc
 }
 
-const KEYWORDS: Record<string, TokenKind> = {
+export const KEYWORDS: Record<string, TokenKind> = {
   fn: 'fn',
   const: 'const',
   var: 'var',

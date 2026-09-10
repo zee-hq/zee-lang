@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { ZeeError } from './error.ts'
+import { fetchRegistryPackage } from './registry.ts'
 import {
   type DepSpec,
   listPackageSources,
@@ -11,6 +12,7 @@ import {
   readManifest,
   type Manifest,
 } from './project.ts'
+import { isVersionConstraint, parseVersion, pickMatchingVersion, satisfiesConstraint } from './semver.ts'
 
 export const LOCK_FILE = 'zee.lock'
 export const CACHE_DIR = '.zee'
@@ -21,7 +23,7 @@ export interface LockedPackage {
   version: string
   hash: string
   root: string
-  source: 'path' | 'git'
+  source: 'path' | 'git' | 'registry'
   path?: string
   git?: string
   tag?: string
@@ -38,6 +40,23 @@ export interface GetResult {
   lockPath: string
 }
 
+export interface GetOptions {
+  update?: boolean
+  names?: string[]
+}
+
+export interface UpdateChange {
+  name: string
+  from: string
+  to: string
+}
+
+export interface UpdateResult extends GetResult {
+  changes: UpdateChange[]
+}
+
+type Refresh = 'all' | 'none' | Set<string>
+
 export interface Catalog {
   file: string
   dir: string
@@ -46,14 +65,27 @@ export interface Catalog {
 }
 
 /** Fetch [deps] into `.zee/`, write zee.lock. `aliases` are Gradle-style catalog keys (AC-ZEE-4). */
-export function getPackages(cwd: string, aliases: string[] = []): GetResult {
+export function getPackages(cwd: string, aliases: string[] = [], options: GetOptions = {}): GetResult {
   const root = resolve(cwd)
   for (const alias of aliases) {
     addCatalogAlias(root, alias)
   }
   const manifest = readManifest(root)
+  if (options.names && options.names.length > 0) {
+    for (const name of options.names) {
+      if (!manifest.deps.has(name)) {
+        throw new ZeeError(`unknown dep \`${name}\``, 1, 1, join(root, 'zee.toml'))
+      }
+    }
+  }
+  const lock = lockMap(loadLock(root))
+  const refresh: Refresh = options.update
+    ? options.names && options.names.length > 0
+      ? new Set(options.names)
+      : 'all'
+    : 'none'
   const found = new Map<string, LockedPackage>()
-  collectDeps(root, root, manifest, new Set(), found)
+  collectDeps(root, root, manifest, new Set(), found, lock, refresh)
   const packages = [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
   for (const pkg of packages) {
     materialize(root, pkg)
@@ -64,6 +96,31 @@ export function getPackages(cwd: string, aliases: string[] = []): GetResult {
     writeFileSync(lockPath, text, 'utf8')
   }
   return { packages, lockPath }
+}
+
+/** Re-resolve [deps] within current constraints and rewrite zee.lock (AC-ZEE-update). */
+export function updatePackages(cwd: string, names: string[] = []): UpdateResult {
+  const root = resolve(cwd)
+  const before = new Map((loadLock(root)?.packages ?? []).map((pkg) => [pkg.name, pkg.version]))
+  const got = getPackages(cwd, [], { update: true, names })
+  const changes: UpdateChange[] = []
+  for (const pkg of got.packages) {
+    const from = before.get(pkg.name)
+    if (from !== undefined && from !== pkg.version) {
+      changes.push({ name: pkg.name, from, to: pkg.version })
+    }
+  }
+  return { ...got, changes }
+}
+
+function loadLock(root: string): Lockfile | undefined {
+  const file = join(root, LOCK_FILE)
+  if (!existsSync(file)) return undefined
+  return parseLockfile(readFileSync(file, 'utf8'), file)
+}
+
+function lockMap(lock: Lockfile | undefined): Map<string, LockedPackage> {
+  return new Map((lock?.packages ?? []).map((pkg) => [pkg.name, pkg]))
 }
 
 export function findCatalogFile(startDir: string): string | undefined {
@@ -200,7 +257,7 @@ export function parseLockfile(source: string, file = LOCK_FILE): Lockfile {
     if (key === 'name') current.name = value
     else if (key === 'version') current.version = value
     else if (key === 'hash') current.hash = value
-    else if (key === 'source') current.source = value as 'path' | 'git'
+    else if (key === 'source') current.source = value as LockedPackage['source']
     else if (key === 'path') current.path = value
     else if (key === 'git') current.git = value
     else if (key === 'tag') current.tag = value
@@ -216,12 +273,14 @@ function collectDeps(
   manifest: Manifest,
   visiting: Set<string>,
   found: Map<string, LockedPackage>,
+  lock: Map<string, LockedPackage>,
+  refresh: Refresh,
 ): void {
   for (const [name, spec] of manifest.deps) {
     if (visiting.has(name)) {
       throw new ZeeError(`package cycle involving \`${name}\``, 1, 1, join(pkgRoot, 'zee.toml'))
     }
-    const dest = resolveDep(pkgRoot, cacheRoot, name, spec)
+    const dest = resolveDep(pkgRoot, cacheRoot, name, spec, lock, refresh)
     const destManifest = readManifest(dest)
     if (destManifest.name !== name) {
       throw new ZeeError(
@@ -240,7 +299,7 @@ function collectDeps(
       continue
     }
     visiting.add(name)
-    collectDeps(dest, cacheRoot, destManifest, visiting, found)
+    collectDeps(dest, cacheRoot, destManifest, visiting, found, lock, refresh)
     visiting.delete(name)
     const expanded = expandSpec(pkgRoot, spec)
     found.set(name, lockedFrom(name, destManifest, dest, expanded, hash))
@@ -277,11 +336,20 @@ function lockedFrom(
       root: dest,
       source: 'git',
       git: spec.git,
-      tag: spec.tag,
+      tag: gitExactTag(dest) ?? spec.tag,
       rev: gitRev(dest),
     }
   }
-  throw new ZeeError(`dep \`${name}\` needs path or git`, 1, 1, dest)
+  if (spec.kind === 'version') {
+    return {
+      name,
+      version: destManifest.version,
+      hash,
+      root: dest,
+      source: 'registry',
+    }
+  }
+  throw new ZeeError(`dep \`${name}\` needs path, git, or a SemVer string`, 1, 1, dest)
 }
 
 function resolveLibSpec(startDir: string, alias: string): DepSpec {
@@ -293,22 +361,25 @@ function resolveLibSpec(startDir: string, alias: string): DepSpec {
   return inner
 }
 
-function resolveDep(pkgRoot: string, cacheRoot: string, name: string, spec: DepSpec): string {
+function resolveDep(
+  pkgRoot: string,
+  cacheRoot: string,
+  name: string,
+  spec: DepSpec,
+  lock: Map<string, LockedPackage>,
+  refresh: Refresh,
+): string {
   if (spec.kind === 'lib') {
     const catalog = readCatalog(pkgRoot)
     const inner = catalog.libraries.get(spec.lib)
     if (!inner) {
       throw new ZeeError(`unknown library \`${spec.lib}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
     }
-    return resolveDep(catalog.dir, cacheRoot, name, inner)
+    return resolveDep(catalog.dir, cacheRoot, name, inner, lock, refresh)
   }
+  const pin = pinFor(name, spec, lock, refresh)
   if (spec.kind === 'version') {
-    throw new ZeeError(
-      `no registry yet — SemVer \`${name} = "${spec.version}"\` needs zee publish`,
-      1,
-      1,
-      join(pkgRoot, 'zee.toml'),
-    )
+    return fetchRegistryPackage(cacheRoot, name, pin?.version ?? spec.version, readManifest(cacheRoot))
   }
   if (spec.kind === 'path') {
     const dest = resolve(pkgRoot, spec.path)
@@ -317,7 +388,67 @@ function resolveDep(pkgRoot: string, cacheRoot: string, name: string, spec: DepS
     }
     return dest
   }
-  return materializeGit(cacheRoot, name, spec)
+  return materializeGit(cacheRoot, name, resolveGitSpec(spec, pin))
+}
+
+function shouldRefresh(name: string, refresh: Refresh): boolean {
+  if (refresh === 'all') return true
+  if (refresh === 'none') return false
+  return refresh.has(name)
+}
+
+function pinFor(
+  name: string,
+  spec: DepSpec,
+  lock: Map<string, LockedPackage>,
+  refresh: Refresh,
+): LockedPackage | undefined {
+  if (shouldRefresh(name, refresh)) return undefined
+  const pin = lock.get(name)
+  if (!pin) return undefined
+  if (spec.kind === 'git') {
+    if (pin.source !== 'git' || pin.git !== spec.git) return undefined
+    return pin
+  }
+  if (spec.kind === 'version') {
+    if (pin.source !== 'registry') return undefined
+    if (!satisfiesConstraint(pin.version, spec.version)) return undefined
+    return pin
+  }
+  return undefined
+}
+
+function resolveGitSpec(
+  spec: Extract<DepSpec, { kind: 'git' }>,
+  pin: LockedPackage | undefined,
+): Extract<DepSpec, { kind: 'git' }> {
+  if (pin?.tag) {
+    return { ...spec, tag: pin.tag, rev: pin.rev }
+  }
+  if (!spec.tag || !isVersionConstraint(spec.tag)) return spec
+  if (parseVersion(spec.tag).precision === 'patch') return spec
+  const tags = listRemoteGitTags(spec.git).filter(isVersionConstraint)
+  const picked = pickMatchingVersion(tags, spec.tag)
+  if (!picked) {
+    throw new ZeeError(`no git tag of \`${spec.git}\` matches \`${spec.tag}\``, 1, 1, spec.git)
+  }
+  return { ...spec, tag: picked }
+}
+
+function listRemoteGitTags(gitUrl: string): string[] {
+  const out = execFileSync('git', ['ls-remote', '--tags', gitUrl], {
+    encoding: 'utf8',
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  })
+  const tags: string[] = []
+  for (const line of out.split('\n')) {
+    const match = /\trefs\/tags\/(\S+)$/.exec(line)
+    if (!match) continue
+    const tag = match[1]!
+    if (tag.endsWith('^{}')) continue
+    tags.push(tag)
+  }
+  return tags
 }
 
 function materialize(cacheRoot: string, pkg: LockedPackage): void {
@@ -379,6 +510,18 @@ function gitRev(repo: string): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
 }
 
+function gitExactTag(repo: string): string | undefined {
+  try {
+    return execFileSync('git', ['describe', '--tags', '--exact-match'], {
+      cwd: repo,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+  } catch {
+    return undefined
+  }
+}
+
 export function hashPackage(root: string): string {
   const files = [
     join(root, 'zee.toml'),
@@ -395,7 +538,7 @@ export function hashPackage(root: string): string {
 }
 
 function formatLockfile(lock: Lockfile): string {
-  const lines = ['# Generated by zee get. Do not edit.', `version = ${lock.version}`, '']
+  const lines = ['# Generated by zee get / zee update. Do not edit.', `version = ${lock.version}`, '']
   for (const pkg of lock.packages) {
     lines.push('[[pkg]]')
     lines.push(`name = "${pkg.name}"`)

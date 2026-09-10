@@ -54,7 +54,7 @@ zee run
 
 `zee new` creates `zee.toml` + `src/main.zee`. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee init` scaffolds the current directory.
 
-Dependencies are Gradle-style aliases from a workspace `libs.toml` (walks up, like `libs.versions.toml`). `zee get json` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` waits on the registry.
+Dependencies are Gradle-style aliases from a workspace `libs.toml` (walks up, like `libs.versions.toml`). `zee get json` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed and **honors `zee.lock`**. `zee update` (or `zee update env`) re-resolves within the current constraint and rewrites the lock — `1.2` can pick a newer `1.2.x`, `1.2.3` stays exact. It does not edit `libs.toml`. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` is SemVer precision (`1.2` → latest `1.2.x`). Registry order: `ZEE_REGISTRY`, `[registry] url`, then `~/.zee/registry`. `zee publish` refuses overwrite. Contract: [`docs/REGISTRY.md`](docs/REGISTRY.md).
 
 ```toml
 # libs.toml (workspace root)
@@ -78,6 +78,48 @@ zee run
 ```
 
 `import json.ping` is the same spelling as a local module. There is no `package.json` as Zee config.
+
+First official library: [`zee-hq/env`](https://github.com/zee-hq/env) (fixture copy in [`libs/env`](libs/env) for language tests). Releases are Git tags matching `zee.toml` version (`0.1.0`, not `v0.1.0`). `import env` then `env.get` / `env.require` / `env.getOr` / `env.profile`. App identity is `[package]` in the running app's `zee.toml`: `env.appName()`, `env.appVersion()`, plus `env.appDescription()` / `appAuthor` / `appCompany` / `appContact` / `appLicense` / `appHomepage` / `appRepository` (all `Option<String>`), or `env.app("author")` for any quoted key. It also reads process env, then `.env`, `.env.local`, `.env.{profile}`, `.env.{profile}.local` next to `zee.toml`. Profile is `ZEE_PROFILE`, else `ZEE_ENV`, else a `ZEE_PROFILE` in `.env`, else `dev`. Process env always wins. Missing keys are `None`.
+
+```toml
+# libs.toml
+[versions]
+env = "0.1"
+
+[libraries]
+env = { git = "https://github.com/zee-hq/env.git", version.ref = "env" }
+```
+
+```toml
+# app/zee.toml
+[package]
+name = "hello"
+version = "0.1.0"
+description = "demo"
+author = "Ada"
+company = "Zee HQ"
+contact = "ada@zee.dev"
+license = "MIT"
+homepage = "https://zee.dev"
+repository = "https://github.com/zee-hq/hello"
+```
+
+```bash
+zee get env
+zee update env
+```
+
+```zee
+import env
+
+fn main() {
+  println(env.profile())
+  println(env.appName())
+  println(env.appVersion())
+  println(env.appAuthor() ?: "")
+  println(env.require("APP_NAME"))
+}
+```
 
 Generators follow Nest file names and Laravel flags:
 
@@ -244,6 +286,10 @@ editor/vscode   TextMate grammar + Run/Check commands
 | `zee generate controller <name> [--api\|-i]` | Nest controller; Laravel `--api` or invokable `-i` |
 | `zee generate service <name>` | Nest service |
 | `zee generate resource <name>` | module + controller + service |
+| `zee get [alias...]` | fetch `[deps]` into `.zee/` (catalog aliases optional; honors lock) |
+| `zee update [name...]` | re-resolve deps within current constraints and rewrite `zee.lock` |
+| `zee publish` | publish this package to `ZEE_REGISTRY` / `[registry] url` |
+| `zee registry` | serve the HTTP registry from a file root (`--root`, `--token`, `--port`) |
 | `zee run [file]` | interpret a program (or the project entry) |
 | `zee check [file]` | type-check only |
 | `zee` | REPL |

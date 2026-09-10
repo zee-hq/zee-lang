@@ -1,0 +1,23 @@
+class User {
+  const name: String
+}
+
+struct Point {
+  const x: i32
+  const y: i32
+}
+
+data struct Row {
+  const id: i32
+}
+
+enum Status {
+  Ok
+  Fail
+}
+
+interface Closeable {
+  fn close(self)
+}
+
+newtype UserId = i32

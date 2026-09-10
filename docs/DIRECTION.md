@@ -1001,7 +1001,7 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 8. `while` / `until` + `do-while` / `do-until` + `break`/`continue`  *(in the interpreter)*  
 9. three-clause `for` + `for i in 0..n`  *(in the interpreter)*  
 10. `T[]` + `redim` arrays + `struct` / `data` / `readonly`  *(in the interpreter; `for x in xs` enabled)*  
-11. `pub` / `internal` + `import` (second directory)  *(in the interpreter; `[deps]` + `libs.toml` catalog + `zee get` → `.zee/` + `zee.lock` — SemVer registry is ZEE-5)*  
+11. `pub` / `internal` + `import` (second directory)  *(in the interpreter; `[deps]` + `libs.toml` + `zee get` / `zee update` / `zee publish` + file and HTTP registry via `zee registry`)*  
 12. `sealed` + `match` on variants  *(in the interpreter; `sealed class` landed with item 14)*  
 13. `List<T>` / `Map<K, V>` as library types on top of arrays  *(in the interpreter; methods/`self` UFCS landed first so `xs.map { }` exists)*  
 14. `class` (reference) + `===` / `!==` + `copy()` on `data`  *(in the interpreter; closed — no `open` / `abstract`)*  
@@ -1178,7 +1178,7 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 28. **Concurrency** — Zee scheduler, **explicit coroutines**. Spawn names the dispatcher (`task cpu { }`). Hop queues with `on io { }` (runs that block there, then resumes here). `yield` is an explicit scheduler turn. `recv` / `send` / `select` also park. No `go`, no `async`/`await`, no function coloring. `Chan<T>` + `select` stay. Not Go’s runtime, not Promises, not OS threads as the language.
 29. **Unsafe / FFI** — `unsafe { }` / `unsafe fn`; `*T` / `*var T`; `repr(C)` / `repr(packed)`; `extern "C"` / `extern "host"`; `asm("…")` inside unsafe. Host may refuse `asm` (capability).
 30. **No macros.** Codegen is `zee generate`. No preprocessor.
-31. **Packages** — `zee.toml` `[package]` + `[deps]`; workspace `libs.toml` catalog (Gradle aliases); `zee get` + `.zee/` + `zee.lock`. Path and git now, registry later. One app manifest. No `package.json` as Zee config.
+31. **Packages** — `zee.toml` `[package]` + `[deps]`; `libs.toml` catalog; `zee get` (honors lock) + `zee update` (re-resolve within constraint) + `.zee/` + `zee.lock`; SemVer via registry (`docs/REGISTRY.md`) + `zee publish`. One app manifest. No `package.json` as Zee config. First official lib: `libs/env` (`import env`) — process env + `.env` / `.env.{profile}` next to `zee.toml`. Host builtins `getenv` / `envProfile` (no Zee `null`).
 32. **`<===>`** — three-way compare (PHP `<=>`), spelled so it cannot be `<=` / `=>` / `===`. `Ord` only; result is `i32` (`-1` / `0` / `1`). `||=` stays on `var bool` with `&&=` (short-circuit).
 
 ---
@@ -1270,7 +1270,8 @@ unsafe { asm("nop") }
 ### 8c. Macros, packages, backends
 
 - **No macros**, no `#define`, no compile-time AST plugins. `zee generate` is files on disk.
-- **`zee.toml`**: `[package]` + `[deps]`. Prefer `{ lib = "json" }` from workspace `libs.toml` (`[libraries]` + `[versions]` / `version.ref`, Gradle catalog). `zee get json` adds the alias. Path/git inline still work. Materialize in `.zee/`. `zee.lock` pins hashes. Registry + `zee publish` wait.
+- **`zee.toml`**: `[package]` + `[deps]`. `[package]` identity: required `name`; `version` (default `0.1.0`); `entry`; optional `description`, `author`, `company`, `contact`, `license`, `homepage`, `repository` (quoted strings). Prefer `{ lib = "json" }` from workspace `libs.toml`. Path/git inline still work. SemVer `json = "1.2"` is precision-based (`1.2` → latest `1.2.x`, `1.2.3` exact) via `ZEE_REGISTRY`, `[registry] url`, or `~/.zee/registry` — see [`docs/REGISTRY.md`](REGISTRY.md). Git catalog tags use the same precision (`version.ref = "1.0"` → latest `1.0.x` tag). `zee get` honors `zee.lock`; `zee update` [name...] re-resolves within the constraint and rewrites the lock (does not edit `libs.toml`). `zee publish` refuses overwrite. HTTP: `zee registry` serves `GET`/`PUT /api/v1/packages/…` (PUT needs `ZEE_REGISTRY_TOKEN`). Materialize in `.zee/`. `zee.lock` pins hashes.
+- **Official libs** are GitHub packages under `zee-hq`, versioned by Git tags matching `zee.toml`. First: [`zee-hq/env`](https://github.com/zee-hq/env) (`import env`; `zee get env` via `libs.toml` `{ git, version.ref }`; `zee update env` picks a newer matching tag). Profile `ZEE_PROFILE` then `ZEE_ENV` then `.env` then `dev`; files `.env`, `.env.local`, `.env.{profile}`, `.env.{profile}.local`; process env wins. Dotenv parsing is a host overlay until Zee has string split. No `$VAR` expansion in v0. In-tree `libs/env` is the language-test fixture.
 - **Tests:** `*_test.zee` / `test/` + `fn testFoo()`. Tooling (`zee test`), not a `test` keyword.
 - **Self-host, LLVM, WASM, JVM:** machines (§6c). Not dialects. Not open language questions.
 

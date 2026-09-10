@@ -55,6 +55,15 @@ export interface StructField {
   loc: Loc
 }
 
+export interface AssociatedConst {
+  name: string
+  mutable: boolean
+  visibility: Visibility
+  typeAnn?: TypeAst
+  init: Expr
+  loc: Loc
+}
+
 export interface Param {
   name: string
   type: TypeAst
@@ -174,6 +183,7 @@ export type Stmt =
       kind: 'fn'
       visibility: Visibility
       name: string
+      typeParams: string[]
       params: Param[]
       returnType?: TypeAst
       body: Block
@@ -188,6 +198,8 @@ export type Stmt =
       sealed: boolean
       identity: boolean
       fields: StructField[]
+      associated: AssociatedConst[]
+      nested: Stmt[]
       variants: StructVariant[]
       implements: string[]
       methods: Extract<Stmt, { kind: 'fn' }>[]

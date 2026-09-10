@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import type { Program } from './ast.ts'
 import { check } from './checker.ts'
 import { ZeeError } from './error.ts'
 import { display, interpret, type RunResult, type ZeeValue } from './interpreter.ts'
 import { parse } from './parser.ts'
 import { getPackages } from './pkg.ts'
-import { isPackageSourceFile, listPackageSources, readManifest } from './project.ts'
+import { findProjectRoot, isPackageSourceFile, listPackageSources, readManifest } from './project.ts'
 
 export { VERSION } from './error.ts'
 export { ZeeError, PanicError } from './error.ts'
@@ -17,6 +18,9 @@ export interface ExecuteOptions {
   file?: string
   print?: (text: string) => void
   callMain?: boolean
+  root?: string
+  processEnv?: NodeJS.Dict<string>
+  readText?: (path: string) => string | undefined
 }
 
 export interface ExecuteResult extends RunResult {
@@ -31,7 +35,11 @@ export function execute(source: string, options: ExecuteOptions = {}): ExecuteRe
   })
   const program = parse(source, file)
   check(program)
-  const result = interpret(program, { print }, { callMain: options.callMain })
+  const result = interpret(
+    program,
+    { print, root: options.root, processEnv: options.processEnv, readText: options.readText },
+    { callMain: options.callMain },
+  )
   return { ...result, stdout }
 }
 
@@ -73,7 +81,12 @@ export function executePath(path: string, options: Omit<ExecuteOptions, 'file'> 
     stdout += text
   })
   check(program)
-  const result = interpret(program, { print }, { callMain: options.callMain })
+  const root = options.root ?? findProjectRoot(dirname(path))
+  const result = interpret(
+    program,
+    { print, root, processEnv: options.processEnv, readText: options.readText },
+    { callMain: options.callMain },
+  )
   return { ...result, stdout }
 }
 

@@ -78,7 +78,7 @@ export type ZeeType =
   | { kind: 'unit' }
   | { kind: 'option'; inner: ZeeType }
   | { kind: 'tuple'; parts: ZeeType[] }
-  | { kind: 'fn'; params: ZeeType[]; ret: ZeeType }
+  | { kind: 'fn'; params: ZeeType[]; ret: ZeeType; typeParams?: string[] }
   | { kind: 'never' }
   | { kind: 'array'; elem: ZeeType }
   | { kind: 'list'; elem: ZeeType }
@@ -97,8 +97,9 @@ export type ZeeType =
   | SealedType
   | NewtypeType
   | InterfaceType
-  | { kind: 'typeNs'; of: EnumType | SealedType }
+  | { kind: 'typeNs'; of: EnumType | SealedType | Extract<ZeeType, { kind: 'struct' }> }
   | { kind: 'module'; name: string }
+  | { kind: 'typeParam'; name: string }
 
 export const T_I32: ZeeType = { kind: 'i32' }
 export const T_U8: ZeeType = { kind: 'u8' }
@@ -261,6 +262,10 @@ export function parseIntLexeme(lexeme: string): bigint | undefined {
 export function typeEq(a: ZeeType, b: ZeeType): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'fn' && b.kind === 'fn') {
+    if ((a.typeParams?.length ?? 0) !== (b.typeParams?.length ?? 0)) return false
+    if (a.typeParams && b.typeParams && !a.typeParams.every((name, index) => name === b.typeParams![index])) {
+      return false
+    }
     if (a.params.length !== b.params.length) return false
     if (!typeEq(a.ret, b.ret)) return false
     return a.params.every((param, index) => typeEq(param, b.params[index]!))
@@ -299,6 +304,9 @@ export function typeEq(a: ZeeType, b: ZeeType): boolean {
   if (a.kind === 'typeNs' && b.kind === 'typeNs') {
     return typeEq(a.of, b.of)
   }
+  if (a.kind === 'typeParam' && b.kind === 'typeParam') {
+    return a.name === b.name
+  }
   return true
 }
 
@@ -332,6 +340,7 @@ export function isEquatable(type: ZeeType): boolean {
     case 'module':
     case 'typeNs':
     case 'interface':
+    case 'typeParam':
       return false
     case 'list':
       return isEquatable(type.elem)
@@ -380,6 +389,8 @@ export function typeName(type: ZeeType): string {
     case 'typeNs':
       return typeName(type.of)
     case 'module':
+      return type.name
+    case 'typeParam':
       return type.name
   }
 }

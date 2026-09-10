@@ -1,5 +1,6 @@
 import type { AssignOp, Block, Expr, MatchPattern, Program, Stmt, TypeAst, Visibility } from './ast.ts'
 import { PanicError, ZeeError } from './error.ts'
+import { hostEnvFor, lookupEnv } from './host-env.ts'
 import {
   INT_KINDS,
   canWidenInt,
@@ -78,6 +79,13 @@ export type ZeeValue =
       identity: boolean
       variants: RuntimeSealedVariant[]
     }
+  | {
+      type: 'typeNs'
+      tag: 'struct'
+      name: string
+      module: string
+      members: Record<string, ZeeValue>
+    }
   | { type: 'fn'; name: string; params: string[]; body: Block; env: Env; mutatingReceiver: boolean }
   | { type: 'closure'; params: string[]; body: Block; env: Env }
   | { type: 'builtin'; name: string }
@@ -101,6 +109,9 @@ interface StructInfo {
 
 export interface RuntimeIo {
   print: (text: string) => void
+  root?: string
+  processEnv?: NodeJS.Dict<string>
+  readText?: (path: string) => string | undefined
 }
 
 const UNIT: ZeeValue = { type: 'unit' }
@@ -245,6 +256,9 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
   builtins.define('str', { type: 'builtin', name: 'str' })
   builtins.define('error', { type: 'builtin', name: 'error' })
   builtins.define('panic', { type: 'builtin', name: 'panic' })
+  builtins.define('getenv', { type: 'builtin', name: 'getenv' })
+  builtins.define('envProfile', { type: 'builtin', name: 'envProfile' })
+  builtins.define('envAppMeta', { type: 'builtin', name: 'envAppMeta' })
   builtins.define('Some', { type: 'builtin', name: 'Some' })
   builtins.define('None', { type: 'option', tag: 'none' })
   builtins.defineStruct('Fail', {
@@ -321,37 +335,7 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
             fileEnv.moduleHome.define(stmt.name, ns, false, stmt.visibility)
           }
         } else {
-          const info: StructInfo = {
-            name: stmt.name,
-            module: unit.module,
-            data: stmt.data,
-            readonly: stmt.readonly,
-            identity: stmt.identity,
-            fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable })),
-          }
-          fileEnv.defineStruct(stmt.name, info)
-          if (stmt.visibility !== 'private') {
-            fileEnv.moduleHome.defineStruct(stmt.name, info)
-          }
-          for (const method of stmt.methods) {
-            const mutatingReceiver = method.params[0]?.name === 'self' && method.params[0].mutable
-            const fn: ZeeValue = {
-              type: 'fn',
-              name: method.name,
-              params: method.params.map((param) => param.name),
-              body: method.body,
-              env: fileEnv,
-              mutatingReceiver,
-            }
-            fileEnv.define(method.name, fn, false, method.visibility)
-            if (method.visibility !== 'private') {
-              fileEnv.moduleHome.define(method.name, fn, false, method.visibility)
-            }
-            fileEnv.defineMethod(stmt.name, method.name, fn)
-            if (method.visibility !== 'private') {
-              fileEnv.moduleHome.defineMethod(stmt.name, method.name, fn)
-            }
-          }
+          registerRuntimeStruct(stmt, fileEnv, unit.module, undefined, io)
         }
       } else if (stmt.kind === 'enumDecl') {
         const ns: ZeeValue = {
@@ -458,6 +442,82 @@ function bindRuntimeName(fileEnv: Env, moduleEnv: Env, name: string, bindAs: str
   if (slot) fileEnv.define(bindAs, slot.value, slot.mutable, 'pub')
   const info = moduleEnv.getStruct(name)
   if (info) fileEnv.defineStruct(bindAs, info)
+}
+
+function registerRuntimeStruct(
+  stmt: Extract<Stmt, { kind: 'structDecl' }>,
+  fileEnv: Env,
+  unitModule: string,
+  owner: string | undefined,
+  io: RuntimeIo,
+): Extract<ZeeValue, { type: 'typeNs'; tag: 'struct' }> {
+  const name = owner ? `${owner}.${stmt.name}` : stmt.name
+  const info: StructInfo = {
+    name,
+    module: unitModule,
+    data: stmt.data,
+    readonly: stmt.readonly,
+    identity: stmt.identity,
+    fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable })),
+  }
+  fileEnv.defineStruct(name, info)
+  if (stmt.visibility !== 'private') {
+    fileEnv.moduleHome.defineStruct(name, info)
+  }
+  const members: Record<string, ZeeValue> = {}
+  const ns: Extract<ZeeValue, { type: 'typeNs'; tag: 'struct' }> = {
+    type: 'typeNs',
+    tag: 'struct',
+    name: stmt.name,
+    module: unitModule,
+    members,
+  }
+  if (!owner) {
+    fileEnv.define(stmt.name, ns, false, stmt.visibility)
+    if (stmt.visibility !== 'private') {
+      fileEnv.moduleHome.define(stmt.name, ns, false, stmt.visibility)
+    }
+  }
+  for (const nested of stmt.nested) {
+    if (nested.kind === 'structDecl' && !nested.sealed) {
+      members[nested.name] = registerRuntimeStruct(nested, fileEnv, unitModule, name, io)
+    } else if (nested.kind === 'enumDecl') {
+      members[nested.name] = {
+        type: 'typeNs',
+        tag: 'enum',
+        name: nested.name,
+        module: unitModule,
+        variants: nested.variants.map((variant) => variant.name),
+      }
+    }
+  }
+  for (const item of stmt.associated) {
+    members[item.name] = copyValue(evalExpr(item.init, fileEnv, io))
+  }
+  for (const method of stmt.methods) {
+    const mutatingReceiver = method.params[0]?.name === 'self' && method.params[0].mutable
+    const fn: Extract<ZeeValue, { type: 'fn' }> = {
+      type: 'fn',
+      name: method.name,
+      params: method.params.map((param) => param.name),
+      body: method.body,
+      env: fileEnv,
+      mutatingReceiver,
+    }
+    if (method.params[0]?.name === 'self') {
+      fileEnv.define(method.name, fn, false, method.visibility)
+      if (method.visibility !== 'private') {
+        fileEnv.moduleHome.define(method.name, fn, false, method.visibility)
+      }
+      fileEnv.defineMethod(name, method.name, fn)
+      if (method.visibility !== 'private') {
+        fileEnv.moduleHome.defineMethod(name, method.name, fn)
+      }
+    } else {
+      members[method.name] = fn
+    }
+  }
+  return ns
 }
 
 function maybeGet(env: Env, name: string): ZeeValue | undefined {
@@ -1156,6 +1216,18 @@ function memberOnValue(
       }
       return { type: 'enum', name: target.name, module: target.module, variant: field, ordinal }
     }
+    if (target.tag === 'struct') {
+      const member = target.members[field]
+      if (member === undefined) {
+        throw new ZeeError(
+          `unknown associated name \`${field}\` on ${target.name}`,
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      return copyValue(member)
+    }
     throw new ZeeError(
       `sealed variant \`${field}\` needs a struct literal`,
       loc.line,
@@ -1274,6 +1346,11 @@ function resolveRuntimeSealed(
 }
 
 function resolveRuntimeStruct(expr: Extract<Expr, { kind: 'structLit' }>, env: Env): StructInfo {
+  if (expr.qualifier && expr.qualifier.length > 0) {
+    const nestedName = `${expr.qualifier.join('.')}.${expr.name}`
+    const nested = env.getStruct(nestedName)
+    if (nested) return nested
+  }
   if (!expr.qualifier || expr.qualifier.length === 0) {
     const info = env.getStruct(expr.name)
     if (!info) {
@@ -1738,6 +1815,32 @@ function callBuiltin(
     }
     return { type: 'option', tag: 'some', value: args[0]! }
   }
+  if (name === 'getenv') {
+    const key = args[0]
+    if (!key || key.type !== 'string') {
+      throw new ZeeError('`getenv` expects a String', loc.line, loc.column, loc.file)
+    }
+    const loaded = hostEnvFor(io)
+    const processEnv = io.processEnv ?? process.env
+    const value = lookupEnv(key.value, loaded, processEnv)
+    if (value === undefined) return { type: 'option', tag: 'none' }
+    return { type: 'option', tag: 'some', value: { type: 'string', value } }
+  }
+  if (name === 'envProfile') {
+    if (args.length !== 0) {
+      throw new ZeeError('`envProfile` takes no arguments', loc.line, loc.column, loc.file)
+    }
+    return { type: 'string', value: hostEnvFor(io).profile }
+  }
+  if (name === 'envAppMeta') {
+    const key = args[0]
+    if (!key || key.type !== 'string') {
+      throw new ZeeError('`envAppMeta` expects a String', loc.line, loc.column, loc.file)
+    }
+    const value = hostEnvFor(io).app.get(key.value)
+    if (value === undefined) return { type: 'option', tag: 'none' }
+    return { type: 'option', tag: 'some', value: { type: 'string', value } }
+  }
   throw new ZeeError(`unknown builtin \`${name}\``, loc.line, loc.column, loc.file)
 }
 
@@ -1996,16 +2099,29 @@ function typeOfValue(value: ZeeValue): ZeeType {
         implements: [],
       }
     case 'typeNs':
-      return value.tag === 'enum'
-        ? { kind: 'enum', name: value.name, module: value.module, variants: value.variants, implements: [] }
-        : {
-            kind: 'sealed',
-            name: value.name,
-            module: value.module,
-            identity: value.identity,
-            variants: [],
-            implements: [],
-          }
+      if (value.tag === 'enum') {
+        return { kind: 'enum', name: value.name, module: value.module, variants: value.variants, implements: [] }
+      }
+      if (value.tag === 'struct') {
+        return {
+          kind: 'struct',
+          name: value.name,
+          module: value.module,
+          data: false,
+          readonly: false,
+          identity: false,
+          fields: [],
+          implements: [],
+        }
+      }
+      return {
+        kind: 'sealed',
+        name: value.name,
+        module: value.module,
+        identity: value.identity,
+        variants: [],
+        implements: [],
+      }
     case 'fn':
     case 'closure':
     case 'builtin':

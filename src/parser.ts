@@ -1,4 +1,5 @@
 import type {
+  AssociatedConst,
   AssignOp,
   BinaryOp,
   Block,
@@ -275,17 +276,19 @@ class Parser {
         sealed: true,
         identity,
         fields: [],
+        associated: [],
+        nested: [],
         variants,
         implements: [],
         methods: [],
         loc,
       }
     }
-    const fields = this.parseStructFields()
-    this.consume('}', `expected \`}\` after ${form} fields`)
+    const body = this.parseTypeBody(nameTok.lexeme)
+    this.consume('}', `expected \`}\` after ${form} members`)
     const implementsAfter = this.parseImplementsClause()
     const implemented = uniqueImplements([...implementsBefore, ...implementsAfter])
-    const methods =
+    const afterMethods =
       this.check('{') && this.peekAt(1).kind === 'fn'
         ? this.parseTypeMethods(nameTok.lexeme)
         : []
@@ -297,10 +300,12 @@ class Parser {
       data,
       sealed: false,
       identity,
-      fields,
+      fields: body.fields,
+      associated: body.associated,
+      nested: body.nested,
       variants: [],
       implements: implemented,
-      methods,
+      methods: [...body.methods, ...afterMethods],
       loc,
     }
   }
@@ -351,6 +356,9 @@ class Parser {
       const fieldName = this.consume('ident', 'expected field name')
       this.consume(':', 'expected `:` after field name')
       const type = this.parseType()
+      if (this.check('=')) {
+        this.fail('associated `const` / `var` is not allowed on a sealed variant')
+      }
       this.match(';')
       fields.push({
         name: fieldName.lexeme,
@@ -361,6 +369,97 @@ class Parser {
       })
     }
     return fields
+  }
+
+  private parseTypeBody(receiverName: string): {
+    fields: StructField[]
+    associated: AssociatedConst[]
+    nested: Stmt[]
+    methods: Extract<Stmt, { kind: 'fn' }>[]
+  } {
+    const fields: StructField[] = []
+    const associated: AssociatedConst[] = []
+    const nested: Stmt[] = []
+    const methods: Extract<Stmt, { kind: 'fn' }>[] = []
+    const seen = new Set<string>()
+    const claim = (name: string): void => {
+      if (seen.has(name)) this.fail(`duplicate member \`${name}\``)
+      seen.add(name)
+    }
+    while (!this.check('}') && !this.isAtEnd()) {
+      const memberVis = this.parseVisibility() ?? 'private'
+      if (this.match('fn')) {
+        const fn = this.parseFn(memberVis, receiverName)
+        claim(fn.name)
+        methods.push(fn)
+        continue
+      }
+      if (this.match('enum')) {
+        const decl = this.parseEnumDecl(memberVis)
+        if (decl.kind !== 'enumDecl') this.fail('expected nested `enum`')
+        claim(decl.name)
+        nested.push(decl)
+        continue
+      }
+      if (this.match('type')) {
+        const decl = this.parseTypeAliasDecl(memberVis)
+        if (decl.kind !== 'typeAliasDecl') this.fail('expected nested `type`')
+        claim(decl.name)
+        nested.push(decl)
+        continue
+      }
+      if (this.match('newtype')) {
+        const decl = this.parseNewtypeDecl(memberVis)
+        if (decl.kind !== 'newtypeDecl') this.fail('expected nested `newtype`')
+        claim(decl.name)
+        nested.push(decl)
+        continue
+      }
+      if (this.looksLikeInterfaceDecl()) {
+        const decl = this.parseInterfaceDecl(memberVis)
+        if (decl.kind !== 'interfaceDecl') this.fail('expected nested `interface`')
+        claim(decl.name)
+        nested.push(decl)
+        continue
+      }
+      if (this.looksLikeTypeDecl()) {
+        const decl = this.parseStructDecl(memberVis)
+        if (decl.kind !== 'structDecl') this.fail('expected nested type')
+        claim(decl.name)
+        nested.push(decl)
+        continue
+      }
+      const mutable = this.match('var')
+      if (!mutable) this.consume('const', 'expected `const`, `var`, `fn`, or nested type')
+      const nameTok = this.consume('ident', 'expected member name')
+      let typeAnn: TypeAst | undefined
+      if (this.match(':')) typeAnn = this.parseType()
+      if (this.match('=')) {
+        const init = this.parseExpression()
+        this.match(';')
+        claim(nameTok.lexeme)
+        associated.push({
+          name: nameTok.lexeme,
+          mutable,
+          visibility: memberVis,
+          typeAnn,
+          init,
+          loc: nameTok.loc,
+        })
+        continue
+      }
+      if (!typeAnn) this.fail('expected `:` after field name')
+      this.match(';')
+      claim(nameTok.lexeme)
+      fields.push({
+        name: nameTok.lexeme,
+        mutable,
+        visibility: memberVis,
+        type: typeAnn,
+        loc: nameTok.loc,
+      })
+    }
+    return { fields, associated, nested, methods }
   }
 
   private parseEnumDecl(visibility: Visibility): Stmt {
@@ -511,6 +610,7 @@ class Parser {
   private parseFn(visibility: Visibility = 'private', receiverName?: string): Extract<Stmt, { kind: 'fn' }> {
     const loc = this.previous().loc
     const nameTok = this.consume('ident', 'expected function name')
+    const typeParams = this.parseTypeParams()
     this.consume('(', 'expected `(` after function name')
     const params: Param[] = []
     if (!this.check(')')) {
@@ -548,7 +648,7 @@ class Parser {
     let returnType: TypeAst | undefined
     if (this.match('->')) returnType = this.parseType()
     const body = this.parseBlock()
-    return { kind: 'fn', visibility, name: nameTok.lexeme, params, returnType, body, loc }
+    return { kind: 'fn', visibility, name: nameTok.lexeme, typeParams, params, returnType, body, loc }
   }
 
   private parseReturn(): Stmt {
@@ -1149,12 +1249,18 @@ class Parser {
   }
 
   private looksLikeTypeArgs(): boolean {
-    return (
-      this.check('<') &&
-      this.peekAt(1).kind === 'ident' &&
-      this.peekAt(2).kind === '>' &&
-      this.peekAt(3).kind === '('
-    )
+    if (!this.check('<')) return false
+    let depth = 0
+    for (let i = 0; i < 80; i += 1) {
+      const tok = this.peekAt(i)
+      if (tok.kind === 'eof') return false
+      if (tok.kind === '<') depth += 1
+      else if (tok.kind === '>') {
+        depth -= 1
+        if (depth === 0) return this.peekAt(i + 1).kind === '('
+      }
+    }
+    return false
   }
 
   private looksLikeExplicitLambda(): boolean {

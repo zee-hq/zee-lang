@@ -16,6 +16,8 @@ function scratch(): string {
 }
 
 afterEach(() => {
+  delete process.env.ZEE_REGISTRY
+  delete process.env.ZEE_HOME
   for (const dir of temps.splice(0)) {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -63,11 +65,35 @@ future = "1.2"
     expect(manifest.deps.get('future')).toEqual({ kind: 'version', version: '1.2' })
   })
 
-  it('refuses a SemVer dep because there is no registry yet', () => {
+  it('parses optional [package] identity fields (AC-env-app)', () => {
+    const manifest = parseManifest(`
+[package]
+name = "hello"
+version = "1.4.2"
+description = "demo app"
+author = "Ada"
+company = "Zee HQ"
+contact = "ada@zee.dev"
+license = "MIT"
+homepage = "https://zee.dev"
+repository = "https://github.com/zee-hq/hello"
+`)
+    expect(manifest.description).toBe('demo app')
+    expect(manifest.author).toBe('Ada')
+    expect(manifest.company).toBe('Zee HQ')
+    expect(manifest.contact).toBe('ada@zee.dev')
+    expect(manifest.license).toBe('MIT')
+    expect(manifest.homepage).toBe('https://zee.dev')
+    expect(manifest.repository).toBe('https://github.com/zee-hq/hello')
+    expect(manifest.meta.get('author')).toBe('Ada')
+  })
+
+  it('refuses a SemVer dep when the package is not in the default registry', () => {
     const parent = scratch()
+    process.env.ZEE_HOME = parent
     const app = createProject({ name: 'app', parentDir: parent, mode: 'new' })
     write(app.root, 'zee.toml', `[package]\nname = "app"\nversion = "0.1.0"\nentry = "src/main.zee"\n\n[deps]\njson = "1.2"\n`)
-    expect(() => getPackages(app.root)).toThrow(/registry/)
+    expect(() => getPackages(app.root)).toThrow(/not in the registry/)
   })
 })
 

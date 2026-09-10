@@ -59,6 +59,14 @@ interface MethodInfo {
   module: string
 }
 
+interface AssociatedInfo {
+  name: string
+  type: ZeeType
+  visibility: Visibility
+  file: string
+  module: string
+}
+
 class TypeEnv {
   private captureLimit: TypeEnv | undefined
   loopDepth = 0
@@ -81,7 +89,9 @@ class TypeEnv {
   private readonly newtypeVis = new Map<string, Visibility>()
   private readonly interfaceVis = new Map<string, Visibility>()
   private readonly methodMap = new Map<string, Map<string, MethodInfo>>()
+  private readonly associatedMap = new Map<string, Map<string, AssociatedInfo>>()
   private readonly mutatingFns = new Set<string>()
+  private readonly typeParamNames = new Set<string>()
 
   constructor(
     private readonly parent: TypeEnv | undefined,
@@ -206,12 +216,37 @@ class TypeEnv {
     return this.ownMethod(typeKey, name) ?? this.parent?.getMethod(typeKey, name)
   }
 
+  defineAssociated(typeKey: string, info: AssociatedInfo): void {
+    let bucket = this.associatedMap.get(typeKey)
+    if (!bucket) {
+      bucket = new Map()
+      this.associatedMap.set(typeKey, bucket)
+    }
+    bucket.set(info.name, info)
+  }
+
+  ownAssociated(typeKey: string, name: string): AssociatedInfo | undefined {
+    return this.associatedMap.get(typeKey)?.get(name)
+  }
+
+  getAssociated(typeKey: string, name: string): AssociatedInfo | undefined {
+    return this.ownAssociated(typeKey, name) ?? this.parent?.getAssociated(typeKey, name)
+  }
+
   markMutatingFn(name: string): void {
     this.mutatingFns.add(name)
   }
 
   isMutatingFn(name: string): boolean {
     return this.mutatingFns.has(name) || (this.parent?.isMutatingFn(name) ?? false)
+  }
+
+  defineTypeParam(name: string): void {
+    this.typeParamNames.add(name)
+  }
+
+  isTypeParam(name: string): boolean {
+    return this.typeParamNames.has(name) || (this.parent?.isTypeParam(name) ?? false)
   }
 
   hasOwn(name: string): boolean {
@@ -357,33 +392,7 @@ export function check(program: Program): CheckedProgram {
     const fileEnv = fileEnvs.get(unit.file)!
     for (const stmt of unit.stmts) {
       if (stmt.kind === 'structDecl') {
-        defineTopLevelName(stmt.name, stmt.visibility, fileEnv, stmt.loc)
-        if (stmt.sealed) {
-          const sealedType: SealedType = {
-            kind: 'sealed',
-            name: stmt.name,
-            module: unit.module,
-            identity: stmt.identity,
-            variants: [],
-            implements: [],
-          }
-          publishSealed(fileEnv, stmt.name, sealedType, stmt.visibility)
-        } else {
-          const structType: Extract<ZeeType, { kind: 'struct' }> = {
-            kind: 'struct',
-            name: stmt.name,
-            module: unit.module,
-            data: stmt.data,
-            readonly: stmt.readonly,
-            identity: stmt.identity,
-            fields: [],
-            implements: [],
-          }
-          fileEnv.defineStruct(stmt.name, structType, stmt.visibility)
-          if (stmt.visibility !== 'private') {
-            fileEnv.moduleHome.defineStruct(stmt.name, structType, stmt.visibility)
-          }
-        }
+        registerStructDecl(stmt, fileEnv, unit.module, unit.file, undefined)
       } else if (stmt.kind === 'enumDecl') {
         defineTopLevelName(stmt.name, stmt.visibility, fileEnv, stmt.loc)
         const enumType: EnumType = {
@@ -447,19 +456,7 @@ export function check(program: Program): CheckedProgram {
     const fileEnv = fileEnvs.get(unit.file)!
     for (const stmt of unit.stmts) {
       if (stmt.kind === 'structDecl' && !stmt.sealed) {
-        const structType = fileEnv.getStruct(stmt.name)!
-        const seen = new Set<string>()
-        structType.fields = stmt.fields.map((field) => {
-          if (seen.has(field.name)) throw error(field.loc, `duplicate field \`${field.name}\``)
-          seen.add(field.name)
-          return {
-            name: field.name,
-            mutable: field.mutable,
-            visibility: field.visibility,
-            file: unit.file,
-            type: resolveTypeAst(field.type, fileEnv),
-          }
-        })
+        fillStructFields(stmt, fileEnv, unit.file, undefined)
       } else if (stmt.kind === 'structDecl' && stmt.sealed) {
         const sealedType = fileEnv.getSealed(stmt.name)!
         const seen = new Set<string>()
@@ -530,9 +527,21 @@ export function check(program: Program): CheckedProgram {
     unitFile: string,
   ): void => {
     defineTopLevelName(stmt.name, stmt.visibility, fileEnv, stmt.loc)
-    const params = stmt.params.map((param) => resolveTypeAst(param.type, fileEnv))
-    const ret = stmt.returnType ? resolveTypeAst(stmt.returnType, fileEnv) : T_UNIT
-    const fnType: Extract<ZeeType, { kind: 'fn' }> = { kind: 'fn', params, ret }
+    const seenParams = new Set<string>()
+    const sigEnv = fileEnv.child()
+    for (const typeParam of stmt.typeParams) {
+      if (seenParams.has(typeParam)) throw error(stmt.loc, `duplicate type parameter \`${typeParam}\``)
+      seenParams.add(typeParam)
+      sigEnv.defineTypeParam(typeParam)
+    }
+    const params = stmt.params.map((param) => resolveTypeAst(param.type, sigEnv))
+    const ret = stmt.returnType ? resolveTypeAst(stmt.returnType, sigEnv) : T_UNIT
+    const fnType: Extract<ZeeType, { kind: 'fn' }> = {
+      kind: 'fn',
+      params,
+      ret,
+      typeParams: stmt.typeParams.length > 0 ? stmt.typeParams : undefined,
+    }
     fileEnv.define(stmt.name, fnType, false, stmt.visibility)
     if (stmt.visibility !== 'private') {
       fileEnv.moduleHome.define(stmt.name, fnType, false, stmt.visibility)
@@ -568,7 +577,7 @@ export function check(program: Program): CheckedProgram {
     for (const stmt of unit.stmts) {
       if (stmt.kind === 'fn') registerFn(stmt, fileEnv, unit.module, unit.file)
       if (stmt.kind === 'structDecl') {
-        for (const method of stmt.methods) registerFn(method, fileEnv, unit.module, unit.file)
+        registerStructMembers(stmt, fileEnv, unit.module, unit.file, undefined, registerFn)
       }
     }
   }
@@ -624,7 +633,7 @@ export function check(program: Program): CheckedProgram {
     for (const stmt of unit.stmts) {
       if (stmt.kind === 'fn') checkFnBody(stmt, fileEnv)
       if (stmt.kind === 'structDecl') {
-        for (const method of stmt.methods) checkFnBody(method, fileEnv)
+        checkStructBodies(stmt, fileEnv, undefined)
       }
     }
   }
@@ -643,11 +652,18 @@ export function check(program: Program): CheckedProgram {
   return { program, functions }
 }
 
-function checkFnBody(stmt: Extract<Stmt, { kind: 'fn' }>, fileEnv: TypeEnv): void {
-  const fnType = fileEnv.get(stmt.name)
+function checkFnBody(
+  stmt: Extract<Stmt, { kind: 'fn' }>,
+  fileEnv: TypeEnv,
+  fnTypeHint?: ZeeType,
+): void {
+  const fnType = fnTypeHint ?? fileEnv.get(stmt.name)
   if (!fnType || fnType.kind !== 'fn') return
   const bodyEnv = fileEnv.child()
   bodyEnv.fnDepth += 1
+  for (const typeParam of stmt.typeParams) {
+    bodyEnv.defineTypeParam(typeParam)
+  }
   stmt.params.forEach((param, index) => {
     bodyEnv.define(param.name, fnType.params[index]!, param.mutable)
   })
@@ -696,6 +712,282 @@ function publishSealed(fileEnv: TypeEnv, name: string, type: SealedType, visibil
   if (visibility !== 'private') {
     fileEnv.moduleHome.defineSealed(name, type, visibility)
     fileEnv.moduleHome.define(name, { kind: 'typeNs', of: type }, false, visibility)
+  }
+}
+
+function qualifiedTypeName(owner: string | undefined, name: string): string {
+  return owner ? `${owner}.${name}` : name
+}
+
+function registerStructDecl(
+  stmt: Extract<Stmt, { kind: 'structDecl' }>,
+  fileEnv: TypeEnv,
+  unitModule: string,
+  unitFile: string,
+  owner: string | undefined,
+): void {
+  const name = qualifiedTypeName(owner, stmt.name)
+  if (!owner) defineTopLevelName(stmt.name, stmt.visibility, fileEnv, stmt.loc)
+  if (stmt.sealed) {
+    const sealedType: SealedType = {
+      kind: 'sealed',
+      name: name,
+      module: unitModule,
+      identity: stmt.identity,
+      variants: [],
+      implements: [],
+    }
+    if (!owner) {
+      publishSealed(fileEnv, stmt.name, sealedType, stmt.visibility)
+    } else {
+      fileEnv.defineSealed(name, sealedType, stmt.visibility)
+      if (stmt.visibility !== 'private') {
+        fileEnv.moduleHome.defineSealed(name, sealedType, stmt.visibility)
+      }
+      attachAssociatedType(fileEnv, owner, stmt.name, { kind: 'typeNs', of: sealedType }, stmt.visibility, unitFile, unitModule)
+    }
+    return
+  }
+  const structType: Extract<ZeeType, { kind: 'struct' }> = {
+    kind: 'struct',
+    name,
+    module: unitModule,
+    data: stmt.data,
+    readonly: stmt.readonly,
+    identity: stmt.identity,
+    fields: [],
+    implements: [],
+  }
+  fileEnv.defineStruct(name, structType, stmt.visibility)
+  if (stmt.visibility !== 'private') {
+    fileEnv.moduleHome.defineStruct(name, structType, stmt.visibility)
+  }
+  if (!owner) {
+    fileEnv.define(stmt.name, { kind: 'typeNs', of: structType }, false, stmt.visibility)
+    if (stmt.visibility !== 'private') {
+      fileEnv.moduleHome.define(stmt.name, { kind: 'typeNs', of: structType }, false, stmt.visibility)
+    }
+  } else {
+    attachAssociatedType(
+      fileEnv,
+      owner,
+      stmt.name,
+      { kind: 'typeNs', of: structType },
+      stmt.visibility,
+      unitFile,
+      unitModule,
+    )
+  }
+  for (const nested of stmt.nested) {
+    registerNestedDecl(nested, fileEnv, unitModule, unitFile, name)
+  }
+}
+
+function registerNestedDecl(
+  stmt: Stmt,
+  fileEnv: TypeEnv,
+  unitModule: string,
+  unitFile: string,
+  owner: string,
+): void {
+  if (stmt.kind === 'structDecl') {
+    registerStructDecl(stmt, fileEnv, unitModule, unitFile, owner)
+    return
+  }
+  if (stmt.kind === 'enumDecl') {
+    const name = qualifiedTypeName(owner, stmt.name)
+    const enumType: EnumType = {
+      kind: 'enum',
+      name,
+      module: unitModule,
+      variants: stmt.variants.map((variant) => variant.name),
+      implements: [],
+    }
+    fileEnv.defineEnum(name, enumType, stmt.visibility)
+    if (stmt.visibility !== 'private') {
+      fileEnv.moduleHome.defineEnum(name, enumType, stmt.visibility)
+    }
+    attachAssociatedType(
+      fileEnv,
+      owner,
+      stmt.name,
+      { kind: 'typeNs', of: enumType },
+      stmt.visibility,
+      unitFile,
+      unitModule,
+    )
+    return
+  }
+  if (stmt.kind === 'typeAliasDecl') {
+    const info: TypeAliasInfo = {
+      name: qualifiedTypeName(owner, stmt.name),
+      module: unitModule,
+      visibility: stmt.visibility,
+      typeParams: stmt.typeParams,
+      aliased: stmt.aliased,
+      loc: stmt.loc,
+      file: unitFile,
+    }
+    fileEnv.defineAlias(info)
+    if (stmt.visibility !== 'private') fileEnv.moduleHome.defineAlias(info)
+    return
+  }
+  if (stmt.kind === 'newtypeDecl') {
+    const name = qualifiedTypeName(owner, stmt.name)
+    const newtype: NewtypeType = {
+      kind: 'newtype',
+      name,
+      module: unitModule,
+      inner: T_UNIT,
+      implements: [],
+    }
+    fileEnv.defineNewtype(name, newtype, stmt.visibility)
+    if (stmt.visibility !== 'private') {
+      fileEnv.moduleHome.defineNewtype(name, newtype, stmt.visibility)
+    }
+    attachAssociatedType(fileEnv, owner, stmt.name, newtype, stmt.visibility, unitFile, unitModule)
+    return
+  }
+  if (stmt.kind === 'interfaceDecl') {
+    const name = qualifiedTypeName(owner, stmt.name)
+    const iface: InterfaceType = {
+      kind: 'interface',
+      name,
+      module: unitModule,
+      sealed: stmt.sealed,
+      methods: [],
+      implementors: [],
+    }
+    fileEnv.defineInterface(name, iface, stmt.visibility)
+    if (stmt.visibility !== 'private') {
+      fileEnv.moduleHome.defineInterface(name, iface, stmt.visibility)
+    }
+    attachAssociatedType(fileEnv, owner, stmt.name, iface, stmt.visibility, unitFile, unitModule)
+  }
+}
+
+function attachAssociatedType(
+  fileEnv: TypeEnv,
+  owner: string,
+  name: string,
+  type: ZeeType,
+  visibility: Visibility,
+  file: string,
+  module: string,
+): void {
+  const ownerType = fileEnv.getStruct(owner) ?? fileEnv.getSealed(owner)
+  const typeKey = ownerType ? namedTypeKey(ownerType) : undefined
+  if (!typeKey) return
+  const info: AssociatedInfo = { name, type, visibility, file, module }
+  fileEnv.defineAssociated(typeKey, info)
+  if (visibility !== 'private') fileEnv.moduleHome.defineAssociated(typeKey, info)
+}
+
+function fillStructFields(
+  stmt: Extract<Stmt, { kind: 'structDecl' }>,
+  fileEnv: TypeEnv,
+  unitFile: string,
+  owner: string | undefined,
+): void {
+  const name = qualifiedTypeName(owner, stmt.name)
+  const structType = fileEnv.getStruct(name)
+  if (!structType) return
+  const seen = new Set<string>()
+  structType.fields = stmt.fields.map((field) => {
+    if (seen.has(field.name)) throw error(field.loc, `duplicate field \`${field.name}\``)
+    seen.add(field.name)
+    return {
+      name: field.name,
+      mutable: field.mutable,
+      visibility: field.visibility,
+      file: unitFile,
+      type: resolveTypeAst(field.type, fileEnv),
+    }
+  })
+  for (const nested of stmt.nested) {
+    if (nested.kind === 'structDecl' && !nested.sealed) {
+      fillStructFields(nested, fileEnv, unitFile, name)
+    }
+  }
+}
+
+function registerStructMembers(
+  stmt: Extract<Stmt, { kind: 'structDecl' }>,
+  fileEnv: TypeEnv,
+  unitModule: string,
+  unitFile: string,
+  owner: string | undefined,
+  registerFn: (
+    stmt: Extract<Stmt, { kind: 'fn' }>,
+    fileEnv: TypeEnv,
+    unitModule: string,
+    unitFile: string,
+  ) => void,
+): void {
+  const qualified = qualifiedTypeName(owner, stmt.name)
+  for (const nested of stmt.nested) {
+    if (nested.kind === 'structDecl') {
+      registerStructMembers(nested, fileEnv, unitModule, unitFile, qualified, registerFn)
+    }
+  }
+  if (stmt.sealed) return
+  const structType = fileEnv.getStruct(qualified)
+  if (!structType) return
+  const typeKey = namedTypeKey(structType)!
+  for (const item of stmt.associated) {
+    const annotated = item.typeAnn ? resolveTypeAst(item.typeAnn, fileEnv) : undefined
+    const initType = checkExpr(item.init, fileEnv, T_UNIT, annotated)
+    const type = annotated ?? initType
+    const info: AssociatedInfo = {
+      name: item.name,
+      type,
+      visibility: item.visibility,
+      file: unitFile,
+      module: unitModule,
+    }
+    fileEnv.defineAssociated(typeKey, info)
+    if (item.visibility !== 'private') fileEnv.moduleHome.defineAssociated(typeKey, info)
+  }
+  for (const method of stmt.methods) {
+    if (method.params[0]?.name === 'self') {
+      registerFn(method, fileEnv, unitModule, unitFile)
+      continue
+    }
+    const params = method.params.map((param) => resolveTypeAst(param.type, fileEnv))
+    const ret = method.returnType ? resolveTypeAst(method.returnType, fileEnv) : T_UNIT
+    const fnType: Extract<ZeeType, { kind: 'fn' }> = { kind: 'fn', params, ret }
+    if (fileEnv.ownAssociated(typeKey, method.name)) {
+      throw error(method.loc, `duplicate member \`${method.name}\` on ${typeName(structType)}`)
+    }
+    const info: AssociatedInfo = {
+      name: method.name,
+      type: fnType,
+      visibility: method.visibility,
+      file: unitFile,
+      module: unitModule,
+    }
+    fileEnv.defineAssociated(typeKey, info)
+    if (method.visibility !== 'private') fileEnv.moduleHome.defineAssociated(typeKey, info)
+  }
+}
+
+function checkStructBodies(
+  stmt: Extract<Stmt, { kind: 'structDecl' }>,
+  fileEnv: TypeEnv,
+  owner: string | undefined,
+): void {
+  const qualified = qualifiedTypeName(owner, stmt.name)
+  for (const nested of stmt.nested) {
+    if (nested.kind === 'structDecl') checkStructBodies(nested, fileEnv, qualified)
+  }
+  const structType = stmt.sealed ? undefined : fileEnv.getStruct(qualified)
+  for (const method of stmt.methods) {
+    if (method.params[0]?.name === 'self') {
+      checkFnBody(method, fileEnv)
+      continue
+    }
+    const info = structType ? lookupAssociated(structType, method.name, fileEnv) : undefined
+    if (info) checkFnBody(method, fileEnv, info.type)
   }
 }
 
@@ -805,6 +1097,9 @@ function defineBuiltins(env: TypeEnv): void {
   env.define('print', { kind: 'fn', params: [printable], ret: T_UNIT })
   env.define('println', { kind: 'fn', params: [printable], ret: T_UNIT })
   env.define('str', { kind: 'fn', params: [T_I32], ret: T_STRING })
+  env.define('getenv', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
+  env.define('envProfile', { kind: 'fn', params: [], ret: T_STRING })
+  env.define('envAppMeta', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
   env.defineInterface('Error', T_ERROR, 'pub')
   env.defineStruct('Fail', T_FAIL, 'pub')
   env.defineMethod(`\0Fail`, {
@@ -984,6 +1279,7 @@ function resolveType(
 ): ZeeType {
   const type = typeFromName(name)
   if (type) return type
+  if (env.isTypeParam(name)) return { kind: 'typeParam', name }
   const alias = env.getAlias(name)
   if (alias) {
     if (alias.typeParams.length > 0) {
@@ -1424,10 +1720,15 @@ function inferExpr(expr: Expr, env: TypeEnv, returnType: ZeeType, expected?: Zee
           }
           return target.of
         }
-        throw error(
-          expr.loc,
-          `sealed variant \`${expr.field}\` needs a struct literal`,
-        )
+        const associated = lookupAssociated(target.of, expr.field, env)
+        if (associated) return associated.type
+        if (target.of.kind === 'sealed') {
+          throw error(
+            expr.loc,
+            `sealed variant \`${expr.field}\` needs a struct literal`,
+          )
+        }
+        throw error(expr.loc, `unknown associated name \`${expr.field}\` on ${typeName(target.of)}`)
       }
       if (target.kind !== 'struct') {
         throw error(expr.loc, `no field \`${expr.field}\` on ${typeName(target)}`)
@@ -2158,7 +2459,13 @@ function checkCall(
   if (callee.kind !== 'fn') {
     throw error(expr.callee.loc, `cannot call ${typeName(callee)}`)
   }
+  if (callee.typeParams && callee.typeParams.length > 0) {
+    return checkGenericCall(expr, callee, env, returnType, expected)
+  }
   const label = expr.callee.kind === 'ident' ? expr.callee.name : typeName(callee)
+  if (expr.typeArgs && expr.typeArgs.length > 0) {
+    throw error(expr.loc, `\`${label}\` does not take type arguments`)
+  }
   if (expr.args.length !== callee.params.length) {
     throw error(
       expr.loc,
@@ -2172,6 +2479,163 @@ function checkCall(
     requireVarReceiver(expr.args[0]!, env, expr.loc)
   }
   return callee.ret
+}
+
+function checkGenericCall(
+  expr: Extract<Expr, { kind: 'call' }>,
+  callee: Extract<ZeeType, { kind: 'fn' }>,
+  env: TypeEnv,
+  returnType: ZeeType,
+  expected?: ZeeType,
+): ZeeType {
+  const typeParams = callee.typeParams ?? []
+  const label = expr.callee.kind === 'ident' ? expr.callee.name : typeName(callee)
+  if (expr.args.length !== callee.params.length) {
+    throw error(
+      expr.loc,
+      `\`${label}\` expects ${callee.params.length} argument(s), got ${expr.args.length}`,
+    )
+  }
+  const subst = new Map<string, ZeeType>()
+  if (expr.typeArgs && expr.typeArgs.length > 0) {
+    if (expr.typeArgs.length !== typeParams.length) {
+      throw error(
+        expr.loc,
+        `\`${label}\` takes ${typeParams.length} type argument(s), got ${expr.typeArgs.length}`,
+      )
+    }
+    typeParams.forEach((name, index) => {
+      subst.set(name, resolveTypeAst(expr.typeArgs![index]!, env))
+    })
+  }
+  expr.args.forEach((arg, index) => {
+    const instantiated = substituteType(callee.params[index]!, subst)
+    if (!containsTypeParam(instantiated)) {
+      checkExpr(arg, env, returnType, instantiated)
+      return
+    }
+    const argType = checkExpr(arg, env, returnType)
+    unifyType(callee.params[index]!, argType, subst, arg.loc)
+  })
+  if (expected && containsTypeParam(substituteType(callee.ret, subst))) {
+    unifyType(callee.ret, expected, subst, expr.loc)
+  }
+  for (const name of typeParams) {
+    if (!subst.has(name)) {
+      throw error(expr.loc, `cannot infer type parameter \`${name}\``)
+    }
+  }
+  if (expr.callee.kind === 'ident' && env.isMutatingFn(expr.callee.name) && expr.args[0]) {
+    requireVarReceiver(expr.args[0]!, env, expr.loc)
+  }
+  return substituteType(callee.ret, subst)
+}
+
+function containsTypeParam(type: ZeeType): boolean {
+  switch (type.kind) {
+    case 'typeParam':
+      return true
+    case 'tuple':
+      return type.parts.some(containsTypeParam)
+    case 'option':
+      return containsTypeParam(type.inner)
+    case 'list':
+    case 'array':
+      return containsTypeParam(type.elem)
+    case 'map':
+      return containsTypeParam(type.key) || containsTypeParam(type.value)
+    case 'fn':
+      return type.params.some(containsTypeParam) || containsTypeParam(type.ret)
+    default:
+      return false
+  }
+}
+
+function substituteType(type: ZeeType, subst: Map<string, ZeeType>): ZeeType {
+  switch (type.kind) {
+    case 'typeParam':
+      return subst.get(type.name) ?? type
+    case 'tuple':
+      return { kind: 'tuple', parts: type.parts.map((part) => substituteType(part, subst)) }
+    case 'option':
+      return { kind: 'option', inner: substituteType(type.inner, subst) }
+    case 'list':
+      return { kind: 'list', elem: substituteType(type.elem, subst) }
+    case 'array':
+      return { kind: 'array', elem: substituteType(type.elem, subst) }
+    case 'map':
+      return {
+        kind: 'map',
+        key: substituteType(type.key, subst),
+        value: substituteType(type.value, subst),
+      }
+    case 'fn':
+      return {
+        kind: 'fn',
+        params: type.params.map((param) => substituteType(param, subst)),
+        ret: substituteType(type.ret, subst),
+        typeParams: type.typeParams,
+      }
+    default:
+      return type
+  }
+}
+
+function unifyType(
+  pattern: ZeeType,
+  actual: ZeeType,
+  subst: Map<string, ZeeType>,
+  loc: { file: string; line: number; column: number },
+): void {
+  const expected = substituteType(pattern, subst)
+  if (expected.kind === 'typeParam') {
+    if (actual.kind === 'typeParam' && actual.name === expected.name) return
+    const existing = subst.get(expected.name)
+    if (existing) {
+      if (!isAssignable(actual, existing) && !typeEq(actual, existing)) {
+        throw error(loc, `expected ${typeName(existing)}, got ${typeName(actual)}`)
+      }
+      return
+    }
+    subst.set(expected.name, actual)
+    return
+  }
+  if (isNeverType(actual)) return
+  if (expected.kind === 'tuple' && actual.kind === 'tuple') {
+    if (expected.parts.length !== actual.parts.length) {
+      throw error(loc, `expected ${typeName(expected)}, got ${typeName(actual)}`)
+    }
+    expected.parts.forEach((part, index) => unifyType(part, actual.parts[index]!, subst, loc))
+    return
+  }
+  if (expected.kind === 'option' && actual.kind === 'option') {
+    unifyType(expected.inner, actual.inner, subst, loc)
+    return
+  }
+  if (expected.kind === 'list' && actual.kind === 'list') {
+    unifyType(expected.elem, actual.elem, subst, loc)
+    return
+  }
+  if (expected.kind === 'array' && actual.kind === 'array') {
+    unifyType(expected.elem, actual.elem, subst, loc)
+    return
+  }
+  if (expected.kind === 'map' && actual.kind === 'map') {
+    unifyType(expected.key, actual.key, subst, loc)
+    unifyType(expected.value, actual.value, subst, loc)
+    return
+  }
+  if (expected.kind === 'fn' && actual.kind === 'fn') {
+    if (expected.params.length !== actual.params.length) {
+      throw error(loc, `expected ${typeName(expected)}, got ${typeName(actual)}`)
+    }
+    expected.params.forEach((param, index) => unifyType(param, actual.params[index]!, subst, loc))
+    unifyType(expected.ret, actual.ret, subst, loc)
+    return
+  }
+  if (!isAssignable(actual, expected)) {
+    throw error(loc, `expected ${typeName(expected)}, got ${typeName(actual)}`)
+  }
 }
 
 function checkBuiltinMethod(
@@ -2258,6 +2722,24 @@ function inferFnArg(
   return fnType
 }
 
+function lookupAssociated(type: ZeeType, name: string, env: TypeEnv): AssociatedInfo | undefined {
+  const typeKey = namedTypeKey(type)
+  if (!typeKey) return undefined
+  const found = env.getAssociated(typeKey, name)
+  if (found && associatedVisible(found, env)) return found
+  const typeModule = env.getModule(type.kind === 'struct' || type.kind === 'enum' || type.kind === 'sealed' || type.kind === 'newtype' || type.kind === 'interface' ? type.module : '')
+  const fromTypeMod = typeModule?.ownAssociated(typeKey, name)
+  if (fromTypeMod && associatedVisible(fromTypeMod, env)) return fromTypeMod
+  return undefined
+}
+
+function associatedVisible(info: AssociatedInfo, env: TypeEnv): boolean {
+  if (info.visibility === 'pub') return true
+  if (info.visibility === 'internal' && env.module === info.module) return true
+  if (info.visibility === 'private' && env.file === info.file) return true
+  return false
+}
+
 function lookupMethod(type: ZeeType, name: string, env: TypeEnv): MethodInfo | undefined {
   if (type.kind === 'interface') {
     const method = type.methods.find((item) => item.name === name)
@@ -2334,6 +2816,33 @@ function lookupModuleMember(
   return binding?.type ?? struct ?? enumType ?? sealed ?? newtype ?? iface!
 }
 
+function resolveNestedStructLit(
+  expr: Extract<Expr, { kind: 'structLit' }>,
+  env: TypeEnv,
+): { kind: 'struct'; type: Extract<ZeeType, { kind: 'struct' }> } | undefined {
+  const parts = [...(expr.qualifier ?? []), expr.name]
+  if (parts.length < 2) return undefined
+  const firstName = parts[0]!
+  const firstNs = env.get(firstName)
+  const start =
+    firstNs?.kind === 'typeNs' && firstNs.of.kind === 'struct'
+      ? firstNs.of
+      : env.getStruct(firstName)
+  if (!start) return undefined
+  let current: ZeeType = { kind: 'typeNs', of: start }
+  for (let index = 1; index < parts.length; index += 1) {
+    if (current.kind !== 'typeNs') return undefined
+    const associated = lookupAssociated(current.of, parts[index]!, env)
+    if (!associated) return undefined
+    current = associated.type
+  }
+  if (current.kind === 'typeNs' && current.of.kind === 'struct') {
+    return { kind: 'struct', type: current.of }
+  }
+  if (current.kind === 'struct') return { kind: 'struct', type: current }
+  return undefined
+}
+
 function resolveStructLit(
   expr: Extract<Expr, { kind: 'structLit' }>,
   env: TypeEnv,
@@ -2345,6 +2854,8 @@ function resolveStructLit(
     if (!struct) throw error(expr.loc, `unknown type \`${expr.name}\``)
     return { kind: 'struct', type: struct }
   }
+  const nested = resolveNestedStructLit(expr, env)
+  if (nested) return nested
   if (expr.qualifier.length === 1) {
     const firstName = expr.qualifier[0]!
     const sealed = env.getSealed(firstName)

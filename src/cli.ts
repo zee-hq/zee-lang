@@ -3,8 +3,10 @@ import { cwd, stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { ZeeError, PanicError, VERSION } from './error.ts'
 import { generateController, generateModule, generateResource, generateService, controllerKindFromFlags } from './generate.ts'
-import { getPackages } from './pkg.ts'
+import { getPackages, updatePackages } from './pkg.ts'
 import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
+import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
+import { listenRegistry } from './registry-http.ts'
 import { checkPath, executeFile, ZeeSession } from './zee.ts'
 
 function usage(): string {
@@ -19,7 +21,10 @@ Usage:
   zee generate service <path>         Nest service
   zee generate resource <path>        Module + controller + service
   zee g module <path>                 Alias (also: zee g m / mo / co / s / res)
-  zee get [alias...]             Add libs.toml aliases and fetch [deps] into .zee/
+  zee get [alias...]             Add libs.toml aliases and fetch [deps] into .zee/ (honors zee.lock)
+  zee update [name...]           Re-resolve deps within current constraints and rewrite zee.lock
+  zee publish                    Publish this package to ZEE_REGISTRY or [registry] url
+  zee registry                   Serve the HTTP registry (file-backed)
   zee run [file]                 Run a .zee file, or src/main.zee in a project
   zee check [file]               Type-check a file, or the project entry
   zee help                       Show this help
@@ -80,6 +85,39 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
 
+  if (command === 'update') {
+    const root = findProjectRoot(cwd())
+    if (!root) {
+      stderr('run zee update inside a Zee project')
+      return 1
+    }
+    const updated = updatePackages(root, argv.slice(1))
+    if (updated.changes.length === 0) {
+      stdout.write('up to date\n')
+      return 0
+    }
+    for (const change of updated.changes) {
+      stdout.write(`updated ${change.name} ${change.from} -> ${change.to}\n`)
+    }
+    return 0
+  }
+
+  if (command === 'publish') {
+    const root = findProjectRoot(cwd())
+    if (!root) {
+      stderr('run zee publish inside a Zee project')
+      return 1
+    }
+    const published = publishPackage(root)
+    stdout.write(`published ${published.name}@${published.version}\n`)
+    stdout.write(`  ${published.dest}\n`)
+    return 0
+  }
+
+  if (command === 'registry') {
+    return registryCommand(argv.slice(1))
+  }
+
   if (command === 'run') {
     const file = resolveEntry(cwd(), argv[1])
     const result = executeFile(file, { print: (text) => stdout.write(text) })
@@ -100,6 +138,86 @@ async function main(argv: string[]): Promise<number> {
 
   stderr(`unknown command \`${command}\`\n${usage()}`)
   return 1
+}
+
+async function registryCommand(argv: string[]): Promise<number> {
+  const parsed = parseRegistryArgv(argv)
+  if (parsed.help) {
+    stdout.write(
+      `Usage: zee registry [--root <path>] [--token <token>] [--host <host>] [--port <n>]\n`,
+    )
+    return 0
+  }
+  const token = parsed.token ?? process.env.ZEE_REGISTRY_TOKEN?.trim()
+  if (!token) {
+    stderr('zee registry needs --token or ZEE_REGISTRY_TOKEN')
+    return 1
+  }
+  const root = parsed.root ?? defaultRegistryUrl()
+  if (isHttpRegistry(root)) {
+    stderr('zee registry --root must be a file path')
+    return 1
+  }
+  const store = root.startsWith('file://') ? root.slice('file://'.length) : root
+  const { url, close } = await listenRegistry({
+    root: store,
+    token,
+    host: parsed.host,
+    port: parsed.port ?? 0,
+  })
+  stdout.write(`listening ${url}\n`)
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      process.off('SIGINT', stop)
+      process.off('SIGTERM', stop)
+      void close().finally(() => resolve())
+    }
+    process.on('SIGINT', stop)
+    process.on('SIGTERM', stop)
+  })
+  return 0
+}
+
+function parseRegistryArgv(argv: string[]): {
+  root?: string
+  token?: string
+  host?: string
+  port?: number
+  help: boolean
+} {
+  let root: string | undefined
+  let token: string | undefined
+  let host: string | undefined
+  let port: number | undefined
+  let help = false
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!
+    if (arg === '--help' || arg === '-h') {
+      help = true
+      continue
+    }
+    const next = (): string => {
+      const value = argv[++i]
+      if (!value || value.startsWith('-')) {
+        throw new ZeeError(`missing value for ${arg}`, 1, 1, 'zee registry')
+      }
+      return value
+    }
+    if (arg === '--root') root = next()
+    else if (arg === '--token') token = next()
+    else if (arg === '--host') host = next()
+    else if (arg === '--port') {
+      const raw = next()
+      const n = Number(raw)
+      if (!Number.isInteger(n) || n < 0) {
+        throw new ZeeError(`invalid --port ${raw}`, 1, 1, 'zee registry')
+      }
+      port = n
+    } else {
+      throw new ZeeError(`unknown flag \`${arg}\``, 1, 1, 'zee registry')
+    }
+  }
+  return { root, token, host, port, help }
 }
 
 function generateCommand(argv: string[]): number {
