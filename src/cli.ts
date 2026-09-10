@@ -3,7 +3,8 @@ import { cwd, stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { ZeeError, PanicError, VERSION } from './error.ts'
 import { generateController, generateModule, generateResource, generateService, controllerKindFromFlags } from './generate.ts'
-import { createProject, defaultInitName, resolveEntry } from './project.ts'
+import { getPackages } from './pkg.ts'
+import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
 import { checkPath, executeFile, ZeeSession } from './zee.ts'
 
 function usage(): string {
@@ -18,6 +19,7 @@ Usage:
   zee generate service <path>         Nest service
   zee generate resource <path>        Module + controller + service
   zee g module <path>                 Alias (also: zee g m / mo / co / s / res)
+  zee get [alias...]             Add libs.toml aliases and fetch [deps] into .zee/
   zee run [file]                 Run a .zee file, or src/main.zee in a project
   zee check [file]               Type-check a file, or the project entry
   zee help                       Show this help
@@ -64,6 +66,17 @@ async function main(argv: string[]): Promise<number> {
     const created = createProject({ name, parentDir: cwd(), mode: 'init' })
     stdout.write(`created package ${created.name} in ${created.root}\n`)
     stdout.write('  zee run\n')
+    return 0
+  }
+
+  if (command === 'get') {
+    const root = findProjectRoot(cwd())
+    if (!root) {
+      stderr('run zee get inside a Zee project')
+      return 1
+    }
+    const got = getPackages(root, argv.slice(1))
+    stdout.write(`got ${got.packages.length} package(s)\n`)
     return 0
   }
 

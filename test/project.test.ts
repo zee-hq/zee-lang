@@ -29,6 +29,10 @@ describe('zee new', () => {
     expect(readFileSync(join(created.root, 'zee.toml'), 'utf8')).toContain('name = "hello"')
     expect(readFileSync(join(created.root, 'src/main.zee'), 'utf8')).toContain('fn main()')
     expect(existsSync(join(created.root, '.gitignore'))).toBe(true)
+    expect(readFileSync(join(created.root, '.gitignore'), 'utf8')).toContain('.zee/')
+    const editor = JSON.parse(readFileSync(join(created.root, '.vscode/settings.json'), 'utf8'))
+    expect(editor['workbench.iconTheme']).toBe('zee-icons')
+    expect(editor['workbench.colorTheme']).toBe('Zee Dark')
 
     const result = executeFile(created.entry)
     expect(result.stdout).toBe('hello, hello\n')

@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs'
 import type { Program } from './ast.ts'
 import { check } from './checker.ts'
+import { ZeeError } from './error.ts'
 import { display, interpret, type RunResult, type ZeeValue } from './interpreter.ts'
 import { parse } from './parser.ts'
-import { isPackageSourceFile, listPackageSources } from './project.ts'
+import { getPackages } from './pkg.ts'
+import { isPackageSourceFile, listPackageSources, readManifest } from './project.ts'
 
 export { VERSION } from './error.ts'
 export { ZeeError, PanicError } from './error.ts'
@@ -33,12 +35,29 @@ export function execute(source: string, options: ExecuteOptions = {}): ExecuteRe
   return { ...result, stdout }
 }
 
+/** Loads a package plus `[deps]` (AC-ZEE-4). */
 export function loadProgramFromPath(path: string): Program {
   const root = isPackageSourceFile(path)
   if (!root) {
     return parse(readFileSync(path, 'utf8'), path)
   }
   const sources = listPackageSources(root)
+  const localModules = new Set(sources.map((item) => item.module).filter((module) => module.length > 0))
+  const manifest = readManifest(root)
+  if (manifest.deps.size > 0) {
+    const got = getPackages(root)
+    for (const pkg of got.packages) {
+      if (localModules.has(pkg.name)) {
+        throw new ZeeError(
+          `dep \`${pkg.name}\` clashes with local module \`${pkg.name}\``,
+          1,
+          1,
+          path,
+        )
+      }
+      sources.push(...listPackageSources(pkg.root, pkg.name))
+    }
+  }
   const units = sources.map((source) => {
     const parsed = parse(readFileSync(source.file, 'utf8'), source.file)
     return { file: source.file, module: source.module, stmts: parsed.stmts }

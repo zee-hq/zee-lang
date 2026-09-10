@@ -1,0 +1,424 @@
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
+import { ZeeError } from './error.ts'
+import {
+  type DepSpec,
+  listPackageSources,
+  parseDepSpec,
+  parseInlineTable,
+  readManifest,
+  type Manifest,
+} from './project.ts'
+
+export const LOCK_FILE = 'zee.lock'
+export const CACHE_DIR = '.zee'
+export const CATALOG_FILE = 'libs.toml'
+
+export interface LockedPackage {
+  name: string
+  version: string
+  hash: string
+  root: string
+  source: 'path' | 'git'
+  path?: string
+  git?: string
+  tag?: string
+  rev?: string
+}
+
+export interface Lockfile {
+  version: number
+  packages: LockedPackage[]
+}
+
+export interface GetResult {
+  packages: LockedPackage[]
+  lockPath: string
+}
+
+export interface Catalog {
+  file: string
+  dir: string
+  versions: Map<string, string>
+  libraries: Map<string, DepSpec>
+}
+
+/** Fetch [deps] into `.zee/`, write zee.lock. `aliases` are Gradle-style catalog keys (AC-ZEE-4). */
+export function getPackages(cwd: string, aliases: string[] = []): GetResult {
+  const root = resolve(cwd)
+  for (const alias of aliases) {
+    addCatalogAlias(root, alias)
+  }
+  const manifest = readManifest(root)
+  const found = new Map<string, LockedPackage>()
+  collectDeps(root, root, manifest, new Set(), found)
+  const packages = [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
+  for (const pkg of packages) {
+    materialize(root, pkg)
+  }
+  const lockPath = join(root, LOCK_FILE)
+  const text = formatLockfile({ version: 1, packages })
+  if (!existsSync(lockPath) || readFileSync(lockPath, 'utf8') !== text) {
+    writeFileSync(lockPath, text, 'utf8')
+  }
+  return { packages, lockPath }
+}
+
+export function findCatalogFile(startDir: string): string | undefined {
+  let dir = resolve(startDir)
+  while (true) {
+    const file = join(dir, CATALOG_FILE)
+    if (existsSync(file)) return file
+    const parent = resolve(dir, '..')
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
+export function readCatalog(startDir: string): Catalog {
+  const file = findCatalogFile(startDir)
+  if (!file) {
+    throw new ZeeError(`missing ${CATALOG_FILE} (walked up from project)`, 1, 1, startDir)
+  }
+  return parseCatalog(readFileSync(file, 'utf8'), file)
+}
+
+export function parseCatalog(source: string, file: string): Catalog {
+  const versions = new Map<string, string>()
+  const libraries = new Map<string, DepSpec>()
+  let section: 'versions' | 'libraries' | undefined
+  for (const raw of source.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (line.length === 0 || line.startsWith('#')) continue
+    if (line === '[versions]') {
+      section = 'versions'
+      continue
+    }
+    if (line === '[libraries]') {
+      section = 'libraries'
+      continue
+    }
+    if (line.startsWith('[')) {
+      section = undefined
+      continue
+    }
+    const match = /^([A-Za-z][a-z0-9_-]*)\s*=\s*(.+)$/.exec(line)
+    if (!match) {
+      throw new ZeeError(`invalid catalog line \`${line}\``, 1, 1, file)
+    }
+    const name = match[1]!
+    const value = match[2]!.trim()
+    if (section === 'versions') {
+      if (!(value.startsWith('"') && value.endsWith('"') && value.length >= 2)) {
+        throw new ZeeError(`invalid version \`${name}\``, 1, 1, file)
+      }
+      versions.set(name, value.slice(1, -1))
+      continue
+    }
+    if (section === 'libraries') {
+      libraries.set(name, parseLibrarySpec(value, name, file, versions))
+    }
+  }
+  return { file, dir: dirname(file), versions, libraries }
+}
+
+function parseLibrarySpec(raw: string, name: string, file: string, versions: Map<string, string>): DepSpec {
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    const fields = parseInlineTable(raw.slice(1, -1), file)
+    const ref = fields['version.ref']
+    if (ref) {
+      const version = versions.get(ref)
+      if (version === undefined) {
+        throw new ZeeError(`unknown version.ref \`${ref}\` for \`${name}\``, 1, 1, file)
+      }
+      if (fields.git) {
+        return { kind: 'git', git: fields.git, tag: version, rev: fields.rev, branch: fields.branch }
+      }
+      return { kind: 'version', version }
+    }
+  }
+  return parseDepSpec(raw, name, file)
+}
+
+function addCatalogAlias(root: string, alias: string): void {
+  const catalog = readCatalog(root)
+  if (!catalog.libraries.has(alias)) {
+    throw new ZeeError(`unknown library \`${alias}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
+  }
+  const manifest = readManifest(root)
+  if (manifest.deps.has(alias)) return
+  const file = join(root, 'zee.toml')
+  const current = readFileSync(file, 'utf8')
+  const line = `${alias} = { lib = "${alias}" }`
+  if (/\n\[deps\]\s*$/m.test(current) || current.includes('[deps]')) {
+    writeFileSync(file, `${current.trimEnd()}\n${line}\n`, 'utf8')
+    return
+  }
+  writeFileSync(file, `${current.trimEnd()}\n\n[deps]\n${line}\n`, 'utf8')
+}
+
+export function parseLockfile(source: string, file = LOCK_FILE): Lockfile {
+  const packages: LockedPackage[] = []
+  let version = 1
+  let current: Partial<LockedPackage> | undefined
+  const flush = (): void => {
+    if (!current) return
+    if (!current.name || !current.hash || !current.source) {
+      throw new ZeeError('invalid lockfile package', 1, 1, file)
+    }
+    packages.push({
+      name: current.name,
+      version: current.version ?? '0.1.0',
+      hash: current.hash,
+      root: '',
+      source: current.source,
+      path: current.path,
+      git: current.git,
+      tag: current.tag,
+      rev: current.rev,
+    })
+    current = undefined
+  }
+  for (const raw of source.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (line.length === 0 || line.startsWith('#')) continue
+    if (line === '[[pkg]]') {
+      flush()
+      current = {}
+      continue
+    }
+    const match = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line)
+    if (!match) continue
+    const key = match[1]!
+    const value = unquote(match[2]!.trim())
+    if (!current) {
+      if (key === 'version') version = Number(value)
+      continue
+    }
+    if (key === 'name') current.name = value
+    else if (key === 'version') current.version = value
+    else if (key === 'hash') current.hash = value
+    else if (key === 'source') current.source = value as 'path' | 'git'
+    else if (key === 'path') current.path = value
+    else if (key === 'git') current.git = value
+    else if (key === 'tag') current.tag = value
+    else if (key === 'rev') current.rev = value
+  }
+  flush()
+  return { version, packages }
+}
+
+function collectDeps(
+  pkgRoot: string,
+  cacheRoot: string,
+  manifest: Manifest,
+  visiting: Set<string>,
+  found: Map<string, LockedPackage>,
+): void {
+  for (const [name, spec] of manifest.deps) {
+    if (visiting.has(name)) {
+      throw new ZeeError(`package cycle involving \`${name}\``, 1, 1, join(pkgRoot, 'zee.toml'))
+    }
+    const dest = resolveDep(pkgRoot, cacheRoot, name, spec)
+    const destManifest = readManifest(dest)
+    if (destManifest.name !== name) {
+      throw new ZeeError(
+        `dep \`${name}\` is package \`${destManifest.name}\``,
+        1,
+        1,
+        join(pkgRoot, 'zee.toml'),
+      )
+    }
+    const existing = found.get(name)
+    const hash = hashPackage(dest)
+    if (existing) {
+      if (existing.hash !== hash) {
+        throw new ZeeError(`incompatible versions of \`${name}\``, 1, 1, join(pkgRoot, 'zee.toml'))
+      }
+      continue
+    }
+    visiting.add(name)
+    collectDeps(dest, cacheRoot, destManifest, visiting, found)
+    visiting.delete(name)
+    const expanded = expandSpec(pkgRoot, spec)
+    found.set(name, lockedFrom(name, destManifest, dest, expanded, hash))
+  }
+}
+
+function expandSpec(pkgRoot: string, spec: DepSpec): DepSpec {
+  if (spec.kind === 'lib') return resolveLibSpec(pkgRoot, spec.lib)
+  return spec
+}
+
+function lockedFrom(
+  name: string,
+  destManifest: Manifest,
+  dest: string,
+  spec: DepSpec,
+  hash: string,
+): LockedPackage {
+  if (spec.kind === 'path') {
+    return {
+      name,
+      version: destManifest.version,
+      hash,
+      root: dest,
+      source: 'path',
+      path: spec.path,
+    }
+  }
+  if (spec.kind === 'git') {
+    return {
+      name,
+      version: destManifest.version,
+      hash,
+      root: dest,
+      source: 'git',
+      git: spec.git,
+      tag: spec.tag,
+      rev: gitRev(dest),
+    }
+  }
+  throw new ZeeError(`dep \`${name}\` needs path or git`, 1, 1, dest)
+}
+
+function resolveLibSpec(startDir: string, alias: string): DepSpec {
+  const catalog = readCatalog(startDir)
+  const inner = catalog.libraries.get(alias)
+  if (!inner) {
+    throw new ZeeError(`unknown library \`${alias}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
+  }
+  return inner
+}
+
+function resolveDep(pkgRoot: string, cacheRoot: string, name: string, spec: DepSpec): string {
+  if (spec.kind === 'lib') {
+    const catalog = readCatalog(pkgRoot)
+    const inner = catalog.libraries.get(spec.lib)
+    if (!inner) {
+      throw new ZeeError(`unknown library \`${spec.lib}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
+    }
+    return resolveDep(catalog.dir, cacheRoot, name, inner)
+  }
+  if (spec.kind === 'version') {
+    throw new ZeeError(
+      `no registry yet — SemVer \`${name} = "${spec.version}"\` needs zee publish`,
+      1,
+      1,
+      join(pkgRoot, 'zee.toml'),
+    )
+  }
+  if (spec.kind === 'path') {
+    const dest = resolve(pkgRoot, spec.path)
+    if (!existsSync(join(dest, 'zee.toml'))) {
+      throw new ZeeError(`dep \`${name}\` path \`${spec.path}\` is not a Zee package`, 1, 1, join(pkgRoot, 'zee.toml'))
+    }
+    return dest
+  }
+  return materializeGit(cacheRoot, name, spec)
+}
+
+function materialize(cacheRoot: string, pkg: LockedPackage): void {
+  const dest = join(cacheRoot, CACHE_DIR, pkg.name)
+  if (pkg.source === 'git') {
+    pkg.root = dest
+    pkg.path = `${CACHE_DIR}/${pkg.name}`
+    pkg.hash = hashPackage(dest)
+    return
+  }
+  copyPackage(pkg.root, dest)
+  pkg.root = dest
+  pkg.path = `${CACHE_DIR}/${pkg.name}`
+  pkg.hash = hashPackage(dest)
+}
+
+function copyPackage(from: string, to: string): void {
+  mkdirSync(to, { recursive: true })
+  cpSync(join(from, 'zee.toml'), join(to, 'zee.toml'))
+  const srcFrom = join(from, 'src')
+  const srcTo = join(to, 'src')
+  if (existsSync(srcTo)) rmSync(srcTo, { recursive: true, force: true })
+  if (existsSync(srcFrom)) cpSync(srcFrom, srcTo, { recursive: true })
+}
+
+function materializeGit(
+  cacheRoot: string,
+  name: string,
+  spec: Extract<DepSpec, { kind: 'git' }>,
+): string {
+  const dest = join(cacheRoot, CACHE_DIR, name)
+  const ref = spec.tag ?? spec.branch ?? spec.rev
+  if (!existsSync(join(dest, '.git'))) {
+    mkdirSync(dirname(dest), { recursive: true })
+    if (existsSync(dest)) rmSync(dest, { recursive: true, force: true })
+    const args = ['clone']
+    if (spec.tag || spec.branch) args.push('--depth', '1', '--branch', spec.tag ?? spec.branch!)
+    args.push(spec.git, dest)
+    git(args, cacheRoot)
+  } else if (ref) {
+    git(['fetch', '--tags', '--depth', '1', 'origin', ref], dest)
+    git(['checkout', '--force', ref], dest)
+  }
+  if (spec.rev && gitRev(dest) !== spec.rev) {
+    git(['checkout', '--force', spec.rev], dest)
+  }
+  return dest
+}
+
+function git(args: string[], cwd: string): void {
+  execFileSync('git', args, {
+    cwd,
+    stdio: 'pipe',
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  })
+}
+
+function gitRev(repo: string): string {
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
+}
+
+export function hashPackage(root: string): string {
+  const files = [
+    join(root, 'zee.toml'),
+    ...listPackageSources(root).map((item) => item.file),
+  ].sort((a, b) => a.localeCompare(b))
+  const hash = createHash('sha256')
+  for (const file of files) {
+    hash.update(posixRel(root, file))
+    hash.update('\0')
+    hash.update(readFileSync(file))
+    hash.update('\0')
+  }
+  return `sha256:${hash.digest('hex')}`
+}
+
+function formatLockfile(lock: Lockfile): string {
+  const lines = ['# Generated by zee get. Do not edit.', `version = ${lock.version}`, '']
+  for (const pkg of lock.packages) {
+    lines.push('[[pkg]]')
+    lines.push(`name = "${pkg.name}"`)
+    lines.push(`version = "${pkg.version}"`)
+    lines.push(`source = "${pkg.source}"`)
+    if (pkg.path) lines.push(`path = "${pkg.path}"`)
+    if (pkg.git) lines.push(`git = "${pkg.git}"`)
+    if (pkg.tag) lines.push(`tag = "${pkg.tag}"`)
+    if (pkg.rev) lines.push(`rev = "${pkg.rev}"`)
+    lines.push(`hash = "${pkg.hash}"`)
+    lines.push('')
+  }
+  return `${lines.join('\n')}`
+}
+
+function posixRel(from: string, to: string): string {
+  const rel = relative(from, to)
+  return rel.split('\\').join('/')
+}
+
+function unquote(value: string): string {
+  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+    return value.slice(1, -1)
+  }
+  return value
+}

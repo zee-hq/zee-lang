@@ -1,10 +1,10 @@
 # Zee
 
-**A strongly typed language.** Interpreter, REPL, and editor live here. The future OS is [`zee-os`](https://github.com/RR-IT-Solutions/zee-os).
+**A strongly typed language.** Interpreter, REPL, CLI, and editor. The OS (`zee-os`) is out of scope for this drop.
 
-[![test](https://github.com/RR-IT-Solutions/zee-lang/actions/workflows/test.yml/badge.svg)](https://github.com/RR-IT-Solutions/zee-lang/actions/workflows/test.yml)
+[![test](https://github.com/zee-hq/zee-lang/actions/workflows/test.yml/badge.svg)](https://github.com/zee-hq/zee-lang/actions/workflows/test.yml)
 
-Zee is a small systems language with **no implicit conversions**, **no null**, and a single syntax for every environment. v0 is a tree-walking interpreter. The compiler, WASM, and a freestanding kernel subset come later — they do not start until this interpreter is boringly solid.
+Zee is a small systems language with **no implicit conversions**, **no null**, and a single syntax for every environment. v0 is a tree-walking interpreter on Node. Native backends come later — they do not start until this interpreter is boringly solid.
 
 ```zee
 fn greet(name: String) -> String {
@@ -23,17 +23,19 @@ fn main() {
 | Lexer / parser | done |
 | Type checker (strong, local inference) | done |
 | Interpreter + REPL + project CLI | done |
-| Editor (VS Code / Cursor) | syntax + Run File |
-| Bytecode / LLVM / OS kernel | not here — see [`zee-os`](https://github.com/RR-IT-Solutions/zee-os) |
+| Editor (VS Code / Cursor) | syntax + file icons + check on save + Run File |
+| Bytecode / LLVM / native | later — not this drop |
 
-The grammar will change. Syntax that is decided but **not** in v0 yet (`open`, `abstract`, bounds `T: Closeable`, concurrency) lives in [`docs/DIRECTION.md`](docs/DIRECTION.md).
+The grammar will change. Syntax that is decided but **not** in v0 yet (`open`, `abstract`, bounds `T: Closeable`, `struct Box<T>`, concurrency) lives in [`docs/DIRECTION.md`](docs/DIRECTION.md). Constructors beyond `Name { fields }` and DI are **radar** there (§9) — not closed.
+
+Jira (not a Z-Group product; same instance): project **ZEE**, board [quadro ZEE](https://rr-it-solutions.atlassian.net/jira/software/c/projects/ZEE/boards/244), epic [ZEE-1](https://rr-it-solutions.atlassian.net/browse/ZEE-1).
 
 ## Quick start
 
 Requires **Node 22+**.
 
 ```bash
-git clone git@github.com:RR-IT-Solutions/zee-lang.git
+git clone git@github.com:zee-hq/zee-lang.git
 cd zee-lang
 npm install
 npm test
@@ -51,6 +53,31 @@ zee run
 ```
 
 `zee new` creates `zee.toml` + `src/main.zee`. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee init` scaffolds the current directory.
+
+Dependencies are Gradle-style aliases from a workspace `libs.toml` (walks up, like `libs.versions.toml`). `zee get json` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` waits on the registry.
+
+```toml
+# libs.toml (workspace root)
+[versions]
+http = "1.0.0"
+
+[libraries]
+json = { path = "json" }
+http = { git = "https://github.com/zee-hq/http", version.ref = "http" }
+```
+
+```toml
+# app/zee.toml — after `zee get json`
+[deps]
+json = { lib = "json" }
+```
+
+```bash
+zee get json
+zee run
+```
+
+`import json.ping` is the same spelling as a local module. There is no `package.json` as Zee config.
 
 Generators follow Nest file names and Laravel flags:
 
@@ -81,7 +108,9 @@ zee> add(x, 2)
 
 **Bindings:** `const` is immutable, `var` is mutable. Both require an initializer. The type may be written or inferred from the initializer — never from “whatever would make this compile”. Tuple bindings: `const (q, r) = divmod(10, 3)` — arity must match; `_` discards a slot. `redim x: i32` widens a `var` on the same signedness ladder. `redim xs, n` / `redim preserve xs, n` change array length (`n: usize`).
 
-**Functions:** parameters are always annotated. The return type defaults to `Unit`. A trailing expression is the return value (Rust-style). Multiple returns are tuples; errors use `(T, Option<Error>)` and `err != None`. First parameter `self: T` on a named type registers an instance method (`p.mag()` ≡ UFCS). `self` is read-only; `var self` is a mutating receiver, callable only on a `var` binding. Methods need not be nested in the struct body.
+**Functions:** parameters are always annotated. The return type defaults to `Unit`. A trailing expression is the return value (Rust-style). Multiple returns are tuples; errors use `(T, Option<Error>)` and `err != None`. First parameter `self: T` on a named type registers an instance method (`p.mag()` ≡ UFCS). `self` is read-only; `var self` is a mutating receiver, callable only on a `var` binding. Instance methods may live inside the type body or as UFCS outside it. An `fn` in the type body with **no** `self` is associated: `Point.origin()`.
+
+**Generics:** `fn identity<T>(x: T) -> T`. Infer `T` from arguments (`identity(3)` is `i32`) or write `identity<String>("a")`. Several parameters: `fn pair<T, U>(…)`. Invariant. No wildcards, no raw types, no erasure. Bounds `T: Closeable` / `T: Eq` and user `struct Box<T>` wait.
 
 **Lambdas:** `{ a, b -> a + b }`, `{ it * 2 }`, `{ 0 }` (unused param). Parameter types come from the expected function type. Trailing form: `apply(3) { x -> x + 1 }` and `xs.map { it * 2 }`. Closures capture `const`, not `var`. Named `fn` stays for declarations.
 
@@ -93,15 +122,15 @@ zee> add(x, 2)
 
 **Map:** `var ages: Map<String, i32> = { "ana": 30 }`. Lookup `ages[k]` is `Option<V>`. Assign `ages[k] = v` on a `var` Map inserts/updates `V` (grows; no `redim`). `const` Map forbids assign. Keys need `Eq + Hash` (integers, `bool`, `String`, `enum` — not `T[]`, not float, not plain struct). `.len` is `usize`. Empty `{}` needs a `Map<K, V>` type. Quoted string keys disambiguate the literal from lambdas and `Name { field: … }` struct construction.
 
-**Structs and classes:** both are objects, construction `Name { fields }`, no `new`. Field write needs a `var` binding and a `var` field. `readonly` forbids field writes even on `var`. `data` enables `==` by value. **`struct`** copies on assign. **`class`** shares identity (`var b = a` is the same object). `===` / `!==` compare class identity only. Plain `class` is not `Eq` (`==` is a type error). `data class` is both: `==` by fields, `===` by instance. `p.copy(x: 0)` on a `data` type returns a new value/object with listed fields replaced. Modifiers: `readonly data struct Point { … }`, `data class Point { … }`. `pub struct` / `pub class` do not export fields; mark a field `pub const` / `pub var`.
+**Structs and classes:** both are objects, construction `Name { fields }`, no `new`. Field write needs a `var` binding and a `var` field. `readonly` forbids field writes even on `var`. `data` enables `==` by value. **`struct`** copies on assign. **`class`** shares identity (`var b = a` is the same object). `===` / `!==` compare class identity only. Plain `class` is not `Eq` (`==` is a type error). `data class` is both: `==` by fields, `===` by instance. `p.copy(x: 0)` on a `data` type returns a new value/object with listed fields replaced. Modifiers: `readonly data struct Point { … }`, `data class Point { … }`. `pub struct` / `pub class` do not export fields; mark a field `pub const` / `pub var`. A `const` / `var` **with an initializer in the type body** is associated (`User.ROLE_ADMIN`); without initializer it is a constructor field. Nested `struct` / `class` / `enum` / `interface` / `newtype` / `type` use path `Outer.Inner`. Nested types do not capture the outer instance (no Java `Outer.this`). Associated names are not constructor fields.
 
-**Enums and sealed:** `enum Status { Ready Failed }` is a sealed set of payload-less variants. Construct with `Status.Ready`. `==` is by variant. `<` / `<===>` follow declaration order. `sealed struct Shape { data struct Circle { const r: i32 } … }` is a value sum type; `sealed class Shape { data class Circle { const r: i32 } … }` is an identity sum type. Construct `Shape.Circle { r: 3 }` and match `Shape.Circle { r } => …`. Nested variants are not Java inner classes. `match` is exhaustive on the variant set. Nested variants of a `pub` sealed type are pub unless marked otherwise. `open` / associated `Point.origin()` wait.
+**Enums and sealed:** `enum Status { Ready Failed }` is a sealed set of payload-less variants. Construct with `Status.Ready`. `==` is by variant. `<` / `<===>` follow declaration order. `sealed struct Shape { data struct Circle { const r: i32 } … }` is a value sum type; `sealed class Shape { data class Circle { const r: i32 } … }` is an identity sum type. Construct `Shape.Circle { r: 3 }` and match `Shape.Circle { r } => …`. Nested variants are not Java inner classes. `match` is exhaustive on the variant set. Nested variants of a `pub` sealed type are pub unless marked otherwise. `open` / `abstract` wait.
 
 **Type aliases and newtypes:** `type Handler = (i32) -> i32` is an interchangeable name for `T` (including generic `type Table<K, V> = Map<K, List<V>>`). `newtype UserId = i32` is a distinct wrapper. Wrap with `UserId(n)`, unwrap with `i32(id)` (same conversion syntax as integer widen). No arithmetic, concat, or index on the wrapper. `Eq` / `Hash` / `Ord` follow the inner type (`UserId == UserId(40)` is ok; `id == 40` is not).
 
-**Interfaces:** nominative `implements`. Methods only — no fields, no default bodies. A coincidental method is not enough. Methods that satisfy the interface live on the type or as UFCS `fn name(self: Type)` in the same module. `fn f(x: Closeable)` is an existential; call `x.close()`. `sealed interface` can be implemented in this module only; `match` is exhaustive on that set. `if x is File` narrows in the then-branch (not `as`). `open` / `abstract` / `fn f<T: Closeable>` wait.
+**Interfaces:** nominative `implements`. Methods only — no fields, no default bodies. A coincidental method is not enough. Methods that satisfy the interface live on the type or as UFCS `fn name(self: Type)` in the same module. `fn f(x: Closeable)` is an existential; call `x.close()`. `sealed interface` can be implemented in this module only; `match` is exhaustive on that set. `if x is File` narrows in the then-branch (not `as`). `open` / `abstract` / bounds `T: Closeable` wait. Unconstrained `fn f<T>` is in.
 
-**Modules:** a package is `zee.toml`. A module is a directory under `src/` (`src/` is the root module; `src/http/` is `http`). Unmarked names are file-private. `internal` is visible in the same folder without `import`. `pub` is importable from another module. Imports are Kotlin-shaped: `import http`, `import http.Client`, `import http.{A, B as C}`. No glob, no `public`/`protected`. Cycles and file-vs-folder clashes are compile errors.
+**Modules:** a package is `zee.toml`. A module is a directory under `src/` (`src/` is the root module; `src/http/` is `http`). Unmarked names are file-private. `internal` is visible in the same folder without `import`. `pub` is importable from another module or package. Imports are Kotlin-shaped: `import http`, `import http.Client`, `import http.{A, B as C}`. A `[deps]` name is the same: `import json.Value`. No glob, no `public`/`protected`. Cycles and file-vs-folder clashes are compile errors.
 
 **Operators:** `?:` unwraps `Option<T>` (not PHP falsy; not `??`). `??=` / `!!=` fill a `var Option<T>` when `None` / `Some`. `&&=` / `||=` are short-circuit assigns on `var bool`. `+=` `-=` `*=` `/=` `%=` are compound assigns on `var` (lhs evaluated once); integers take all five, `String` only `+=`. No `++` / `--`. `<===>` is three-way compare on integers, `String`, and `enum` and yields `i32` (`-1` / `0` / `1`). Strings are also ordered with `<` `<=` `>` `>=`. `===` / `!==` are identity on `class` only, not three-way compare.
 
@@ -135,7 +164,7 @@ for         = "for" "(" forInit? ";" expression? ";" forStep? ")" block
             | "for" ident "in" expression ".." expression block
             | "for" ident "in" expression block
             | "for" "(" ident "," ident ")" "in" expression block
-fn          = "fn" ident "(" params? ")" ("->" type)? block
+fn          = "fn" ident ("<" ident ("," ident)* ">")? "(" params? ")" ("->" type)? block
 params      = param ("," ident ":" type)*
 param       = "var"? ident ":" type
 type        = typeHead "[]"*
@@ -144,9 +173,12 @@ typeHead    = named | "()" | "(" type ("," type)+ ")" | genericType
             | "()" "->" type
 genericType = ("Option" | "List" | ident) "<" type ">" | "Map" "<" type "," type ">"
 named       = intWidth | "bool" | "String" | "Unit" | "Never" | "Error" | ident
-structDecl  = ("readonly" | "data" | "sealed")* ("struct" | "class") ident implements? "{" (structField | structVariant)* "}" implements? ("{" fn* "}")?
+structDecl  = ("readonly" | "data" | "sealed")* ("struct" | "class") ident implements? "{" typeMember* "}" implements? ("{" fn* "}")?
 implements  = "implements" ident ("," ident)*
+typeMember  = structField | associatedConst | nestedType | fn | structVariant
 structField = ("pub" | "internal")? ("const" | "var") ident ":" type
+associatedConst = ("pub" | "internal")? ("const" | "var") ident (":" type)? "=" expression
+nestedType  = ("pub" | "internal")? (structDecl | enumDecl | typeAlias | newtypeDecl | interfaceDecl)
 structVariant = ("pub" | "internal")? ("readonly" | "data")* ("struct" | "class") ident "{" structField* "}"
 enumDecl    = "enum" ident "{" ident* "}"
 typeAlias   = "type" ident ("<" ident ("," ident)* ">")? "=" type
@@ -174,14 +206,13 @@ See `examples/` for programs that actually run.
 
 ## Editor
 
-The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It highlights `.zee` files and adds **Zee: Run File**.
+The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It highlights `.zee` files, shows the Zee file icon, type-checks on save, and adds **Zee: Run File**.
 
 ```bash
-mkdir -p ~/.cursor/extensions
-ln -sfn "$(pwd)/editor/vscode" ~/.cursor/extensions/zethsell.zee-0.1.0
+npm run editor:link
 ```
 
-Reload the window, open `examples/hello.zee`, run **Zee: Run File**.
+Reload the window, open `examples/hello.zee`. To see the teal `.zee` glyph in the explorer, pick **File Icon Theme → Zee**.
 
 ## Design constraints
 

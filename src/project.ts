@@ -17,10 +17,17 @@ export interface CreatedProject {
   name: string
 }
 
+export type DepSpec =
+  | { kind: 'path'; path: string }
+  | { kind: 'git'; git: string; tag?: string; rev?: string; branch?: string }
+  | { kind: 'lib'; lib: string }
+  | { kind: 'version'; version: string }
+
 export interface Manifest {
   name: string
   version: string
   entry: string
+  deps: Map<string, DepSpec>
 }
 
 export function validatePackageName(name: string): void {
@@ -34,7 +41,7 @@ export function validatePackageName(name: string): void {
   }
 }
 
-/** Scaffolds a Zee package: zee.toml + src/main.zee. Covered by test/project.test.ts (AC-new-project). */
+/** Scaffolds a Zee package: zee.toml + src/main.zee + editor workspace. Covered by test/project.test.ts (AC-new-project). */
 export function createProject(options: CreateProjectOptions): CreatedProject {
   validatePackageName(options.name)
   const parent = resolve(options.parentDir)
@@ -48,9 +55,12 @@ export function createProject(options: CreateProjectOptions): CreatedProject {
   }
 
   mkdirSync(join(root, 'src'), { recursive: true })
+  mkdirSync(join(root, '.vscode'), { recursive: true })
   writeFileSync(join(root, 'zee.toml'), manifestSource(options.name), 'utf8')
   writeFileSync(join(root, DEFAULT_ENTRY), mainSource(options.name), 'utf8')
   writeFileSync(join(root, '.gitignore'), '.zee/\n', 'utf8')
+  writeFileSync(join(root, '.vscode/settings.json'), editorSettingsSource(), 'utf8')
+  writeFileSync(join(root, '.vscode/extensions.json'), editorExtensionsSource(), 'utf8')
 
   return { root, name: options.name, entry: join(root, DEFAULT_ENTRY) }
 }
@@ -81,17 +91,27 @@ export function resolveEntry(cwd: string, file?: string): string {
 }
 
 /** All `.zee` files under `src/`, grouped by directory module. Nested folders are other modules. */
-export function listPackageSources(root: string): { file: string; module: string }[] {
+export function listPackageSources(root: string, modulePrefix = ''): { file: string; module: string }[] {
   const src = join(root, 'src')
   if (!existsSync(src) || !statSync(src).isDirectory()) {
     throw new ZeeError('project is missing src/', 1, 1, src)
   }
   const files: { file: string; module: string }[] = []
-  walkModuleDir(src, '', files)
+  walkModuleDir(src, '', files, modulePrefix)
   return files.sort((a, b) => a.file.localeCompare(b.file))
 }
 
-function walkModuleDir(dir: string, module: string, files: { file: string; module: string }[]): void {
+function qualifyModule(module: string, prefix: string): string {
+  if (!prefix) return module
+  return module ? `${prefix}.${module}` : prefix
+}
+
+function walkModuleDir(
+  dir: string,
+  module: string,
+  files: { file: string; module: string }[],
+  prefix: string,
+): void {
   const names = readdirSync(dir)
   const zeeFiles: string[] = []
   const dirs = new Set<string>()
@@ -114,11 +134,11 @@ function walkModuleDir(dir: string, module: string, files: { file: string; modul
         file,
       )
     }
-    files.push({ file: join(dir, name), module })
+    files.push({ file: join(dir, name), module: qualifyModule(module, prefix) })
   }
   for (const name of dirs) {
     const child = module ? `${module}.${name}` : name
-    walkModuleDir(join(dir, name), child, files)
+    walkModuleDir(join(dir, name), child, files, prefix)
   }
 }
 
@@ -152,24 +172,40 @@ export function defaultInitName(cwd: string): string {
 
 export function parseManifest(source: string, file = 'zee.toml'): Manifest {
   const values = new Map<string, string>()
-  let inPackage = false
+  const deps = new Map<string, DepSpec>()
+  let section: 'package' | 'deps' | undefined
   for (const raw of source.split(/\r?\n/)) {
     const line = raw.trim()
     if (line.length === 0 || line.startsWith('#')) continue
     if (line === '[package]') {
-      inPackage = true
+      section = 'package'
+      continue
+    }
+    if (line === '[deps]') {
+      section = 'deps'
       continue
     }
     if (line.startsWith('[')) {
-      inPackage = false
+      section = undefined
       continue
     }
-    if (!inPackage) continue
-    const match = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*"([^"]*)"\s*$/.exec(line)
-    if (!match) {
-      throw new ZeeError(`invalid manifest line \`${line}\``, 1, 1, file)
+    if (section === 'package') {
+      const match = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*"([^"]*)"\s*$/.exec(line)
+      if (!match) {
+        throw new ZeeError(`invalid manifest line \`${line}\``, 1, 1, file)
+      }
+      values.set(match[1]!, match[2]!)
+      continue
     }
-    values.set(match[1]!, match[2]!)
+    if (section === 'deps') {
+      const match = /^([A-Za-z][a-z0-9_-]*)\s*=\s*(.+)$/.exec(line)
+      if (!match) {
+        throw new ZeeError(`invalid deps line \`${line}\``, 1, 1, file)
+      }
+      const depName = match[1]!
+      validatePackageName(depName)
+      deps.set(depName, parseDepSpec(match[2]!.trim(), depName, file))
+    }
   }
   const name = values.get('name')
   if (!name) throw new ZeeError('zee.toml is missing package.name', 1, 1, file)
@@ -178,7 +214,77 @@ export function parseManifest(source: string, file = 'zee.toml'): Manifest {
     name,
     version: values.get('version') ?? '0.1.0',
     entry: values.get('entry') ?? DEFAULT_ENTRY,
+    deps,
   }
+}
+
+export function parseDepSpec(raw: string, name: string, file: string): DepSpec {
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return { kind: 'version', version: raw.slice(1, -1) }
+  }
+  if (!raw.startsWith('{') || !raw.endsWith('}')) {
+    throw new ZeeError(`invalid deps spec for \`${name}\``, 1, 1, file)
+  }
+  const fields = parseInlineTable(raw.slice(1, -1), file)
+  if (fields.lib && (fields.path || fields.git)) {
+    throw new ZeeError(`dep \`${name}\` cannot mix lib with path or git`, 1, 1, file)
+  }
+  if (fields.path && (fields.git || fields.tag || fields.rev || fields.branch)) {
+    throw new ZeeError(`dep \`${name}\` cannot mix path and git`, 1, 1, file)
+  }
+  if (fields.lib) {
+    return { kind: 'lib', lib: fields.lib }
+  }
+  if (fields.path) {
+    return { kind: 'path', path: fields.path }
+  }
+  if (fields.git) {
+    return {
+      kind: 'git',
+      git: fields.git,
+      tag: fields.tag,
+      rev: fields.rev,
+      branch: fields.branch,
+    }
+  }
+  throw new ZeeError(`dep \`${name}\` needs path, git, lib, or a SemVer string`, 1, 1, file)
+}
+
+export function parseInlineTable(inner: string, file: string): Record<string, string> {
+  const fields: Record<string, string> = {}
+  const trimmed = inner.trim()
+  if (trimmed.length === 0) return fields
+  for (const part of splitTopLevel(inner, ',')) {
+    const item = part.trim()
+    if (item.length === 0) continue
+    const match = /^([A-Za-z][A-Za-z0-9_.]*)\s*=\s*"([^"]*)"\s*$/.exec(item)
+    if (!match) {
+      throw new ZeeError(`invalid manifest line \`${item}\``, 1, 1, file)
+    }
+    fields[match[1]!] = match[2]!
+  }
+  return fields
+}
+
+function splitTopLevel(source: string, sep: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  let inQuote = false
+  for (const ch of source) {
+    if (ch === '"') {
+      inQuote = !inQuote
+      current += ch
+      continue
+    }
+    if (ch === sep && !inQuote) {
+      parts.push(current)
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  parts.push(current)
+  return parts
 }
 
 function manifestSource(name: string): string {
@@ -187,6 +293,22 @@ function manifestSource(name: string): string {
 
 function mainSource(name: string): string {
   return `fn main() {\n  println("hello, ${name}")\n}\n`
+}
+
+/** Workspace-only: Color Theme ≠ File Icon Theme. Do not set this globally. */
+function editorSettingsSource(): string {
+  return `${JSON.stringify(
+    {
+      'workbench.iconTheme': 'zee-icons',
+      'workbench.colorTheme': 'Zee Dark',
+    },
+    null,
+    2,
+  )}\n`
+}
+
+function editorExtensionsSource(): string {
+  return `${JSON.stringify({ recommendations: ['zee-hq.zee'] }, null, 2)}\n`
 }
 
 function readUtf8(path: string): string {
