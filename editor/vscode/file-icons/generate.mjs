@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,7 +27,8 @@ export const PALETTE = {
 }
 
 /**
- * One role → three icons (source / spec / test).
+ * One role → two explorer icons (Z / flask+Z), still three files on disk
+ * so `.spec.zee` maps without a third shape.
  * VS Code walks suffixes from the first remaining dot:
  * `users.module.spec.zee` → `module.spec.zee` → `spec.zee` → `zee`.
  * `foo_test.zee` has one dot, so it stays the generic `.zee` icon.
@@ -75,6 +76,7 @@ export function tokenColors() {
     { scope: 'variable.language.zee', settings: { foreground: PALETTE.muted } },
     { scope: 'constant.language.zee', settings: { foreground: PALETTE.signal } },
     { scope: 'support.type.zee', settings: { foreground: PALETTE.signal } },
+    { scope: 'support.function.builtin.zee', settings: { foreground: PALETTE.violet } },
     { scope: 'entity.name.function.zee', settings: { foreground: PALETTE.azure } },
     ...SYNTAX.map((item) => ({
       scope: item.scope,
@@ -140,7 +142,7 @@ export function buildColorTheme(mode) {
 }
 
 export function iconFileName(kindId, variant) {
-  if (variant === 'source') return `zee-${kindId}.svg`
+  if (variant === 'source') return `zee-${kindId}.z.svg`
   return `zee-${kindId}-${variant}.svg`
 }
 
@@ -217,16 +219,25 @@ const GLYPHS = {
     <line x1="6.5" y1="16" x2="14" y2="16"/>`,
 }
 
-function zMark(color) {
-  return `<g transform="translate(8.6,10.2) scale(0.11)"><path d="M24,26 L76,26 L24,74 L76,74" stroke="${color}" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter" fill="none"/></g>`
+function zMark(color, compact) {
+  const transform = compact
+    ? 'translate(8.6,10.2) scale(0.11)'
+    : 'translate(12,12) scale(0.24) translate(-50,-50)'
+  return `<g transform="${transform}"><path d="M24,26 L76,26 L24,74 L76,74" stroke="${color}" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter" fill="none"/></g>`
 }
 
-function innerGlyph(kindId, color) {
+function glyphMarkup(kindId, color, compact) {
   if (kindId === 'file') return ''
-  if (kindId === 'zee' || kindId === 'main') return zMark(color)
+  if (kindId === 'zee' || kindId === 'main') return zMark(color, compact)
   const raw = GLYPHS[kindId]
   if (!raw) throw new Error(`missing glyph ${kindId}`)
-  return `<g transform="translate(6.4,8.6) scale(0.48)" fill="none" stroke="${color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${raw.replaceAll('COLOR', color)}</g>`
+  const transform = compact ? 'transform="translate(6.4,8.6) scale(0.48)" ' : ''
+  return `<g ${transform}fill="none" stroke="${color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${raw.replaceAll('COLOR', color)}</g>`
+}
+
+function leafMarkup(color) {
+  return `  <path d="M6 2 H14.5 L19 6.5 V21 A1 1 0 0 1 18 22 H6 A1 1 0 0 1 5 21 V3 A1 1 0 0 1 6 2 Z" fill="${color}" fill-opacity="0.16" stroke="${color}" stroke-width="1.4"/>
+  <path d="M14.5 2 V6.5 H19 Z" fill="${color}" fill-opacity="0.4" stroke="${color}" stroke-width="1.4" stroke-linejoin="round"/>`
 }
 
 function specBadge() {
@@ -241,32 +252,58 @@ function testBadge() {
   <path d="M16.5 17.5 h3.1 M18 17.5 v3.4" stroke="${PALETTE.ink}" stroke-width="1.35" fill="none" stroke-linecap="round"/>`
 }
 
-export function svgFor(kindId, color, variant) {
+/** Catppuccin typescript-test: flask + language mark. Ours is flask + Z. */
+function flaskWithZ(color) {
+  return `  <g transform="translate(0.35,0.15) scale(1.18)" fill="none" stroke="${color}" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9.5.5 l6 6"/>
+    <path d="M12 7.5 H5"/>
+    <path d="M10.22 1.75 l-8.49 8.48 a2.5 2.5 0 1 0 3.54 3.54 L6.05 13.05"/>
+    <path d="M12.05 7.05 L13.78 5.32"/>
+  </g>
+  <g transform="translate(18.15,18.05) scale(0.132) translate(-50,-50)">
+    <path d="M24,26 L76,26 L24,74 L76,74" stroke="${color}" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+  </g>`
+}
+
+export function svgFor(kindId, color, variant, style = 'glyph') {
+  if (style === 'glyph' && kindId !== 'file') {
+    const inner = variant === 'test' ? flaskWithZ(color) : `  ${zMark(color, false)}`
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+${inner}
+</svg>
+`
+  }
   const badge = variant === 'spec' ? specBadge() : variant === 'test' ? testBadge() : ''
+  const body =
+    style === 'page' || kindId === 'file'
+      ? `${leafMarkup(color)}
+  ${glyphMarkup(kindId, color, true)}`
+      : `  ${glyphMarkup(kindId, color, false)}`
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path d="M6 2 H14.5 L19 6.5 V21 A1 1 0 0 1 18 22 H6 A1 1 0 0 1 5 21 V3 A1 1 0 0 1 6 2 Z" fill="${color}" fill-opacity="0.16" stroke="${color}" stroke-width="1.4"/>
-  <path d="M14.5 2 V6.5 H19 Z" fill="${color}" fill-opacity="0.4" stroke="${color}" stroke-width="1.4" stroke-linejoin="round"/>
-  ${innerGlyph(kindId, color)}
+${body}
   ${badge}
 </svg>
 `
 }
 
-function folderSvg(open) {
-  const color = PALETTE.muted
-  const tab = open
-    ? `<path d="M3 7.5 H9 L10.5 9.5 H21 A1 1 0 0 1 22 10.5 V18.5 A1 1 0 0 1 21 19.5 H3 A1 1 0 0 1 2 18.5 V8.5 A1 1 0 0 1 3 7.5 Z"/>`
-    : `<path d="M3 6.5 H9 L11 8.8 H21 A1 1 0 0 1 22 9.8 V18.5 A1 1 0 0 1 21 19.5 H3 A1 1 0 0 1 2 18.5 V7.5 A1 1 0 0 1 3 6.5 Z"/>`
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <g fill="${color}" fill-opacity="0.18" stroke="${color}" stroke-width="1.4">${tab}</g>
-</svg>
+function folderSvg(open, iconsDir) {
+  const mocha = join(iconsDir, 'catppuccin/mocha')
+  const baseName = open ? '_folder_open.svg' : '_folder.svg'
+  const base = readFileSync(join(mocha, baseName), 'utf8')
+  const z = `	<g transform="translate(11.5,12) scale(0.125) translate(-50,-50)">
+		<path d="M24,26 L76,26 L24,74 L76,74" stroke="${PALETTE.signal}" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter" fill="none"/>
+	</g>
 `
+  return base.replace(/<\/svg>\s*$/, `${z}</svg>\n`)
 }
 
 export function buildTheme() {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const catppuccin = catppuccinLayer(here)
   const iconDefinitions = {
+    ...catppuccin.iconDefinitions,
     _zee_folder: { iconPath: './zee-folder.svg' },
     _zee_folder_open: { iconPath: './zee-folder-open.svg' },
     _zee_toml: { iconPath: './zee-toml.svg' },
@@ -274,13 +311,9 @@ export function buildTheme() {
     _zee_main_spec: { iconPath: './zee-main-spec.svg' },
     _zee_main_test: { iconPath: './zee-main-test.svg' },
     _file: { iconPath: './zee-file.svg' },
-    _env: { iconPath: './zee-env.svg' },
-    _gitignore: { iconPath: './zee-gitignore.svg' },
     _lock: { iconPath: './zee-lock.svg' },
-    _json: { iconPath: './zee-json.svg' },
-    _md: { iconPath: './zee-md.svg' },
   }
-  const fileExtensions = {}
+  const fileExtensions = { ...catppuccin.fileExtensions }
   for (const kind of KINDS) {
     iconDefinitions[`_${kind.id}`] = { iconPath: `./${iconFileName(kind.id, 'source')}` }
     iconDefinitions[`_${kind.id}_spec`] = { iconPath: `./${iconFileName(kind.id, 'spec')}` }
@@ -295,57 +328,116 @@ export function buildTheme() {
       fileExtensions[`${kind.stem}.test.zee`] = `_${kind.id}_test`
     }
   }
+  const fileNames = {
+    ...catppuccin.fileNames,
+    'main.zee': '_zee_main',
+    'main.spec.zee': '_zee_main_spec',
+    'main.test.zee': '_zee_main_test',
+    'zee.toml': '_zee_toml',
+    'libs.toml': '_zee_toml',
+    'zee.lock': '_lock',
+  }
+  if (!fileNames['.env'] && iconDefinitions._c_env) fileNames['.env'] = '_c_env'
+  const languageIds = { ...catppuccin.languageIds }
+  delete languageIds.zee
   return {
     iconDefinitions,
-    fileNames: {
-      'main.zee': '_zee_main',
-      'main.spec.zee': '_zee_main_spec',
-      'main.test.zee': '_zee_main_test',
-      'zee.toml': '_zee_toml',
-      'libs.toml': '_zee_toml',
-      'zee.lock': '_lock',
-      '.gitignore': '_gitignore',
-      '.env': '_env',
-      '.env.local': '_env',
-      '.env.dev': '_env',
-      '.env.development': '_env',
-      '.env.test': '_env',
-      '.env.production': '_env',
-      '.env.example': '_env',
-    },
-    fileExtensions: {
-      ...fileExtensions,
-      toml: '_zee_toml',
-      lock: '_lock',
-      json: '_json',
-      md: '_md',
-    },
-    file: '_file',
-    folder: '_zee_folder',
-    folderExpanded: '_zee_folder_open',
-    rootFolder: '_zee_folder',
-    rootFolderExpanded: '_zee_folder_open',
+    fileNames,
+    fileExtensions,
+    languageIds,
+    folderNames: { ...catppuccin.folderNames, '.zee': '_zee_folder' },
+    folderNamesExpanded: { ...catppuccin.folderNamesExpanded, '.zee': '_zee_folder_open' },
+    file: iconDefinitions._c_file ? '_c_file' : '_file',
+    folder: iconDefinitions._c_folder ? '_c_folder' : '_zee_folder',
+    folderExpanded: iconDefinitions._c_folder_open ? '_c_folder_open' : '_zee_folder_open',
+    rootFolder: iconDefinitions._c_root ? '_c_root' : '_zee_folder',
+    rootFolderExpanded: iconDefinitions._c_root_open ? '_c_root_open' : '_zee_folder_open',
+  }
+}
+
+function catppuccinLayer(iconsDir) {
+  const assocPath = join(iconsDir, 'catppuccin/associations.json')
+  const mochaDir = join(iconsDir, 'catppuccin/mocha')
+  if (!existsSync(assocPath) || !existsSync(mochaDir)) {
+    return {
+      iconDefinitions: {},
+      fileExtensions: {},
+      fileNames: {},
+      languageIds: {},
+      folderNames: {},
+      folderNamesExpanded: {},
+    }
+  }
+  const assoc = JSON.parse(readFileSync(assocPath, 'utf8'))
+  const iconDefinitions = {}
+  for (const file of readdirSync(mochaDir)) {
+    if (!file.endsWith('.svg')) continue
+    const id = file.slice(0, -4)
+    iconDefinitions[`_c_${id}`] = { iconPath: `./catppuccin/mocha/${file}` }
+  }
+  for (const [alias, fileId] of [
+    ['file', '_file'],
+    ['folder', '_folder'],
+    ['folder_open', '_folder_open'],
+    ['root', '_root'],
+    ['root_open', '_root_open'],
+  ]) {
+    const def = iconDefinitions[`_c_${fileId}`]
+    if (def) iconDefinitions[`_c_${alias}`] = def
+  }
+  const fileExtensions = {}
+  for (const [ext, name] of Object.entries(assoc.fileExtensions ?? {})) {
+    fileExtensions[ext] = `_c_${name}`
+  }
+  const fileNames = {}
+  for (const [name, icon] of Object.entries(assoc.fileNames ?? {})) {
+    fileNames[name] = `_c_${icon}`
+  }
+  const languageIds = {}
+  for (const [id, icon] of Object.entries(assoc.languageIds ?? {})) {
+    languageIds[id] = `_c_${icon}`
+  }
+  const folderNames = {}
+  const folderNamesExpanded = {}
+  for (const [folder, icon] of Object.entries(assoc.folderNames ?? {})) {
+    folderNames[folder] = `_c_${icon}`
+    folderNamesExpanded[folder] = `_c_${icon}_open`
+  }
+  return { iconDefinitions, fileExtensions, fileNames, languageIds, folderNames, folderNamesExpanded }
+}
+
+function writeIconSet(dir, style) {
+  mkdirSync(dir, { recursive: true })
+  for (const kind of KINDS) {
+    for (const variant of VARIANTS) {
+      writeFileSync(join(dir, iconFileName(kind.id, variant)), svgFor(kind.id, kind.color, variant, style))
+    }
+  }
+  writeFileSync(join(dir, 'zee-main.svg'), svgFor('main', PALETTE.signal, 'source', style))
+  writeFileSync(join(dir, 'zee-main-spec.svg'), svgFor('main', PALETTE.signal, 'spec', style))
+  writeFileSync(join(dir, 'zee-main-test.svg'), svgFor('main', PALETTE.signal, 'test', style))
+  writeFileSync(join(dir, 'zee-toml.svg'), svgFor('toml', PALETTE.muted, 'source', style))
+  writeFileSync(join(dir, 'zee-file.svg'), svgFor('file', PALETTE.muted, 'source', style))
+  writeFileSync(join(dir, 'zee-env.svg'), svgFor('env', PALETTE.lime, 'source', style))
+  writeFileSync(join(dir, 'zee-gitignore.svg'), svgFor('gitignore', PALETTE.coral, 'source', style))
+  writeFileSync(join(dir, 'zee-lock.svg'), svgFor('lock', PALETTE.amber, 'source', style))
+  writeFileSync(join(dir, 'zee-json.svg'), svgFor('json', PALETTE.amber, 'source', style))
+  writeFileSync(join(dir, 'zee-md.svg'), svgFor('md', PALETTE.azure, 'source', style))
+}
+
+function removeStaleGlyphs(dir) {
+  for (const kind of KINDS) {
+    const stale = join(dir, `zee-${kind.id}.svg`)
+    if (existsSync(stale)) unlinkSync(stale)
   }
 }
 
 export function generate(outDir = dirname(fileURLToPath(import.meta.url))) {
-  for (const kind of KINDS) {
-    for (const variant of VARIANTS) {
-      writeFileSync(join(outDir, iconFileName(kind.id, variant)), svgFor(kind.id, kind.color, variant))
-    }
-  }
-  writeFileSync(join(outDir, 'zee-main.svg'), svgFor('main', PALETTE.signal, 'source'))
-  writeFileSync(join(outDir, 'zee-main-spec.svg'), svgFor('main', PALETTE.signal, 'spec'))
-  writeFileSync(join(outDir, 'zee-main-test.svg'), svgFor('main', PALETTE.signal, 'test'))
-  writeFileSync(join(outDir, 'zee-toml.svg'), svgFor('toml', PALETTE.muted, 'source'))
-  writeFileSync(join(outDir, 'zee-file.svg'), svgFor('file', PALETTE.muted, 'source'))
-  writeFileSync(join(outDir, 'zee-env.svg'), svgFor('env', PALETTE.lime, 'source'))
-  writeFileSync(join(outDir, 'zee-gitignore.svg'), svgFor('gitignore', PALETTE.coral, 'source'))
-  writeFileSync(join(outDir, 'zee-lock.svg'), svgFor('lock', PALETTE.amber, 'source'))
-  writeFileSync(join(outDir, 'zee-json.svg'), svgFor('json', PALETTE.amber, 'source'))
-  writeFileSync(join(outDir, 'zee-md.svg'), svgFor('md', PALETTE.azure, 'source'))
-  writeFileSync(join(outDir, 'zee-folder.svg'), folderSvg(false))
-  writeFileSync(join(outDir, 'zee-folder-open.svg'), folderSvg(true))
+  writeIconSet(outDir, 'glyph')
+  removeStaleGlyphs(outDir)
+  writeIconSet(join(outDir, 'page'), 'page')
+  writeFileSync(join(outDir, 'zee-folder.svg'), folderSvg(false, outDir))
+  writeFileSync(join(outDir, 'zee-folder-open.svg'), folderSvg(true, outDir))
   writeFileSync(join(outDir, 'zee-icon-theme.json'), `${JSON.stringify(buildTheme(), null, 2)}\n`)
   const themesDir = join(outDir, '../themes')
   mkdirSync(themesDir, { recursive: true })

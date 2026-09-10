@@ -1,0 +1,2 @@
+// users.action — one use-case
+fn invoke() {}

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -62,5 +62,32 @@ describe('interpreter', () => {
 describe('examples', () => {
   it('hello source is stable', () => {
     expect(readFileSync(join(examples, 'hello.zee'), 'utf8')).toContain('hello, zee')
+  })
+
+  it('has one of each Zee file role for the explorer (AC-examples-roles)', () => {
+    const files = [
+      'hello.zee',
+      'main.zee',
+      'users.module.zee',
+      'users.controller.zee',
+      'users.action.zee',
+      'users.service.zee',
+      'users.resource.zee',
+      'users.repository.zee',
+      'users.model.zee',
+      'users.api.zee',
+      'users.service.test.zee',
+      'user.class.zee',
+      'point.struct.zee',
+      'row.data.zee',
+      'status.enum.zee',
+      'closeable.interface.zee',
+      'userid.newtype.zee',
+      'fail.error.zee',
+    ]
+    for (const file of files) {
+      expect(existsSync(join(examples, file)), file).toBe(true)
+    }
+    expect(existsSync(join(examples, '.zee'))).toBe(true)
   })
 })

@@ -1,0 +1,2 @@
+// users.api — outbound HTTP client
+fn fetch(id: i32) {}

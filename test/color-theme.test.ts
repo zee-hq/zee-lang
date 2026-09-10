@@ -26,6 +26,25 @@ describe('Zee color theme', () => {
     expect(PALETTE.coral).toBe('#FF6B6B')
   })
 
+  it('paints host builtins violet, distinct from user functions (AC-theme-builtins)', () => {
+    const includes = grammar.patterns.map((pattern: { include: string }) => pattern.include)
+    expect(includes).toContain('#builtins')
+    expect(includes).toContain('#functionCalls')
+    expect(includes.indexOf('#types')).toBeLessThan(includes.indexOf('#functionCalls'))
+    expect(includes.indexOf('#builtins')).toBeLessThan(includes.indexOf('#functionCalls'))
+    expect(grammar.repository.builtins.name).toBe('support.function.builtin.zee')
+    expect(grammar.repository.functionCalls.name).toBe('entity.name.function.zee')
+    expect(grammar.repository.functionCalls.match).toContain('(?=\\()')
+    for (const name of ['print', 'println', 'str', 'error', 'getenv', 'envProfile', 'envAppMeta']) {
+      expect(grammar.repository.builtins.match, `missing builtin ${name}`).toContain(name)
+    }
+    const builtin = tokenColors().find((rule) => rule.scope === 'support.function.builtin.zee')
+    const userFn = tokenColors().find((rule) => rule.scope === 'entity.name.function.zee')
+    expect(builtin?.settings.foreground).toBe(PALETTE.violet)
+    expect(userFn?.settings.foreground).toBe(PALETTE.azure)
+    expect(builtin?.settings.foreground).not.toBe(userFn?.settings.foreground)
+  })
+
   it('ships dark (ink) and light (paper) with the same token colors', () => {
     expect(dark.colors['editor.background']).toBe(PALETTE.ink)
     expect(light.colors['editor.background']).toBe(PALETTE.paper)

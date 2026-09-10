@@ -1,0 +1,3 @@
+// users.controller — HTTP in
+fn index() {}
+fn show(id: i32) {}

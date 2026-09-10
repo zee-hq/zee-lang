@@ -14,30 +14,30 @@ npm run editor:link
 
 That symlinks this folder into `~/.cursor/extensions/zee-hq.zee-0.1.0` and `~/.vscode/extensions/zee-hq.zee-0.1.0`. Reload the window, then open `examples/hello.zee`.
 
-To see role-colored `.zee` glyphs in the explorer, set **File Icon Theme → Zee**.
+To see role-colored Z marks in the explorer, set **File Icon Theme → Zee**. Zee files are a colored **Z**; tests are a flask + Z. Empty folders and other languages use [Catppuccin Icons](https://github.com/catppuccin/vscode-icons) (Mocha). A `.zee/` folder is that Catppuccin folder with the signal Z. The older page-and-glyph set is in `file-icons/page/`.
 
-Color in the editor: **Color Theme → Zee Dark** (or **Zee Light**). The setting id is the same string as the label (`workbench.colorTheme`: `"Zee Dark"`). Class names are coral, structs mint, enums orchid — the same hex as the file icon.
+Color in the editor: **Color Theme → Zee Dark** (or **Zee Light**). The setting id is the same string as the label (`workbench.colorTheme`: `"Zee Dark"`). Class names are coral, structs mint, enums orchid — the same hex as the file icon. User functions are azure; host builtins (`print`, `println`, `str`, `error`, `getenv`, …) are violet; `panic` is amber.
 
 Reload the window after `npm run editor:link`. If the workspace setting does not apply in Cursor, pick **Preferences: Color Theme → Zee Dark** once (writes the user setting).
 
 | File | Icon |
 |---|---|
-|---|---|
-| `hello.zee` | generic Z (teal) |
-| `users.module.zee` | module (pine) |
-| `users.controller.zee` | controller (azure) |
-| `users.action.zee` | action (ember) |
-| `users.service.zee` | service (violet) |
-| `users.resource.zee` | resource (aqua) |
-| `users.repository.zee` | repository (moss) |
-| `users.model.zee` | model (honey) |
-| `users.api.zee` | api (indigo) |
-| `point.struct.zee` / `user.class.zee` / `row.data.zee` | type roles |
-| `status.enum.zee` / `io.interface.zee` / `id.newtype.zee` | type roles |
-| `fail.error.zee` | error (amber) |
-| `*.spec.zee` | same glyph + teal check |
-| `*.test.zee` | same glyph + lime T |
+| `hello.zee` | Z (teal) |
+| `users.module.zee` | Z (pine) |
+| `users.controller.zee` | Z (azure) |
+| `users.action.zee` | Z (ember) |
+| `users.service.zee` | Z (violet) |
+| `users.resource.zee` | Z (aqua) |
+| `users.repository.zee` | Z (moss) |
+| `users.model.zee` | Z (honey) |
+| `users.api.zee` | Z (indigo) |
+| `point.struct.zee` / `user.class.zee` / `row.data.zee` | Z in the type-role color |
+| `status.enum.zee` / `io.interface.zee` / `id.newtype.zee` | Z in the type-role color |
+| `fail.error.zee` | Z (amber) |
+| `*.spec.zee` | same colored Z as the source file |
+| `*.test.zee` | flask + Z in that role color |
 | `main.zee` / `zee.toml` | entry / manifest |
+| `.zee/` | Catppuccin folder + signal Z |
 
 Regenerate SVGs: `npm run editor:icons` (from repo root). See [`brand/BRAND.md`](../../brand/BRAND.md).
 

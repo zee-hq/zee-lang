@@ -1,0 +1,5 @@
+// users.model — DB shape
+struct UserRow {
+  const id: i32
+  const name: String
+}

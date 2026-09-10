@@ -6,4 +6,6 @@ coverage/
 *.log
 .vscode-test/
 .zee/
+!examples/.zee/
+!examples/.zee/**
 

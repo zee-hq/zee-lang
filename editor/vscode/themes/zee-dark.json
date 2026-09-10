@@ -106,6 +106,12 @@
       }
     },
     {
+      "scope": "support.function.builtin.zee",
+      "settings": {
+        "foreground": "#8B7CFF"
+      }
+    },
+    {
       "scope": "entity.name.function.zee",
       "settings": {
         "foreground": "#4C8DFF"

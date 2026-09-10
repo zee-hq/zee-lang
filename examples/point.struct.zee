@@ -1,0 +1,4 @@
+struct Point {
+  const x: i32
+  const y: i32
+}

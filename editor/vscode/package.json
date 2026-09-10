@@ -34,8 +34,8 @@
         "extensions": [".zee"],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./file-icons/zee-zee.svg",
-          "dark": "./file-icons/zee-zee.svg"
+          "light": "./file-icons/zee-zee.z.svg",
+          "dark": "./file-icons/zee-zee.z.svg"
         }
       }
     ],

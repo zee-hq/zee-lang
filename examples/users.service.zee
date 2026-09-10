@@ -1,0 +1,2 @@
+// users.service — domain rules, no HTTP, no SQL
+fn list() {}

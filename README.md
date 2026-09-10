@@ -243,7 +243,7 @@ lambda      = "{" (ident ("," ident)* "->")? statements "}"
 intWidth    = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize"
 ```
 
-See `examples/` for programs that actually run.
+See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `factorial.zee`) plus one file of each role so the explorer icons show up.
 
 ## Editor
 
@@ -253,7 +253,7 @@ The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It highli
 npm run editor:link
 ```
 
-Reload the window, open `examples/hello.zee`. To see the teal `.zee` glyph in the explorer, pick **File Icon Theme → Zee**.
+Reload the window, open `examples/hello.zee`. To see the teal Z in the explorer, pick **File Icon Theme → Zee**.
 
 ## Design constraints
 

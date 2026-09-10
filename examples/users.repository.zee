@@ -1,0 +1,2 @@
+// users.repository — persistence port
+fn find(id: i32) {}

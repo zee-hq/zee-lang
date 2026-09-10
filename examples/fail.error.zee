@@ -1,0 +1,7 @@
+data struct Missing {
+  const text: String
+} implements Error {
+  fn message(self) -> String {
+    self.text
+  }
+}
