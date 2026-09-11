@@ -3033,29 +3033,6 @@ function checkBuiltinMethod(
       if (expr.args.length !== 0) throw error(expr.loc, '`toArray` takes no arguments')
       return { kind: 'array', elem: targetType.elem }
     }
-    if (name === 'map') {
-      if (expr.args.length !== 1) throw error(expr.loc, '`map` takes one function')
-      const mapped = inferFnArg(expr.args[0]!, [targetType.elem], env, returnType)
-      return { kind: 'list', elem: mapped.ret }
-    }
-    if (name === 'filter') {
-      if (expr.args.length !== 1) throw error(expr.loc, '`filter` takes one function')
-      checkExpr(expr.args[0]!, env, returnType, {
-        kind: 'fn',
-        params: [targetType.elem],
-        ret: T_BOOL,
-      })
-      return targetType
-    }
-    if (name === 'forEach') {
-      if (expr.args.length !== 1) throw error(expr.loc, '`forEach` takes one function')
-      checkExpr(expr.args[0]!, env, returnType, {
-        kind: 'fn',
-        params: [targetType.elem],
-        ret: T_UNIT,
-      })
-      return T_UNIT
-    }
     if (name === 'sort') {
       if (expr.args.length === 0) {
         if (!isOrdType(targetType.elem)) {
@@ -3096,6 +3073,9 @@ function checkBuiltinMethod(
       }
       return targetType
     }
+    if (name === 'push' || name === 'pop' || name === 'fill') {
+      throw error(expr.loc, `\`${name}\` is \`T[]\`; List is immutable`)
+    }
     if (name === 'join') {
       if (expr.args.length !== 1) throw error(expr.loc, '`join` takes a String separator')
       if (targetType.elem.kind !== 'string') {
@@ -3105,9 +3085,46 @@ function checkBuiltinMethod(
       return T_STRING
     }
   }
-  if (targetType.kind === 'array' && name === 'toList') {
-    if (expr.args.length !== 0) throw error(expr.loc, '`toList` takes no arguments')
-    return { kind: 'list', elem: targetType.elem }
+  if (targetType.kind === 'array') {
+    if (name === 'toList') {
+      if (expr.args.length !== 0) throw error(expr.loc, '`toList` takes no arguments')
+      return { kind: 'list', elem: targetType.elem }
+    }
+    if (name === 'push') {
+      if (expr.callee.kind === 'member') requireVarReceiver(expr.callee.target, env, expr.loc)
+      if (expr.args.length !== 1) throw error(expr.loc, '`push` takes one argument')
+      checkExpr(expr.args[0]!, env, returnType, targetType.elem)
+      return T_UNIT
+    }
+    if (name === 'pop') {
+      if (expr.callee.kind === 'member') requireVarReceiver(expr.callee.target, env, expr.loc)
+      if (expr.args.length !== 0) throw error(expr.loc, '`pop` takes no arguments')
+      return { kind: 'option', inner: targetType.elem }
+    }
+    if (name === 'fill') {
+      if (expr.callee.kind === 'member') requireVarReceiver(expr.callee.target, env, expr.loc)
+      if (expr.args.length !== 1) throw error(expr.loc, '`fill` takes one argument')
+      checkExpr(expr.args[0]!, env, returnType, targetType.elem)
+      return T_UNIT
+    }
+    if (name === 'sort') {
+      if (expr.callee.kind === 'member') requireVarReceiver(expr.callee.target, env, expr.loc)
+      if (expr.args.length === 0) {
+        if (!isOrdType(targetType.elem)) {
+          throw error(expr.loc, '`sort` requires `T: Ord`')
+        }
+        return T_UNIT
+      }
+      if (expr.args.length !== 1) {
+        throw error(expr.loc, '`sort` takes no arguments or a `(T, T) -> i32` comparator')
+      }
+      checkExpr(expr.args[0]!, env, returnType, {
+        kind: 'fn',
+        params: [targetType.elem, targetType.elem],
+        ret: T_I32,
+      })
+      return T_UNIT
+    }
   }
   if (targetType.kind === 'expect' && (name === 'toBe' || name === 'toEqual')) {
     if (expr.args.length !== 1) throw error(expr.loc, `\`expect(...).${name}\` takes one argument`)
@@ -3199,7 +3216,7 @@ function checkMapMethod(
     throw error(expr.loc, '`sortBy` is List; Map uses `sortByKey` / `sortByValue`')
   }
   if (name === 'map') {
-    throw error(expr.loc, '`map` is List; Map uses `mapValues`')
+    throw error(expr.loc, '`map` is List / `T[]`; Map uses `mapValues`')
   }
   if (name === 'contains') {
     throw error(expr.loc, '`contains` is List; Map uses `containsKey`')
@@ -3221,6 +3238,29 @@ function checkSeqMethod(
     }
     checkExpr(expr.args[0]!, env, returnType, targetType.elem)
     return T_BOOL
+  }
+  if (name === 'map') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`map` takes one function')
+    const mapped = inferFnArg(expr.args[0]!, [targetType.elem], env, returnType)
+    return { kind: targetType.kind, elem: mapped.ret }
+  }
+  if (name === 'filter') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`filter` takes one function')
+    checkExpr(expr.args[0]!, env, returnType, {
+      kind: 'fn',
+      params: [targetType.elem],
+      ret: T_BOOL,
+    })
+    return targetType
+  }
+  if (name === 'forEach') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`forEach` takes one function')
+    checkExpr(expr.args[0]!, env, returnType, {
+      kind: 'fn',
+      params: [targetType.elem],
+      ret: T_UNIT,
+    })
+    return T_UNIT
   }
   if (name === 'find' || name === 'any' || name === 'all') {
     if (expr.args.length !== 1) throw error(expr.loc, `\`${name}\` takes one function`)

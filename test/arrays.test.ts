@@ -102,4 +102,62 @@ describe('arrays (AC-array)', () => {
       ],
     })
   })
+
+  it('maps, filters, and forEach without mutating the buffer (ZEE-25)', () => {
+    expect(
+      execute(`
+        var xs: i32[] = [1, 2, 3, 4]
+        const doubled = xs.map { it * 2 }
+        const evens = xs.filter { it % 2 == 0 }
+        doubled.forEach { }
+        (doubled[1], evens.len, evens[0], xs[0])
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'i32', value: 4 },
+        { type: 'usize', value: 2n },
+        { type: 'i32', value: 2 },
+        { type: 'i32', value: 1 },
+      ],
+    })
+  })
+
+  it('pushes, pops, fills, and sorts in place on var T[] (ZEE-25)', () => {
+    expect(
+      execute(`
+        var xs = [3, 1, 2]
+        xs.push(0)
+        const last = xs.pop()
+        xs.fill(9)
+        var ys = [3, 1, 2]
+        ys.sort()
+        var zs = [3, 1, 2]
+        zs.sort { a, b -> b <===> a }
+        (last, xs.len, xs[0], ys[0], ys[2], zs[0])
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'option', tag: 'some', value: { type: 'i32', value: 0 } },
+        { type: 'usize', value: 3n },
+        { type: 'i32', value: 9 },
+        { type: 'i32', value: 1 },
+        { type: 'i32', value: 3 },
+        { type: 'i32', value: 3 },
+      ],
+    })
+  })
+
+  it('pops None from an empty array (ZEE-25)', () => {
+    expect(execute('var xs: i32[] = []\nxs.pop()').value).toEqual({ type: 'option', tag: 'none' })
+  })
+
+  it('rejects mutating methods on const T[] and on List (ZEE-25)', () => {
+    expect(() => execute('const xs: i32[] = [1]\nxs.push(2)')).toThrow(/const|var/)
+    expect(() => execute('const xs: i32[] = [1]\nxs.pop()')).toThrow(/const|var/)
+    expect(() => execute('const xs: i32[] = [1]\nxs.fill(0)')).toThrow(/const|var/)
+    expect(() => execute('const xs: i32[] = [3, 1]\nxs.sort()')).toThrow(/const|var/)
+    expect(() => execute('const xs = [1]\nxs.push(2)')).toThrow(/push|immutable|field/)
+  })
 })

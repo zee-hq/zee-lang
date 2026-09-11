@@ -1425,28 +1425,6 @@ function callCollectionMethod(
     if (name === 'toArray') {
       return { type: 'array', items: target.items.map(copyValue), elem: target.elem }
     }
-    if (name === 'map') {
-      const mapped = target.items.map((item) => applyFnValue(args[0]!, [item], io, loc))
-      const elem = mapped[0] ? typeOfValue(mapped[0]) : target.elem
-      return { type: 'list', items: mapped, elem }
-    }
-    if (name === 'filter') {
-      const items: ZeeValue[] = []
-      for (const item of target.items) {
-        const keep = applyFnValue(args[0]!, [item], io, loc)
-        if (keep.type !== 'bool') {
-          throw new ZeeError('`filter` expects `(T) -> bool`', loc.line, loc.column, loc.file)
-        }
-        if (keep.value) items.push(copyValue(item))
-      }
-      return { type: 'list', items, elem: target.elem }
-    }
-    if (name === 'forEach') {
-      for (const item of target.items) {
-        applyFnValue(args[0]!, [item], io, loc)
-      }
-      return UNIT
-    }
     if (name === 'sort') {
       if (args.length !== 0 && args.length !== 1) {
         throw new ZeeError(
@@ -1510,6 +1488,9 @@ function callCollectionMethod(
       }
       return { type: 'list', items, elem: target.elem }
     }
+    if (name === 'push' || name === 'pop' || name === 'fill') {
+      throw new ZeeError(`\`${name}\` is \`T[]\`; List is immutable`, loc.line, loc.column, loc.file)
+    }
     if (name === 'join') {
       const sep = args[0]
       if (args.length !== 1 || !sep || sep.type !== 'string') {
@@ -1524,8 +1505,56 @@ function callCollectionMethod(
       return { type: 'string', value: parts.join(sep.value) }
     }
   }
-  if (target.type === 'array' && name === 'toList') {
-    return { type: 'list', items: target.items.map(copyValue), elem: target.elem }
+  if (target.type === 'array') {
+    if (name === 'toList') {
+      return { type: 'list', items: target.items.map(copyValue), elem: target.elem }
+    }
+    if (name === 'push') {
+      if (args.length !== 1) {
+        throw new ZeeError('`push` takes one argument', loc.line, loc.column, loc.file)
+      }
+      target.items.push(copyValue(args[0]!))
+      return UNIT
+    }
+    if (name === 'pop') {
+      if (args.length !== 0) {
+        throw new ZeeError('`pop` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      const item = target.items.pop()
+      if (item === undefined) return { type: 'option', tag: 'none' }
+      return { type: 'option', tag: 'some', value: item }
+    }
+    if (name === 'fill') {
+      if (args.length !== 1) {
+        throw new ZeeError('`fill` takes one argument', loc.line, loc.column, loc.file)
+      }
+      for (let i = 0; i < target.items.length; i += 1) {
+        target.items[i] = copyValue(args[0]!)
+      }
+      return UNIT
+    }
+    if (name === 'sort') {
+      if (args.length !== 0 && args.length !== 1) {
+        throw new ZeeError(
+          '`sort` takes no arguments or a `(T, T) -> i32` comparator',
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      if (args.length === 0) {
+        target.items.sort((left, right) => compareOrd(left, right, loc))
+      } else {
+        target.items.sort((left, right) => {
+          const out = applyFnValue(args[0]!, [left, right], io, loc)
+          if (out.type !== 'i32') {
+            throw new ZeeError('`sort` comparator must return `i32`', loc.line, loc.column, loc.file)
+          }
+          return Number(out.value)
+        })
+      }
+      return UNIT
+    }
   }
   if (target.type === 'expect' && (name === 'toBe' || name === 'toEqual')) {
     if (args.length !== 1) {
@@ -1701,7 +1730,7 @@ function callMapMethod(
     return { type: 'map', entries, key: target.key, value: target.value }
   }
   if (name === 'map') {
-    throw new ZeeError('`map` is List; Map uses `mapValues`', loc.line, loc.column, loc.file)
+    throw new ZeeError('`map` is List / `T[]`; Map uses `mapValues`', loc.line, loc.column, loc.file)
   }
   if (name === 'contains') {
     throw new ZeeError('`contains` is List; Map uses `containsKey`', loc.line, loc.column, loc.file)
@@ -1721,6 +1750,37 @@ function callSeqMethod(
       throw new ZeeError('`contains` takes one argument', loc.line, loc.column, loc.file)
     }
     return { type: 'bool', value: target.items.some((item) => valuesEqual(item, args[0]!)) }
+  }
+  if (name === 'map') {
+    if (args.length !== 1) {
+      throw new ZeeError('`map` takes one function', loc.line, loc.column, loc.file)
+    }
+    const mapped = target.items.map((item) => applyFnValue(args[0]!, [item], io, loc))
+    const elem = mapped[0] ? typeOfValue(mapped[0]) : target.elem
+    return { type: target.type, items: mapped, elem }
+  }
+  if (name === 'filter') {
+    if (args.length !== 1) {
+      throw new ZeeError('`filter` takes one function', loc.line, loc.column, loc.file)
+    }
+    const items: ZeeValue[] = []
+    for (const item of target.items) {
+      const keep = applyFnValue(args[0]!, [item], io, loc)
+      if (keep.type !== 'bool') {
+        throw new ZeeError('`filter` expects `(T) -> bool`', loc.line, loc.column, loc.file)
+      }
+      if (keep.value) items.push(copyValue(item))
+    }
+    return { type: target.type, items, elem: target.elem }
+  }
+  if (name === 'forEach') {
+    if (args.length !== 1) {
+      throw new ZeeError('`forEach` takes one function', loc.line, loc.column, loc.file)
+    }
+    for (const item of target.items) {
+      applyFnValue(args[0]!, [item], io, loc)
+    }
+    return UNIT
   }
   if (name === 'find' || name === 'any' || name === 'all') {
     if (args.length !== 1) {
