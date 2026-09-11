@@ -65,6 +65,19 @@ future = "1.2"
     expect(manifest.deps.get('future')).toEqual({ kind: 'version', version: '1.2' })
   })
 
+  it('parses a PascalCase dep alias', () => {
+    const manifest = parseManifest(`
+[package]
+name = "app"
+version = "0.1.0"
+entry = "src/main.zee"
+
+[deps]
+ZeeTest = { path = "../ZeeTest" }
+`)
+    expect(manifest.deps.get('ZeeTest')).toEqual({ kind: 'path', path: '../ZeeTest' })
+  })
+
   it('parses optional [package] identity fields (AC-env-app)', () => {
     const manifest = parseManifest(`
 [package]

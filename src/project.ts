@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { ZeeError } from './error.ts'
 
-const NAME_RE = /^[a-z][a-z0-9_-]*$/
+const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]*$/
 const DEFAULT_ENTRY = 'src/main.zee'
 
 export interface CreateProjectOptions {
@@ -43,7 +43,7 @@ export interface Manifest {
 export function validatePackageName(name: string): void {
   if (!NAME_RE.test(name)) {
     throw new ZeeError(
-      `invalid package name \`${name}\` (use lowercase letters, digits, \`-\` or \`_\`)`,
+      `invalid package name \`${name}\` (use letters, digits, \`-\` or \`_\`)`,
       1,
       1,
       'zee.toml',
@@ -109,6 +109,11 @@ export function listPackageSources(root: string, modulePrefix = ''): { file: str
   const files: { file: string; module: string }[] = []
   walkModuleDir(src, '', files, modulePrefix)
   return files.sort((a, b) => a.file.localeCompare(b.file))
+}
+
+/** `users.service.test.zee` only. Not `foo_test.zee`, not `.spec.zee`. */
+export function isZeeTestFile(file: string): boolean {
+  return basename(file).endsWith('.test.zee')
 }
 
 function qualifyModule(module: string, prefix: string): string {
@@ -221,7 +226,7 @@ export function parseManifest(source: string, file = 'zee.toml'): Manifest {
       continue
     }
     if (section === 'deps') {
-      const match = /^([A-Za-z][a-z0-9_-]*)\s*=\s*(.+)$/.exec(line)
+      const match = /^([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.+)$/.exec(line)
       if (!match) {
         throw new ZeeError(`invalid deps line \`${line}\``, 1, 1, file)
       }

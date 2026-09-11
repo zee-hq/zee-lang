@@ -77,6 +77,7 @@ class TypeEnv {
   private captureLimit: TypeEnv | undefined
   loopDepth = 0
   fnDepth = 0
+  describeDepth = 0
   file: string
   module: string
   moduleHome: TypeEnv
@@ -322,6 +323,7 @@ class TypeEnv {
     env.captureLimit = this.captureLimit
     env.loopDepth = this.loopDepth
     env.fnDepth = this.fnDepth
+    env.describeDepth = this.describeDepth
     env.file = this.file
     env.module = this.module
     env.moduleHome = this.moduleHome
@@ -709,6 +711,23 @@ function checkFnBody(
       `function \`${stmt.name}\` returns Unit, expected ${typeName(fnType.ret)}`,
     )
   }
+}
+
+function checkDescribeBody(arg: Expr, env: TypeEnv): void {
+  let block: Block
+  if (arg.kind === 'block') {
+    block = arg.block
+  } else if (arg.kind === 'lambda') {
+    if (arg.params.length !== 0) {
+      throw error(arg.loc, '`describe` block takes no parameters')
+    }
+    block = arg.body
+  } else {
+    throw error(arg.loc, '`describe` block must be `{ ... }`')
+  }
+  const inner = env.child()
+  inner.describeDepth += 1
+  checkBlock(block, inner, T_UNIT)
 }
 
 function defineTopLevelName(
@@ -1156,6 +1175,16 @@ function defineBuiltins(env: TypeEnv): void {
   env.define('getenv', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
   env.define('envProfile', { kind: 'fn', params: [], ret: T_STRING })
   env.define('envAppMeta', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
+  env.define('testCases', {
+    kind: 'fn',
+    params: [],
+    ret: { kind: 'list', elem: { kind: 'tuple', parts: [T_STRING, T_STRING] } },
+  })
+  env.define('testCall', {
+    kind: 'fn',
+    params: [T_STRING, T_STRING],
+    ret: { kind: 'option', inner: T_STRING },
+  })
   env.defineInterface('Error', T_ERROR, 'pub')
   env.defineStruct('Fail', T_FAIL, 'pub')
   env.defineMethod(`\0Fail`, {
@@ -1599,8 +1628,28 @@ function checkStmt(stmt: Stmt, env: TypeEnv, returnType: ZeeType, expected?: Zee
       if (!env.inFn()) throw error(stmt.loc, '`defer` outside of a function')
       checkExpr(stmt.body, env, returnType)
       return T_UNIT
-    case 'fn':
-      throw error(stmt.loc, 'nested functions are not supported yet')
+    case 'fn': {
+      if (env.describeDepth < 1) {
+        throw error(stmt.loc, 'nested functions are not supported yet')
+      }
+      const hook = ['beforeAll', 'beforeEach', 'afterEach', 'afterAll'].includes(stmt.name)
+      const test = stmt.name.startsWith('test')
+      if ((hook || test) && stmt.params.length > 0) {
+        throw error(
+          stmt.loc,
+          hook ? `hook \`${stmt.name}\` takes no parameters` : `test function \`${stmt.name}\` takes no parameters`,
+        )
+      }
+      if (env.hasOwn(stmt.name)) {
+        throw error(stmt.loc, `duplicate definition of \`${stmt.name}\``)
+      }
+      const params = stmt.params.map((param) => resolveTypeAst(param.type, env))
+      const ret = stmt.returnType ? resolveTypeAst(stmt.returnType, env) : T_UNIT
+      const fnType: Extract<ZeeType, { kind: 'fn' }> = { kind: 'fn', params, ret }
+      env.define(stmt.name, fnType)
+      checkFnBody(stmt, env, fnType)
+      return T_UNIT
+    }
     case 'structDecl':
       throw error(stmt.loc, 'nested structs are not supported yet')
     case 'enumDecl':
@@ -1836,6 +1885,9 @@ function inferExpr(expr: Expr, env: TypeEnv, returnType: ZeeType, expected?: Zee
           target.kind === 'map')
       ) {
         return T_USIZE
+      }
+      if (target.kind === 'expect' && expr.field === 'not') {
+        return target
       }
       if (target.kind === 'module') {
         return lookupModuleMember(target.name, expr.field, env, expr.loc)
@@ -2561,6 +2613,26 @@ function checkCall(
       const inner = checkExpr(expr.args[0]!, env, returnType, innerExpected)
       return { kind: 'option', inner }
     }
+    if (name === 'expect') {
+      if (expr.args.length !== 1) throw error(expr.loc, '`expect` takes one argument')
+      const inner = checkExpr(expr.args[0]!, env, returnType)
+      if (!isEquatable(inner) && !isFloatType(inner)) {
+        throw error(expr.args[0]!.loc, '`expect` needs an Eq value')
+      }
+      return { kind: 'expect', inner }
+    }
+    if (name === 'describe') {
+      if (expr.args.length < 1 || expr.args.length > 2) {
+        throw error(expr.loc, '`describe` takes a title and an optional `{ ... }` block')
+      }
+      const arg = expr.args[0]!
+      if (arg.kind !== 'string') {
+        throw error(arg.loc, '`describe` needs a string literal')
+      }
+      checkExpr(arg, env, returnType, T_STRING)
+      if (expr.args[1]) checkDescribeBody(expr.args[1], env)
+      return T_UNIT
+    }
     if (name === 'narrow') {
       if (!expr.typeArgs || expr.typeArgs.length !== 1) {
         throw error(expr.loc, '`narrow` takes one type argument')
@@ -2888,6 +2960,11 @@ function checkBuiltinMethod(
   if (targetType.kind === 'array' && name === 'toList') {
     if (expr.args.length !== 0) throw error(expr.loc, '`toList` takes no arguments')
     return { kind: 'list', elem: targetType.elem }
+  }
+  if (targetType.kind === 'expect' && (name === 'toBe' || name === 'toEqual')) {
+    if (expr.args.length !== 1) throw error(expr.loc, `\`expect(...).${name}\` takes one argument`)
+    checkExpr(expr.args[0]!, env, returnType, targetType.inner)
+    return T_UNIT
   }
   return undefined
 }

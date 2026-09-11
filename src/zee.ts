@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Program } from './ast.ts'
 import { check } from './checker.ts'
 import { ZeeError } from './error.ts'
-import { display, interpret, type RunResult, type ZeeValue } from './interpreter.ts'
+import { display, interpret, type RunResult, type RuntimeIo, type TestReport, type ZeeValue } from './interpreter.ts'
 import { parse } from './parser.ts'
 import { getPackages } from './pkg.ts'
-import { findProjectRoot, isPackageSourceFile, listPackageSources, readManifest } from './project.ts'
+import {
+  findProjectRoot,
+  isPackageSourceFile,
+  listPackageSources,
+  readManifest,
+} from './project.ts'
 
 export { VERSION } from './error.ts'
 export { ZeeError, PanicError } from './error.ts'
@@ -43,8 +49,10 @@ export function execute(source: string, options: ExecuteOptions = {}): ExecuteRe
   return { ...result, stdout }
 }
 
-/** Loads a package plus `[deps]` (AC-ZEE-4). */
-export function loadProgramFromPath(path: string): Program {
+export const OFFICIAL_TEST_MODULE = 'ZeeTest'
+
+/** Loads a package plus `[deps]` (AC-ZEE-4). `zee test` injects `libs/ZeeTest`. */
+export function loadProgramFromPath(path: string, options?: { injectTestLib?: boolean }): Program {
   const root = isPackageSourceFile(path)
   if (!root) {
     return parse(readFileSync(path, 'utf8'), path)
@@ -64,14 +72,32 @@ export function loadProgramFromPath(path: string): Program {
         )
       }
       sources.push(...listPackageSources(pkg.root, pkg.name))
+      localModules.add(pkg.name)
     }
   }
+  if (options?.injectTestLib) injectOfficialTestLib(root, sources, localModules, manifest)
   const units = sources.map((source) => {
     const parsed = parse(readFileSync(source.file, 'utf8'), source.file)
     return { file: source.file, module: source.module, stmts: parsed.stmts, innerDoc: parsed.innerDoc }
   })
   const stmts = units.flatMap((unit) => unit.stmts)
   return { file: path, stmts, units }
+}
+
+export function officialTestLibRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '../libs/ZeeTest')
+}
+
+function injectOfficialTestLib(
+  root: string,
+  sources: { file: string; module: string }[],
+  localModules: Set<string>,
+  manifest: ReturnType<typeof readManifest>,
+): void {
+  const lib = officialTestLibRoot()
+  if (resolve(root) === lib) return
+  if (localModules.has(OFFICIAL_TEST_MODULE) || manifest.deps.has(OFFICIAL_TEST_MODULE)) return
+  sources.push(...listPackageSources(lib, OFFICIAL_TEST_MODULE))
 }
 
 export function executePath(path: string, options: Omit<ExecuteOptions, 'file'> = {}): ExecuteResult {
@@ -100,6 +126,41 @@ export function checkPath(path: string): void {
 
 export function checkSource(source: string, file = '<input>'): void {
   check(parse(source, file))
+}
+
+export interface PackageTestResult {
+  reports: TestReport[]
+  passed: number
+  failed: number
+  stdout: string
+  exitCode: number
+}
+
+export function runPackageTests(
+  root: string,
+  options: Omit<ExecuteOptions, 'file' | 'callMain'> = {},
+): PackageTestResult {
+  const manifest = readManifest(root)
+  const entry = resolve(root, manifest.entry)
+  const program = loadProgramFromPath(entry, { injectTestLib: true })
+  check(program)
+  let stdout = ''
+  const print = (text: string) => {
+    stdout += text
+    options.print?.(text)
+  }
+  const invoke = {
+    module: (program.units ?? []).some((unit) => unit.module === OFFICIAL_TEST_MODULE)
+      ? OFFICIAL_TEST_MODULE
+      : '',
+    name: 'run',
+  }
+  const io: RuntimeIo = { print, root, processEnv: options.processEnv, readText: options.readText }
+  const result = interpret(program, io, { callMain: false, invoke })
+  const reports = io.test?.reports ?? []
+  const passed = reports.filter((item) => item.ok).length
+  const failed = reports.filter((item) => !item.ok).length
+  return { reports, passed, failed, stdout, exitCode: result.exitCode }
 }
 
 export function formatValue(value: ZeeValue): string {

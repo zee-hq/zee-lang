@@ -52,7 +52,7 @@ cd hello
 zee run
 ```
 
-`zee new` creates `zee.toml` + `src/main.zee`. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee init` scaffolds the current directory.
+`zee new` creates `zee.toml` + `src/main.zee`. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee test` injects the official [`ZeeTest`](https://github.com/zee-hq/ZeeTest) package and calls `ZeeTest.run()` — `fn test*` in `*.test.zee` under `src/` (`users.service.test.zee`, not `foo_test.zee` or `.spec.zee`), including library packages with `src/lib.zee`. Group with `describe("title") { const row = …; fn testFoo() { } }` — the block is a closure; inner `fn` get that env. Lifecycle hooks are `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. You can also `import ZeeTest` yourself. Assertions are Vitest-shaped: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch). `it()` is not a test helper — Zee `it` is the lambda parameter. Failure is also `panic` or a visible `err`. `zee init` scaffolds the current directory.
 
 Dependencies are Gradle-style aliases from a workspace `libs.toml` (walks up, like `libs.versions.toml`). `zee get json` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed and **honors `zee.lock`**. `zee update` (or `zee update env`) re-resolves within the current constraint and rewrites the lock — `1.2` can pick a newer `1.2.x`, `1.2.3` stays exact. It does not edit `libs.toml`. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` is SemVer precision (`1.2` → latest `1.2.x`). Registry order: `ZEE_REGISTRY`, `[registry] url`, then `~/.zee/registry`. `zee publish` refuses overwrite. Contract: [`docs/REGISTRY.md`](docs/REGISTRY.md).
 
@@ -81,13 +81,17 @@ zee run
 
 First official library: [`zee-hq/env`](https://github.com/zee-hq/env) (fixture copy in [`libs/env`](libs/env) for language tests). Releases are Git tags matching `zee.toml` version (`0.1.0`, not `v0.1.0`). `import env` then `env.get` / `env.require` / `env.getOr` / `env.profile`. App identity is `[package]` in the running app's `zee.toml`: `env.appName()`, `env.appVersion()`, plus `env.appDescription()` / `appAuthor` / `appCompany` / `appContact` / `appLicense` / `appHomepage` / `appRepository` (all `Option<String>`), or `env.app("author")` for any quoted key. It also reads process env, then `.env`, `.env.local`, `.env.{profile}`, `.env.{profile}.local` next to `zee.toml`. Profile is `ZEE_PROFILE`, else `ZEE_ENV`, else a `ZEE_PROFILE` in `.env`, else `dev`. Process env always wins. Missing keys are `None`.
 
+Second: [`zee-hq/ZeeTest`](https://github.com/zee-hq/ZeeTest) (fixture copy in [`libs/ZeeTest`](libs/ZeeTest) for language tests). `zee test` injects it and calls `ZeeTest.run()`. Group with `describe("title") { fn testFoo() { } }`. Hooks: `fn beforeEach()`. Assertions: `expect(x).toBe(1)`. You can also `import ZeeTest`.
+
 ```toml
 # libs.toml
 [versions]
 env = "0.1"
+ZeeTest = "0.1"
 
 [libraries]
 env = { git = "https://github.com/zee-hq/env.git", version.ref = "env" }
+ZeeTest = { git = "https://github.com/zee-hq/ZeeTest.git", version.ref = "ZeeTest" }
 ```
 
 ```toml
@@ -295,6 +299,7 @@ editor/vscode   TextMate grammar + Run/Check commands
 | `zee registry` | serve the HTTP registry from a file root (`--root`, `--token`, `--port`) |
 | `zee run [file]` | interpret a program (or the project entry) |
 | `zee check [file]` | type-check only |
+| `zee test` | inject ZeeTest and run `ZeeTest.run()` (`fn test*` in `*.test.zee`) |
 | `zee` | REPL |
 
 ## License

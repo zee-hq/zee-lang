@@ -38,6 +38,12 @@ describe('zee new', () => {
     expect(result.stdout).toBe('hello, hello\n')
   })
 
+  it('accepts a PascalCase package name', () => {
+    const created = createProject({ name: 'ZeeTest', parentDir: scratch(), mode: 'new' })
+    expect(created.name).toBe('ZeeTest')
+    expect(readFileSync(join(created.root, 'zee.toml'), 'utf8')).toContain('name = "ZeeTest"')
+  })
+
   it('refuses an invalid package name', () => {
     expect(() => createProject({ name: 'My App', parentDir: scratch(), mode: 'new' })).toThrow(
       /invalid package name/,

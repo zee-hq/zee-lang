@@ -1,0 +1,131 @@
+//! Nested describe closures. `beforeEach` injects `HttpReq` into the inner `fn`s.
+
+data struct HttpReq {
+  const id: i32
+  const page: i32
+  const perPage: i32
+  const showId: i32
+}
+
+var boot = 0
+
+fn beforeAll() {
+  boot = 1
+}
+
+describe("userController") {
+  var users: List<UserRow> = []
+  var req = HttpReq { id: 0, page: 0, perPage: 0, showId: 0 }
+  var listed = 0
+  var shown = 0
+  var cleaned = 0
+
+  fn seed() -> List<UserRow> {
+    [
+      UserRow { id: 1, name: "ada" },
+      UserRow { id: 2, name: "grace" },
+      UserRow { id: 3, name: "al" }
+    ]
+  }
+
+  fn inject(id: i32, page: i32, perPage: i32, showId: i32) {
+    req = HttpReq { id: id, page: page, perPage: perPage, showId: showId }
+  }
+
+  fn rowAt(index: usize) -> UserRow {
+    users[index]
+  }
+
+  fn beforeAll() {
+    expect(boot).toBe(1)
+    users = seed()
+    listed = 0
+    shown = 0
+    cleaned = 0
+  }
+
+  fn beforeEach() {
+    inject(req.id + 1, 0, 0, 0)
+  }
+
+  fn afterEach() {
+    cleaned = cleaned + 1
+    inject(req.id, 0, 0, 0)
+  }
+
+  fn afterAll() {
+    expect(users.len).toBe(3usize)
+    expect(listed).toBe(2)
+    expect(shown).toBe(2)
+    expect(cleaned).toBe(4)
+  }
+
+  describe("userList") {
+    var query = ""
+
+    fn beforeAll() {
+      expect(users.len).toBe(3usize)
+      query = "active"
+    }
+
+    fn beforeEach() {
+      inject(req.id, 1, 2, 0)
+    }
+
+    fn afterEach() {
+      listed = listed + 1
+    }
+
+    fn afterAll() {
+      expect(query).toBe("active")
+      expect(listed).toBe(2)
+    }
+
+    fn testFirstPage() {
+      expect(boot).toBe(1)
+      expect(query).toBe("active")
+      expect(req.id).toBe(1)
+      expect(req.page).toBe(1)
+      expect(req.perPage).toBe(2)
+      expect(req.showId).toBe(0)
+      expect(users.len).toBe(3usize)
+      expect(rowAt(0usize).name).toBe("ada")
+    }
+
+    fn testSecondPage() {
+      inject(req.id, 2, 2, 0)
+      expect(req.id).toBe(2)
+      expect(req.page).toBe(2)
+      expect(req.perPage).toBe(2)
+      expect(query).toBe("active")
+    }
+  }
+
+  describe("userShow") {
+    fn beforeEach() {
+      inject(req.id, req.page, req.perPage, rowAt(0usize).id)
+    }
+
+    fn afterEach() {
+      shown = shown + 1
+    }
+
+    fn afterAll() {
+      expect(shown).toBe(2)
+    }
+
+    fn testFindsAda() {
+      expect(boot).toBe(1)
+      expect(req.id).toBe(3)
+      expect(req.showId).toBe(1)
+      expect(rowAt(0usize)).toEqual(UserRow { id: 1, name: "ada" })
+    }
+
+    fn testKeepsCatalog() {
+      expect(req.id).toBe(4)
+      expect(req.showId).toBe(1)
+      expect(users.len).toBe(3usize)
+      expect(listed).toBe(2)
+    }
+  }
+}

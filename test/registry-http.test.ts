@@ -74,6 +74,33 @@ describe('HTTP registry server (AC-ZEE-5)', () => {
     }
   })
 
+  it('serves a PascalCase package name', async () => {
+    const parent = scratch()
+    const token = 'secret-token'
+    const { url, close } = await listenRegistry({
+      root: join(parent, 'store'),
+      token,
+      host: '127.0.0.1',
+      port: 0,
+    })
+    try {
+      const zip = packStoreZip([
+        { name: 'zee.toml', data: Buffer.from('[package]\nname = "ZeeTest"\nversion = "0.1.0"\n') },
+      ])
+      const put = await fetch(`${url}/api/v1/packages/ZeeTest/0.1.0`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/zip' },
+        body: zip,
+      })
+      expect(put.status).toBe(200)
+      const listed = await fetch(`${url}/api/v1/packages/ZeeTest`)
+      expect(listed.status).toBe(200)
+      expect(await listed.json()).toEqual({ name: 'ZeeTest', versions: ['0.1.0'] })
+    } finally {
+      await close()
+    }
+  })
+
   it('refuses overwrite and missing bearer on PUT', async () => {
     const parent = scratch()
     const token = 'secret-token'

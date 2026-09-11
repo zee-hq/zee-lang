@@ -75,6 +75,8 @@ describe('examples', () => {
       'users.resource.zee',
       'users.repository.zee',
       'users.model.zee',
+      'users.model.test.zee',
+      'users.controller.test.zee',
       'users.api.zee',
       'users.service.test.zee',
       'user.class.zee',

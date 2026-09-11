@@ -21,7 +21,7 @@ import { getPackages, updatePackages } from './pkg.ts'
 import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
 import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
 import { listenRegistry } from './registry-http.ts'
-import { checkPath, executeFile, ZeeSession } from './zee.ts'
+import { checkPath, executeFile, runPackageTests, ZeeSession } from './zee.ts'
 
 function usage(): string {
   return `Zee ${VERSION} — strongly typed language
@@ -40,6 +40,7 @@ Usage:
   zee registry                   Serve the HTTP registry (file-backed)
   zee run [file]                 Run a .zee file, or src/main.zee in a project
   zee check [file]               Type-check a file, or the project entry
+  zee test                       Run fn test* in *.test.zee under src/
   zee goto <file> <line> <column>
                                  Print the definition at a 1-based position
   zee help                       Show this help
@@ -144,6 +145,16 @@ async function main(argv: string[]): Promise<number> {
     checkPath(file)
     stdout.write(`ok: ${file}\n`)
     return 0
+  }
+
+  if (command === 'test') {
+    const root = findProjectRoot(cwd())
+    if (!root) {
+      stderr('run zee test inside a Zee project')
+      return 1
+    }
+    const result = runPackageTests(root, { print: (text) => stdout.write(text) })
+    return result.exitCode
   }
 
   if (command === 'goto') {

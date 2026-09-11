@@ -1,6 +1,8 @@
+import { isAbsolute, relative, resolve } from 'node:path'
 import type { AssignOp, Block, Expr, MatchPattern, Program, Stmt, TypeAst, Visibility } from './ast.ts'
 import { PanicError, ZeeError } from './error.ts'
 import { hostEnvFor, lookupEnv } from './host-env.ts'
+import { isZeeTestFile } from './project.ts'
 import {
   INT_KINDS,
   canWidenInt,
@@ -96,6 +98,7 @@ export type ZeeValue =
   | { type: 'closure'; params: string[]; body: Block; env: Env }
   | { type: 'builtin'; name: string }
   | { type: 'module'; name: string; env: Env }
+  | { type: 'expect'; value: ZeeValue; negated: boolean }
 
 interface RuntimeSealedVariant {
   name: string
@@ -118,7 +121,36 @@ export interface RuntimeIo {
   root?: string
   processEnv?: NodeJS.Dict<string>
   readText?: (path: string) => string | undefined
+  /** Filled by the interpreter for the `test` library (`testCases` / `testCall`). */
+  test?: { reports: TestReport[] }
 }
+
+const TEST_HOOKS = ['beforeAll', 'beforeEach', 'afterEach', 'afterAll'] as const
+
+type TestFn = Extract<ZeeValue, { type: 'fn' }>
+type TestHookName = (typeof TEST_HOOKS)[number]
+type TestHookSet = Partial<Record<TestHookName, TestFn>>
+
+type TestHost = {
+  reports: TestReport[]
+  root: string
+  cases: {
+    file: string
+    rel: string
+    name: string
+    label: string
+    suite: string[]
+    fn: TestFn
+    loc: { file: string; line: number; column: number }
+  }[]
+  hooks: Map<string, TestHookSet>
+  beforeAllError: Map<string, string>
+  enteredBeforeAll: Set<string>
+  describeStack: string[]
+  seqSuite: string[]
+}
+
+const testHosts = new WeakMap<RuntimeIo, TestHost>()
 
 const UNIT: ZeeValue = { type: 'unit' }
 
@@ -249,12 +281,23 @@ class Env {
   }
 }
 
+export interface TestReport {
+  file: string
+  name: string
+  ok: boolean
+  error?: string
+}
+
 export interface RunResult {
   value: ZeeValue
   exitCode: number
 }
 
-export function interpret(program: Program, io: RuntimeIo, options: { callMain?: boolean } = {}): RunResult {
+export function interpret(
+  program: Program,
+  io: RuntimeIo,
+  options: { callMain?: boolean; invoke?: { module: string; name: string } } = {},
+): RunResult {
   const units = program.units ?? [{ file: program.file, module: '', stmts: program.stmts }]
   const builtins = new Env(undefined)
   builtins.define('print', { type: 'builtin', name: 'print' })
@@ -265,6 +308,10 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
   builtins.define('getenv', { type: 'builtin', name: 'getenv' })
   builtins.define('envProfile', { type: 'builtin', name: 'envProfile' })
   builtins.define('envAppMeta', { type: 'builtin', name: 'envAppMeta' })
+  builtins.define('testCases', { type: 'builtin', name: 'testCases' })
+  builtins.define('testCall', { type: 'builtin', name: 'testCall' })
+  builtins.define('expect', { type: 'builtin', name: 'expect' })
+  builtins.define('describe', { type: 'builtin', name: 'describe' })
   builtins.define('Some', { type: 'builtin', name: 'Some' })
   builtins.define('None', { type: 'option', tag: 'none' })
   builtins.defineStruct('Fail', {
@@ -391,6 +438,7 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
   }
 
   let last: ZeeValue = UNIT
+  attachTestHost(io)
   try {
     const bindOrder = runtimeTopoModules(moduleIds, runtimeDeps)
     for (const module of bindOrder) {
@@ -400,9 +448,14 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
         for (const stmt of unit.stmts) {
           if (stmt.kind === 'import') applyRuntimeImport(stmt, fileEnv, moduleEnvs)
         }
+        const host = testHosts.get(io)
+        if (host) host.seqSuite = []
         for (const stmt of unit.stmts) {
+          if (stmt.kind === 'fn') {
+            registerTopLevelTest(stmt, fileEnv, io)
+            continue
+          }
           if (
-            stmt.kind === 'fn' ||
             stmt.kind === 'structDecl' ||
             stmt.kind === 'enumDecl' ||
             stmt.kind === 'typeAliasDecl' ||
@@ -427,6 +480,22 @@ export function interpret(program: Program, io: RuntimeIo, options: { callMain?:
       throw new ZeeError('`continue` outside of a loop', 1, 1, program.file)
     }
     throw signal
+  }
+
+  if (options.invoke) {
+    const env = options.invoke.module
+      ? moduleEnvs.get(options.invoke.module)
+      : (fileEnvs.get(program.file) ?? [...fileEnvs.values()].find((item) => item.module === '') ?? builtins)
+    const fn = env ? maybeGet(env, options.invoke.name) : undefined
+    if (!fn || fn.type !== 'fn') {
+      const qualified = options.invoke.module
+        ? `${options.invoke.module}.${options.invoke.name}`
+        : options.invoke.name
+      throw new ZeeError(`undefined \`${qualified}\``, 1, 1, program.file)
+    }
+    last = callFn(fn, [], io, { file: program.file, line: 1, column: 1 })
+    const exitCode = last.type === 'i32' ? last.value : 0
+    return { value: last, exitCode }
   }
 
   const callMain = options.callMain !== false
@@ -648,7 +717,7 @@ function execStmt(stmt: Stmt, env: Env, io: RuntimeIo): ZeeValue {
     case 'defer':
       return execDefer(stmt, env, io)
     case 'fn':
-      throw new ZeeError('nested functions are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+      return defineDescribeFn(stmt, env, io)
     case 'structDecl':
       throw new ZeeError('nested structs are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
     case 'enumDecl':
@@ -1277,7 +1346,28 @@ function callCollectionMethod(
   if (target.type === 'array' && name === 'toList') {
     return { type: 'list', items: target.items.map(copyValue), elem: target.elem }
   }
+  if (target.type === 'expect' && (name === 'toBe' || name === 'toEqual')) {
+    if (args.length !== 1) {
+      throw new ZeeError(`\`expect(...).${name}\` takes one argument`, loc.line, loc.column, loc.file)
+    }
+    const match = valuesEqual(target.value, args[0]!)
+    const ok = target.negated ? !match : match
+    if (!ok) {
+      const actual = formatExpect(target.value)
+      const expected = formatExpect(args[0]!)
+      const message = target.negated
+        ? `expected ${actual} not to be ${expected}`
+        : `expected ${actual} to be ${expected}`
+      throw new PanicError(message, loc.line, loc.column, loc.file)
+    }
+    return UNIT
+  }
   return undefined
+}
+
+function formatExpect(value: ZeeValue): string {
+  if (value.type === 'string') return JSON.stringify(value.value)
+  return display(value)
 }
 
 function applyFnValue(
@@ -1310,6 +1400,9 @@ function memberOnValue(
     if (target.type === 'string') {
       return intValue('usize', BigInt(new TextEncoder().encode(target.value).length))
     }
+  }
+  if (target.type === 'expect' && field === 'not') {
+    return { type: 'expect', value: target.value, negated: !target.negated }
   }
   if (target.type === 'module') {
     const slot = target.env.own(field)
@@ -1706,6 +1799,18 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
 }
 
 function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo): () => ZeeValue {
+  if (expr.callee.kind === 'ident' && expr.callee.name === 'describe') {
+    const titleExpr = expr.args[0]
+    const title = titleExpr?.kind === 'string' ? titleExpr.value : undefined
+    const body = expr.args[1]
+    return () => {
+      if (title === undefined) {
+        throw new ZeeError('`describe` needs a string literal', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      applyDescribe(title, body, env, io)
+      return UNIT
+    }
+  }
   if (expr.callee.kind === 'ident') {
     const name = expr.callee.name
     if (name === 'narrow') {
@@ -2018,7 +2123,305 @@ function callBuiltin(
     if (value === undefined) return { type: 'option', tag: 'none' }
     return { type: 'option', tag: 'some', value: { type: 'string', value } }
   }
+  if (name === 'testCases') {
+    if (args.length !== 0) {
+      throw new ZeeError('`testCases` takes no arguments', loc.line, loc.column, loc.file)
+    }
+    return listTestCases(io)
+  }
+  if (name === 'testCall') {
+    if (args.length !== 2) {
+      throw new ZeeError('`testCall` takes two arguments', loc.line, loc.column, loc.file)
+    }
+    return callTestCase(args[0]!, args[1]!, io, loc)
+  }
+  if (name === 'expect') {
+    if (args.length !== 1) {
+      throw new ZeeError('`expect` takes one argument', loc.line, loc.column, loc.file)
+    }
+    return { type: 'expect', value: args[0]!, negated: false }
+  }
+  if (name === 'describe') {
+    if (args.length !== 1) {
+      throw new ZeeError('`describe` takes one argument', loc.line, loc.column, loc.file)
+    }
+    if (args[0]!.type !== 'string') {
+      throw new ZeeError('`describe` needs a string literal', loc.line, loc.column, loc.file)
+    }
+    return UNIT
+  }
   throw new ZeeError(`unknown builtin \`${name}\``, loc.line, loc.column, loc.file)
+}
+
+function stmtFn(stmt: Extract<Stmt, { kind: 'fn' }>, fileEnv: Env): TestFn {
+  return {
+    type: 'fn',
+    name: stmt.name,
+    params: stmt.params.map((param) => param.name),
+    body: stmt.body,
+    env: fileEnv,
+    mutatingReceiver: false,
+  }
+}
+
+function suiteKey(file: string, suite: string[]): string {
+  return `${file}\0${suite.join('\0')}`
+}
+
+function suiteLabel(suite: string[], name: string): string {
+  return suite.length > 0 ? `${suite.join(' > ')} > ${name}` : name
+}
+
+function suitePrefixes(suite: string[]): string[][] {
+  const out: string[][] = [[]]
+  for (let i = 0; i < suite.length; i += 1) {
+    out.push(suite.slice(0, i + 1))
+  }
+  return out
+}
+
+function suitesToClose(prev: string[], next: string[] | undefined): string[][] {
+  const keep = new Set((next ? suitePrefixes(next) : []).map((path) => path.join('\0')))
+  return suitePrefixes(prev)
+    .filter((path) => !keep.has(path.join('\0')))
+    .reverse()
+}
+
+function attachTestHost(io: RuntimeIo): void {
+  const reports: TestReport[] = []
+  io.test = { reports }
+  testHosts.set(io, {
+    reports,
+    root: io.root ?? '',
+    cases: [],
+    hooks: new Map(),
+    beforeAllError: new Map(),
+    enteredBeforeAll: new Set(),
+    describeStack: [],
+    seqSuite: [],
+  })
+}
+
+function applyDescribe(title: string, body: Expr | undefined, env: Env, io: RuntimeIo): void {
+  const host = testHosts.get(io)
+  if (!host) return
+  if (!body) {
+    host.seqSuite = [...host.describeStack, title]
+    return
+  }
+  const block = body.kind === 'block' ? body.block : body.kind === 'lambda' ? body.body : undefined
+  if (!block) {
+    throw new ZeeError('`describe` block must be `{ ... }`', body.loc.line, body.loc.column, body.loc.file)
+  }
+  host.describeStack.push(title)
+  const saved = host.seqSuite
+  host.seqSuite = [...host.describeStack]
+  try {
+    execBlock(block, env, io)
+  } finally {
+    host.describeStack.pop()
+    host.seqSuite = saved
+  }
+}
+
+function registerTopLevelTest(stmt: Extract<Stmt, { kind: 'fn' }>, fileEnv: Env, io: RuntimeIo): void {
+  registerTestItem(stmt, fileEnv, io)
+}
+
+function defineDescribeFn(stmt: Extract<Stmt, { kind: 'fn' }>, env: Env, io: RuntimeIo): ZeeValue {
+  const host = testHosts.get(io)
+  if (!host || host.describeStack.length === 0) {
+    throw new ZeeError('nested functions are not supported yet', stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  if (env.own(stmt.name)) {
+    throw new ZeeError(`duplicate definition of \`${stmt.name}\``, stmt.loc.line, stmt.loc.column, stmt.loc.file)
+  }
+  const fn = stmtFn(stmt, env)
+  env.define(stmt.name, fn, false, stmt.visibility)
+  registerTestItem(stmt, env, io)
+  return UNIT
+}
+
+function registerTestItem(stmt: Extract<Stmt, { kind: 'fn' }>, fnEnv: Env, io: RuntimeIo): void {
+  const host = testHosts.get(io)
+  if (!host || !isZeeTestFile(fnEnv.file)) return
+  const hook = (TEST_HOOKS as readonly string[]).includes(stmt.name)
+  const test = stmt.name.startsWith('test')
+  if (!hook && !test) return
+  if (stmt.params.length > 0) {
+    throw new ZeeError(
+      hook ? `hook \`${stmt.name}\` takes no parameters` : `test function \`${stmt.name}\` takes no parameters`,
+      stmt.loc.line,
+      stmt.loc.column,
+      stmt.loc.file,
+    )
+  }
+  const suite = [...host.seqSuite]
+  const file = fnEnv.file
+  const rel = host.root ? relative(host.root, file) : file
+  const fn = stmtFn(stmt, fnEnv)
+  if (hook) {
+    const key = suiteKey(file, suite)
+    const set = host.hooks.get(key) ?? {}
+    const name = stmt.name as TestHookName
+    if (set[name]) {
+      throw new ZeeError(
+        `duplicate hook \`${stmt.name}\` in this describe`,
+        stmt.loc.line,
+        stmt.loc.column,
+        stmt.loc.file,
+      )
+    }
+    set[name] = fn
+    host.hooks.set(key, set)
+    return
+  }
+  if (
+    host.cases.some(
+      (item) => item.file === file && item.name === stmt.name && item.suite.join('\0') === suite.join('\0'),
+    )
+  ) {
+    throw new ZeeError(
+      `duplicate test \`${stmt.name}\` in this describe`,
+      stmt.loc.line,
+      stmt.loc.column,
+      stmt.loc.file,
+    )
+  }
+  host.cases.push({
+    file,
+    rel,
+    name: stmt.name,
+    label: suiteLabel(suite, stmt.name),
+    suite,
+    fn,
+    loc: stmt.loc,
+  })
+}
+
+function listTestCases(io: RuntimeIo): ZeeValue {
+  const host = testHosts.get(io)
+  const items: ZeeValue[] = (host?.cases ?? []).map((item) => ({
+    type: 'tuple',
+    items: [
+      { type: 'string', value: item.rel },
+      { type: 'string', value: item.label },
+    ],
+  }))
+  return {
+    type: 'list',
+    items,
+    elem: { kind: 'tuple', parts: [{ kind: 'string' }, { kind: 'string' }] },
+  }
+}
+
+function callTestCase(
+  fileArg: ZeeValue,
+  nameArg: ZeeValue,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (fileArg.type !== 'string' || nameArg.type !== 'string') {
+    throw new ZeeError('`testCall` expects two Strings', loc.line, loc.column, loc.file)
+  }
+  const host = testHosts.get(io)
+  if (!host) {
+    return { type: 'option', tag: 'some', value: { type: 'string', value: `undefined test \`${nameArg.value}\`` } }
+  }
+  const abs = host.root && !isAbsolute(fileArg.value) ? resolve(host.root, fileArg.value) : fileArg.value
+  const item = host.cases.find(
+    (entry) =>
+      (entry.label === nameArg.value || entry.name === nameArg.value) &&
+      (entry.file === abs || entry.rel === fileArg.value || entry.file === fileArg.value),
+  )
+  if (!item) {
+    const error = `undefined test \`${nameArg.value}\``
+    host.reports.push({ file: fileArg.value, name: nameArg.value, ok: false, error })
+    return { type: 'option', tag: 'some', value: { type: 'string', value: error } }
+  }
+  const index = host.cases.indexOf(item)
+  const next = host.cases[index + 1]
+  const nextSuite = next && next.file === item.file ? next.suite : undefined
+  let error: string | undefined
+  for (const path of suitePrefixes(item.suite)) {
+    const inherited = host.beforeAllError.get(suiteKey(item.file, path))
+    if (inherited) {
+      error = inherited
+      break
+    }
+  }
+  if (!error) {
+    for (const path of suitePrefixes(item.suite)) {
+      const key = suiteKey(item.file, path)
+      if (host.enteredBeforeAll.has(key)) continue
+      host.enteredBeforeAll.add(key)
+      const hookErr = runStoredHook(host.hooks.get(key)?.beforeAll, 'beforeAll', io, item.loc)
+      if (hookErr) {
+        host.beforeAllError.set(key, hookErr)
+        error = hookErr
+        break
+      }
+    }
+  }
+  if (!error) {
+    for (const path of suitePrefixes(item.suite)) {
+      error = runStoredHook(
+        host.hooks.get(suiteKey(item.file, path))?.beforeEach,
+        'beforeEach',
+        io,
+        item.loc,
+      )
+      if (error) break
+    }
+    if (!error) error = runTestBody(item.fn, io, item.loc)
+    for (const path of [...suitePrefixes(item.suite)].reverse()) {
+      const afterEach = runStoredHook(
+        host.hooks.get(suiteKey(item.file, path))?.afterEach,
+        'afterEach',
+        io,
+        item.loc,
+      )
+      if (afterEach) error = error ?? afterEach
+    }
+  }
+  for (const path of suitesToClose(item.suite, nextSuite)) {
+    const key = suiteKey(item.file, path)
+    if (!host.enteredBeforeAll.has(key)) continue
+    const afterAll = runStoredHook(host.hooks.get(key)?.afterAll, 'afterAll', io, item.loc)
+    if (afterAll) error = error ?? afterAll
+  }
+  if (error) {
+    host.reports.push({ file: item.file, name: item.name, ok: false, error })
+    return { type: 'option', tag: 'some', value: { type: 'string', value: error } }
+  }
+  host.reports.push({ file: item.file, name: item.name, ok: true })
+  return { type: 'option', tag: 'none' }
+}
+
+function runStoredHook(
+  fn: TestFn | undefined,
+  name: TestHookName,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): string | undefined {
+  if (!fn) return undefined
+  const error = runTestBody(fn, io, loc)
+  return error ? `${name}: ${error}` : undefined
+}
+
+function runTestBody(
+  fn: Extract<ZeeValue, { type: 'fn' }>,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): string | undefined {
+  try {
+    const value = callFn(fn, [], io, loc)
+    const err = visibleTestErr(value)
+    return err ? `err: ${err}` : undefined
+  } catch (error) {
+    if (error instanceof PanicError) return `panic: ${error.message}`
+    throw error
+  }
 }
 
 function interpolateValue(
@@ -2088,6 +2491,21 @@ function stringFromBytes(
   }
 }
 
+function visibleTestErr(value: ZeeValue): string | undefined {
+  if (value.type === 'error') return value.message
+  if (value.type === 'struct' && value.name === 'Fail') {
+    const text = value.fields.text
+    if (text?.type === 'string') return text.value
+  }
+  if (value.type === 'option' && value.tag === 'some') {
+    return visibleTestErr(value.value) ?? display(value.value)
+  }
+  if (value.type === 'tuple' && value.items.length > 0) {
+    return visibleTestErr(value.items[value.items.length - 1]!)
+  }
+  return undefined
+}
+
 export function display(value: ZeeValue): string {
   if (isIntValue(value)) return String(value.value)
   switch (value.type) {
@@ -2144,6 +2562,8 @@ export function display(value: ZeeValue): string {
       return `fn ${value.name}`
     case 'module':
       return `module ${value.name}`
+    case 'expect':
+      return `expect(${display(value.value)})`
   }
 }
 
@@ -2224,6 +2644,7 @@ function valuesEqual(left: ZeeValue, right: ZeeValue): boolean {
     case 'builtin':
     case 'module':
     case 'typeNs':
+    case 'expect':
       return false
     default:
       return false
@@ -2273,6 +2694,9 @@ function copyValue(value: ZeeValue): ZeeValue {
   }
   if (value.type === 'newtype') {
     return { ...value, inner: copyValue(value.inner) }
+  }
+  if (value.type === 'expect') {
+    return { type: 'expect', value: copyValue(value.value), negated: value.negated }
   }
   return value
 }
@@ -2385,6 +2809,8 @@ function typeOfValue(value: ZeeValue): ZeeType {
       return { kind: 'fn', params: [], ret: { kind: 'unit' } }
     case 'module':
       return { kind: 'module', name: value.name }
+    case 'expect':
+      return { kind: 'expect', inner: typeOfValue(value.value) }
   }
 }
 

@@ -1,0 +1,9 @@
+describe("UserRow") {
+  const row = UserRow { id: 1, name: "ada" }
+
+  fn testRow() {
+    expect(row.id).toBe(1)
+    expect(row.name).toBe("ada")
+    expect(row).toEqual(UserRow { id: 1, name: "ada" })
+  }
+}

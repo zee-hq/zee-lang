@@ -1,0 +1,62 @@
+//! Official test runner. `zee test` loads this package and calls `run`.
+//! Cases are `fn test*` in `*.test.zee`. `describe("title") { }` is a closure: inner `fn` get that env.
+//! Lifecycle: `fn beforeAll` / `fn beforeEach` / `fn afterEach` / `fn afterAll` (file or describe).
+//! Failure is panic, `expect().toBe`, or a visible err.
+//! No `test` keyword. `it` stays the lambda parameter — use `fn testFoo()`, not Vitest `it()`.
+
+fn countLine(label: String, bad: i32, good: i32, total: i32) -> String {
+  if bad > 0 && good > 0 {
+    return " " + label + "  " + str(bad) + " failed | " + str(good) + " passed (" + str(total) + ")"
+  }
+  if bad > 0 {
+    return " " + label + "  " + str(bad) + " failed (" + str(total) + ")"
+  }
+  " " + label + "  " + str(good) + " passed (" + str(total) + ")"
+}
+
+pub fn run() -> i32 {
+  const cases = testCases()
+  if cases.len == 0usize {
+    println("no tests")
+    return 0
+  }
+  var passed = 0
+  var failed = 0
+  var files = 0
+  var failedFiles = 0
+  var current = ""
+  var fileHadFail = false
+  for item in cases {
+    const file = item.0
+    const name = item.1
+    if file != current {
+      if current != "" {
+        files = files + 1
+        if fileHadFail { failedFiles = failedFiles + 1 }
+      }
+      current = file
+      fileHadFail = false
+    }
+    const err = testCall(file, name)
+    if err != None {
+      println(" × " + file + "  " + name)
+      println("   → " + (err ?: ""))
+      failed = failed + 1
+      fileHadFail = true
+    } else {
+      println(" ✓ " + file + "  " + name)
+      passed = passed + 1
+    }
+  }
+  if current != "" {
+    files = files + 1
+    if fileHadFail { failedFiles = failedFiles + 1 }
+  }
+  println("")
+  println(countLine("Test Files", failedFiles, files - failedFiles, files))
+  println(countLine("     Tests", failed, passed, passed + failed))
+  if failed > 0 {
+    return 1
+  }
+  0
+}

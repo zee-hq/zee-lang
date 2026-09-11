@@ -113,7 +113,7 @@ export function handleRegistryRequest(
 }
 
 function parseRoute(pathname: string): { name: string; version?: string } | undefined {
-  const match = /^\/api\/v1\/packages\/([a-z][a-z0-9_-]*)(?:\/(\d+(?:\.\d+){0,2}))?$/.exec(pathname)
+  const match = /^\/api\/v1\/packages\/([A-Za-z][A-Za-z0-9_-]*)(?:\/(\d+(?:\.\d+){0,2}))?$/.exec(pathname)
   if (!match) return undefined
   return { name: match[1]!, version: match[2] }
 }

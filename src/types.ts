@@ -106,6 +106,7 @@ export type ZeeType =
   | { kind: 'typeNs'; of: EnumType | SealedType | Extract<ZeeType, { kind: 'struct' }> }
   | { kind: 'module'; name: string }
   | { kind: 'typeParam'; name: string }
+  | { kind: 'expect'; inner: ZeeType }
 
 export const T_I32: ZeeType = { kind: 'i32' }
 export const T_U8: ZeeType = { kind: 'u8' }
@@ -344,6 +345,9 @@ export function typeEq(a: ZeeType, b: ZeeType): boolean {
   if (a.kind === 'typeParam' && b.kind === 'typeParam') {
     return a.name === b.name
   }
+  if (a.kind === 'expect' && b.kind === 'expect') {
+    return typeEq(a.inner, b.inner)
+  }
   return true
 }
 
@@ -386,6 +390,8 @@ export function isEquatable(type: ZeeType): boolean {
       return isEquatable(type.elem)
     case 'map':
       return isEquatable(type.key) && isEquatable(type.value)
+    case 'expect':
+      return false
   }
 }
 
@@ -438,6 +444,8 @@ export function typeName(type: ZeeType): string {
       return type.name
     case 'typeParam':
       return type.name
+    case 'expect':
+      return `expect(${typeName(type.inner)})`
   }
 }
 

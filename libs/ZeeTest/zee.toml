@@ -1,0 +1,11 @@
+[package]
+name = "ZeeTest"
+version = "0.1.0"
+entry = "src/lib.zee"
+description = "Test runner: zee test runs fn test* in *.test.zee"
+author = "Marcio Theodoro Rodrigues"
+company = "Zee HQ"
+contact = "https://github.com/zee-hq/ZeeTest"
+license = "MIT"
+homepage = "https://github.com/zee-hq/ZeeTest"
+repository = "https://github.com/zee-hq/ZeeTest"

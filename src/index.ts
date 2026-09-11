@@ -8,6 +8,7 @@ export {
   parse,
   check,
   interpret,
+  runPackageTests,
 } from './zee.ts'
 export { VERSION, ZeeError, PanicError } from './error.ts'
 export { createProject, findProjectRoot, resolveEntry, parseManifest } from './project.ts'

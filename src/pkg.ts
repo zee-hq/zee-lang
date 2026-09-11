@@ -161,7 +161,7 @@ export function parseCatalog(source: string, file: string): Catalog {
       section = undefined
       continue
     }
-    const match = /^([A-Za-z][a-z0-9_-]*)\s*=\s*(.+)$/.exec(line)
+    const match = /^([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.+)$/.exec(line)
     if (!match) {
       throw new ZeeError(`invalid catalog line \`${line}\``, 1, 1, file)
     }
