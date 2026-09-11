@@ -1418,7 +1418,7 @@ function callCollectionMethod(
     if (seq) return seq
   }
   if (target.type === 'map') {
-    const mapped = callMapMethod(target, name, args, loc)
+    const mapped = callMapMethod(target, name, args, io, loc)
     if (mapped) return mapped
   }
   if (target.type === 'list') {
@@ -1567,6 +1567,7 @@ function callMapMethod(
   target: Extract<ZeeValue, { type: 'map' }>,
   name: string,
   args: ZeeValue[],
+  io: RuntimeIo,
   loc: { file: string; line: number; column: number },
 ): ZeeValue | undefined {
   if (name === 'keys') {
@@ -1607,6 +1608,103 @@ function callMapMethod(
       })
     }
     return { type: 'map', entries, key: target.key, value: target.value }
+  }
+  if (name === 'mapValues') {
+    if (args.length !== 1) {
+      throw new ZeeError('`mapValues` takes one function', loc.line, loc.column, loc.file)
+    }
+    const entries = new Map<string, { key: ZeeValue; value: ZeeValue }>()
+    let valueType = target.value
+    for (const [hash, entry] of target.entries) {
+      const mapped = applyFnValue(args[0]!, [entry.value], io, loc)
+      valueType = typeOfValue(mapped)
+      entries.set(hash, { key: copyValue(entry.key), value: mapped })
+    }
+    return { type: 'map', entries, key: target.key, value: valueType }
+  }
+  if (name === 'filter') {
+    if (args.length !== 1) {
+      throw new ZeeError('`filter` takes one function', loc.line, loc.column, loc.file)
+    }
+    const entries = new Map<string, { key: ZeeValue; value: ZeeValue }>()
+    for (const [hash, entry] of target.entries) {
+      const keep = applyFnValue(args[0]!, [entry.key, entry.value], io, loc)
+      if (keep.type !== 'bool') {
+        throw new ZeeError('`filter` expects `(K, V) -> bool`', loc.line, loc.column, loc.file)
+      }
+      if (keep.value) {
+        entries.set(hash, { key: copyValue(entry.key), value: copyValue(entry.value) })
+      }
+    }
+    return { type: 'map', entries, key: target.key, value: target.value }
+  }
+  if (name === 'find' || name === 'any' || name === 'all') {
+    if (args.length !== 1) {
+      throw new ZeeError(`\`${name}\` takes one function`, loc.line, loc.column, loc.file)
+    }
+    if (name === 'all') {
+      for (const entry of target.entries.values()) {
+        const keep = applyFnValue(args[0]!, [entry.key, entry.value], io, loc)
+        if (keep.type !== 'bool') {
+          throw new ZeeError(`\`${name}\` expects \`(K, V) -> bool\``, loc.line, loc.column, loc.file)
+        }
+        if (!keep.value) return { type: 'bool', value: false }
+      }
+      return { type: 'bool', value: true }
+    }
+    for (const entry of target.entries.values()) {
+      const keep = applyFnValue(args[0]!, [entry.key, entry.value], io, loc)
+      if (keep.type !== 'bool') {
+        throw new ZeeError(`\`${name}\` expects \`(K, V) -> bool\``, loc.line, loc.column, loc.file)
+      }
+      if (keep.value) {
+        if (name === 'find') {
+          return {
+            type: 'option',
+            tag: 'some',
+            value: { type: 'tuple', items: [copyValue(entry.key), copyValue(entry.value)] },
+          }
+        }
+        return { type: 'bool', value: true }
+      }
+    }
+    if (name === 'find') return { type: 'option', tag: 'none' }
+    return { type: 'bool', value: false }
+  }
+  if (name === 'forEach') {
+    if (args.length !== 1) {
+      throw new ZeeError('`forEach` takes one function', loc.line, loc.column, loc.file)
+    }
+    for (const entry of target.entries.values()) {
+      applyFnValue(args[0]!, [entry.key, entry.value], io, loc)
+    }
+    return UNIT
+  }
+  if (name === 'containsKey') {
+    if (args.length !== 1) {
+      throw new ZeeError('`containsKey` takes one argument', loc.line, loc.column, loc.file)
+    }
+    return { type: 'bool', value: target.entries.has(mapHashKey(args[0]!, loc)) }
+  }
+  if (name === 'merge') {
+    const right = args[0]
+    if (args.length !== 1 || !right || right.type !== 'map') {
+      throw new ZeeError('`merge` takes one Map', loc.line, loc.column, loc.file)
+    }
+    const entries = new Map<string, { key: ZeeValue; value: ZeeValue }>()
+    for (const [hash, entry] of target.entries) {
+      entries.set(hash, { key: copyValue(entry.key), value: copyValue(entry.value) })
+    }
+    for (const [hash, entry] of right.entries) {
+      entries.set(hash, { key: copyValue(entry.key), value: copyValue(entry.value) })
+    }
+    return { type: 'map', entries, key: target.key, value: target.value }
+  }
+  if (name === 'map') {
+    throw new ZeeError('`map` is List; Map uses `mapValues`', loc.line, loc.column, loc.file)
+  }
+  if (name === 'contains') {
+    throw new ZeeError('`contains` is List; Map uses `containsKey`', loc.line, loc.column, loc.file)
   }
   return undefined
 }

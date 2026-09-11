@@ -3021,7 +3021,7 @@ function checkBuiltinMethod(
     }
   }
   if (targetType.kind === 'map') {
-    const mapped = checkMapMethod(targetType, name, expr)
+    const mapped = checkMapMethod(targetType, name, expr, env, returnType)
     if (mapped) return mapped
   }
   if (targetType.kind === 'list' || targetType.kind === 'array') {
@@ -3138,6 +3138,8 @@ function checkMapMethod(
   targetType: Extract<ZeeType, { kind: 'map' }>,
   name: string,
   expr: Extract<Expr, { kind: 'call' }>,
+  env: TypeEnv,
+  returnType: ZeeType,
 ): ZeeType | undefined {
   if (name === 'keys') {
     if (expr.args.length !== 0) throw error(expr.loc, '`keys` takes no arguments')
@@ -3161,11 +3163,46 @@ function checkMapMethod(
     }
     return targetType
   }
+  if (name === 'mapValues') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`mapValues` takes one function')
+    const mapped = inferFnArg(expr.args[0]!, [targetType.value], env, returnType)
+    return { kind: 'map', key: targetType.key, value: mapped.ret }
+  }
+  if (name === 'filter' || name === 'find' || name === 'any' || name === 'all' || name === 'forEach') {
+    if (expr.args.length !== 1) throw error(expr.loc, `\`${name}\` takes one function`)
+    checkExpr(expr.args[0]!, env, returnType, {
+      kind: 'fn',
+      params: [targetType.key, targetType.value],
+      ret: name === 'forEach' ? T_UNIT : T_BOOL,
+    })
+    if (name === 'forEach') return T_UNIT
+    if (name === 'find') {
+      return { kind: 'option', inner: { kind: 'tuple', parts: [targetType.key, targetType.value] } }
+    }
+    if (name === 'filter') return targetType
+    return T_BOOL
+  }
+  if (name === 'containsKey') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`containsKey` takes one argument')
+    checkExpr(expr.args[0]!, env, returnType, targetType.key)
+    return T_BOOL
+  }
+  if (name === 'merge') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`merge` takes one Map')
+    checkExpr(expr.args[0]!, env, returnType, targetType)
+    return targetType
+  }
   if (name === 'sort') {
     throw error(expr.loc, '`sort` is List; Map uses `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`)')
   }
   if (name === 'sortBy') {
     throw error(expr.loc, '`sortBy` is List; Map uses `sortByKey` / `sortByValue`')
+  }
+  if (name === 'map') {
+    throw error(expr.loc, '`map` is List; Map uses `mapValues`')
+  }
+  if (name === 'contains') {
+    throw error(expr.loc, '`contains` is List; Map uses `containsKey`')
   }
   return undefined
 }

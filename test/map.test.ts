@@ -163,4 +163,78 @@ describe('Map<K, V> (AC-map)', () => {
     )
     expect(() => execute('const ages: Map<String, i32> = { "a": 1 }\nages.sort()')).toThrow(/sort/)
   })
+
+  it('maps values, filters, looks up keys, and merges with right winning (ZEE-24)', () => {
+    expect(
+      execute(`
+        const ages: Map<String, i32> = { "ana": 30, "bo": 2 }
+        const extra: Map<String, i32> = { "bo": 9, "zed": 1 }
+        const doubled = ages.mapValues { it * 2 }
+        const adults = ages.filter { k, v -> v >= 18 }
+        const merged = ages.merge(extra)
+        ages.forEach { k, v -> }
+        (
+          doubled["ana"] ?: 0,
+          ages["ana"] ?: 0,
+          adults.containsKey("ana"),
+          adults.containsKey("bo"),
+          ages.containsKey("zed"),
+          merged["bo"] ?: 0,
+          merged["zed"] ?: 0,
+          ages["bo"] ?: 0
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'i32', value: 60 },
+        { type: 'i32', value: 30 },
+        { type: 'bool', value: true },
+        { type: 'bool', value: false },
+        { type: 'bool', value: false },
+        { type: 'i32', value: 9 },
+        { type: 'i32', value: 1 },
+        { type: 'i32', value: 2 },
+      ],
+    })
+  })
+
+  it('finds, any, and all with { k, v -> } (ZEE-24)', () => {
+    expect(
+      execute(`
+        const ages: Map<String, i32> = { "ana": 30, "bo": 2 }
+        var empty: Map<String, i32> = {}
+        (
+          ages.find { k, v -> v > 10 } == Some(("ana", 30)),
+          ages.find { k, v -> v > 100 } == None,
+          ages.any { k, v -> k == "bo" },
+          ages.all { k, v -> v > 0 },
+          empty.any { k, v -> true },
+          empty.all { k, v -> false }
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: false },
+        { type: 'bool', value: true },
+      ],
+    })
+  })
+
+  it('rejects map/contains on Map and unnamed filter lambdas (ZEE-24)', () => {
+    expect(() => execute('const ages: Map<String, i32> = { "a": 1 }\nages.map { it }')).toThrow(
+      /mapValues|map/,
+    )
+    expect(() => execute('const ages: Map<String, i32> = { "a": 1 }\nages.contains(1)')).toThrow(
+      /containsKey|contains/,
+    )
+    expect(() =>
+      execute('const ages: Map<String, i32> = { "a": 1 }\nages.filter { it > 0 }'),
+    ).toThrow(/k, v|parameter/)
+  })
 })
