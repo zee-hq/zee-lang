@@ -23,7 +23,7 @@ fn main() {
 | Lexer / parser | done |
 | Type checker (strong, local inference) | done |
 | Interpreter + REPL + project CLI | done |
-| Editor (VS Code / Cursor) | syntax + file icons + check on save + Run File |
+| Editor (VS Code / Cursor / JetBrains) | `zee lsp` — hover, complete, go to definition, diagnostics |
 | Bytecode / LLVM / native | later — not this drop |
 
 The grammar will change. Syntax that is decided but **not** in v0 yet (`open`, `abstract`, bounds `T: Closeable`, `struct Box<T>`, concurrency) lives in [`docs/DIRECTION.md`](docs/DIRECTION.md). Constructors beyond `Name { fields }` and DI are **radar** there (§9) — not closed.
@@ -255,7 +255,7 @@ See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `facto
 
 ## Editor
 
-The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It highlights `.zee` files, shows the Zee file icon, type-checks on save, and adds **Zee: Run File**.
+The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It starts **`zee lsp`** for hover, complete, go to definition, find references, inlay hints, semantic tokens, and checker diagnostics. TextMate highlighting stays as fallback. JetBrains sources live in [`editor/jetbrains`](editor/jetbrains) (same grammar + LSP4IJ client). Rename is [ZEE-3](https://rr-it-solutions.atlassian.net/browse/ZEE-3).
 
 ```bash
 npm run editor:link
@@ -279,7 +279,8 @@ src/            lexer, parser, checker, interpreter, CLI
 test/           vitest — language behavior, not snapshots of implementation
 examples/       programs the interpreter must keep running
 catalog.json    official library index (`zee get ZeeTest` / `zee get env`)
-editor/vscode   TextMate grammar + Run/Check commands
+editor/vscode   TextMate grammar + `zee lsp` client + Run File
+editor/jetbrains TextMate grammar + LSP4IJ (`zee lsp`)
 ```
 
 ## Commands
@@ -301,6 +302,7 @@ editor/vscode   TextMate grammar + Run/Check commands
 | `zee run [file]` | interpret a program (or the project entry) |
 | `zee check [file]` | type-check only |
 | `zee test` | inject ZeeTest and run `ZeeTest.run()` (`fn test*` in `*.test.zee`) |
+| `zee lsp` | language server (stdio JSON-RPC) for editors |
 | `zee` | REPL |
 
 ## License

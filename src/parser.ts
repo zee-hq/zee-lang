@@ -534,7 +534,7 @@ class Parser {
     const loc = this.previous().loc
     const nameTok = this.consume('ident', 'expected enum name')
     this.consume('{', 'expected `{` after enum name')
-    const variants: { name: string; loc: Loc }[] = []
+    const variants: { name: string; loc: Loc; doc?: string }[] = []
     const seen = new Set<string>()
     while (!this.check('}') && !this.isAtEnd()) {
       const doc = this.takeDocs()

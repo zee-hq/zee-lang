@@ -1,7 +1,7 @@
 {
   "name": "zee",
   "displayName": "Zee",
-  "description": "Zee language — syntax, file icons, go to definition, check on save, Run File.",
+  "description": "Zee language — syntax, file icons, zee lsp (hover, complete, go to definition), Run File.",
   "version": "0.1.0",
   "publisher": "zee-hq",
   "license": "MIT",
@@ -23,7 +23,7 @@
         "zee.checkOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Run zee check when a .zee file is saved and show errors in Problems."
+          "description": "Kept for compatibility. Diagnostics come from zee lsp on open and edit."
         }
       }
     },

@@ -41,9 +41,18 @@ import {
   type SealedVariantType,
 } from './types.ts'
 
+export interface TypeHint {
+  file: string
+  line: number
+  column: number
+  name: string
+  type: string
+}
+
 export interface CheckedProgram {
   program: Program
   functions: Map<string, ZeeType>
+  hints: TypeHint[]
 }
 
 interface TypeAliasInfo {
@@ -99,6 +108,7 @@ class TypeEnv {
   private readonly associatedMap = new Map<string, Map<string, AssociatedInfo>>()
   private readonly mutatingFns = new Set<string>()
   private readonly typeParamNames = new Set<string>()
+  readonly hints: TypeHint[]
 
   constructor(
     private readonly parent: TypeEnv | undefined,
@@ -110,6 +120,7 @@ class TypeEnv {
     this.file = parent?.file ?? '<input>'
     this.module = parent?.module ?? ''
     this.moduleHome = parent?.moduleHome ?? this
+    this.hints = parent?.hints ?? []
   }
 
   attachModules(modules: Map<string, TypeEnv>): void {
@@ -665,7 +676,7 @@ export function check(program: Program): CheckedProgram {
     }
   }
 
-  return { program, functions }
+  return { program, functions, hints: builtins.hints }
 }
 
 function fnTypeForCheck(
@@ -1407,6 +1418,15 @@ function checkStmt(stmt: Stmt, env: TypeEnv, returnType: ZeeType, expected?: Zee
         throw error(stmt.loc, `duplicate definition of \`${stmt.name}\``)
       }
       env.define(stmt.name, type, stmt.mutable, stmt.visibility)
+      if (!annotated) {
+        env.hints.push({
+          file: env.file,
+          line: stmt.loc.line,
+          column: stmt.loc.column,
+          name: stmt.name,
+          type: typeName(type),
+        })
+      }
       return T_UNIT
     }
     case 'destructure': {

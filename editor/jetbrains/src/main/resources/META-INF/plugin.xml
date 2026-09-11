@@ -1,0 +1,24 @@
+<idea-plugin>
+  <id>dev.zee.lang</id>
+  <name>Zee</name>
+  <vendor url="https://github.com/zee-hq/zee-lang">zee-hq</vendor>
+  <description><![CDATA[
+    Zee language: TextMate syntax for <code>.zee</code> files and the same
+    <code>zee lsp</code> contract as VS Code / Cursor (hover, complete, go to
+    definition, diagnostics, semantic tokens). Requires
+    <a href="https://plugins.jetbrains.com/plugin/23229-lsp4ij">LSP4IJ</a>
+    and the Zee CLI on PATH.
+  ]]></description>
+  <depends>com.intellij.modules.platform</depends>
+  <depends>com.redhat.devtools.lsp4ij</depends>
+  <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+    <server id="zee"
+            name="Zee Language Server"
+            factoryClass="dev.zee.lang.ZeeLanguageServerFactory">
+      <description><![CDATA[
+        <p>Runs <code>zee lsp</code>. Install the Zee CLI on PATH (<code>npm link</code> from zee-lang).</p>
+      ]]></description>
+    </server>
+    <fileNamePatternMapping patterns="*.zee" serverId="zee" languageId="zee"/>
+  </extensions>
+</idea-plugin>

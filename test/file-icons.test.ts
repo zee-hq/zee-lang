@@ -151,7 +151,7 @@ describe('file icon kinds', () => {
 
   it('ships every iconPath in the theme', () => {
     expect(buildTheme().fileExtensions).toEqual(theme.fileExtensions)
-    for (const def of Object.values(theme.iconDefinitions)) {
+    for (const def of Object.values(theme.iconDefinitions) as Array<{ iconPath: string }>) {
       expect(existsSync(join(iconsDir, def.iconPath))).toBe(true)
     }
   })

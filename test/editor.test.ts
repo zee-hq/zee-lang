@@ -22,7 +22,7 @@ const { parseCliDiagnostics } = require('../editor/vscode/diagnostics.cjs') as {
 const { resolveZeeCli } = require('../editor/vscode/cli.cjs') as {
   resolveZeeCli: (
     subcommand: string,
-    file: string,
+    file: string | undefined,
     workspaceRoot: string | undefined,
     exists: (path: string) => boolean,
   ) => { command: string; args: string[]; cwd: string }
@@ -99,6 +99,21 @@ describe('editor CLI resolver', () => {
       cwd: '/tmp/hello',
     })
   })
+
+  it('starts zee lsp without appending a file', () => {
+    const root = '/Users/zeth/Projects/zee-lang'
+    const resolved = resolveZeeCli('lsp', undefined, root, (path) => {
+      return (
+        path === join(root, 'src/cli.ts') ||
+        path === join(root, 'node_modules/tsx/dist/cli.mjs')
+      )
+    })
+    expect(resolved.args).toEqual([
+      join(root, 'node_modules/tsx/dist/cli.mjs'),
+      join(root, 'src/cli.ts'),
+      'lsp',
+    ])
+  })
 })
 
 describe('editor grammar', () => {
@@ -116,8 +131,35 @@ describe('editor grammar', () => {
 
   it('registers go-to-definition and a word pattern (AC-editor-navigate)', () => {
     const extension = readFileSync(join(editorRoot, 'extension.js'), 'utf8')
+    expect(extension).toContain("resolveZeeCli('lsp'")
     expect(extension).toContain('registerDefinitionProvider')
+    expect(extension).toContain('registerHoverProvider')
+    expect(extension).toContain('registerCompletionItemProvider')
+    expect(extension).toContain('textDocument/semanticTokens/full')
     expect(languageConfig.wordPattern).toBeDefined()
+  })
+})
+
+describe('JetBrains plugin (ZEE-2)', () => {
+  const jetbrainsRoot = join(import.meta.dirname, '../editor/jetbrains')
+
+  it('ships a TextMate grammar and an LSP4IJ client for zee lsp', () => {
+    const pluginXml = readFileSync(join(jetbrainsRoot, 'src/main/resources/META-INF/plugin.xml'), 'utf8')
+    expect(pluginXml).toContain('com.redhat.devtools.lsp4ij')
+    expect(pluginXml).toContain('fileNamePatternMapping')
+    expect(pluginXml).toContain('*.zee')
+    const factory = readFileSync(
+      join(jetbrainsRoot, 'src/main/kotlin/dev/zee/lang/ZeeLanguageServerFactory.kt'),
+      'utf8',
+    )
+    expect(factory).toContain('"zee"')
+    expect(factory).toContain('"lsp"')
+    const vsGrammar = readFileSync(join(editorRoot, 'syntaxes/zee.tmLanguage.json'), 'utf8')
+    const jbGrammar = readFileSync(
+      join(jetbrainsRoot, 'src/main/resources/textmate/zee/syntaxes/zee.tmLanguage.json'),
+      'utf8',
+    )
+    expect(jbGrammar).toBe(vsGrammar)
   })
 })
 

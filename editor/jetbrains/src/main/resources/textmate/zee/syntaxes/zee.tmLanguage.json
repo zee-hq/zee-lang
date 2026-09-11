@@ -1,0 +1,193 @@
+{
+  "scopeName": "source.zee",
+  "name": "Zee",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#rawStrings" },
+    { "include": "#strings" },
+    { "include": "#typeNames" },
+    { "include": "#functions" },
+    { "include": "#keywords" },
+    { "include": "#operators" },
+    { "include": "#types" },
+    { "include": "#typeUses" },
+    { "include": "#builtins" },
+    { "include": "#functionCalls" },
+    { "include": "#literals" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.zee",
+          "match": "//!.*$"
+        },
+        {
+          "name": "comment.line.documentation.zee",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.zee",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.zee",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "rawStrings": {
+      "patterns": [
+        {
+          "name": "string.quoted.other.raw.zee",
+          "begin": "(`{3,})[A-Za-z_]*",
+          "end": "\\1"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.zee",
+          "match": "'(?:\\\\[nt\\\\']|[^'\\\\])'"
+        },
+        {
+          "name": "string.quoted.interpolated.zee",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "meta.interpolation.zee",
+              "begin": "\\{",
+              "end": "}",
+              "beginCaptures": { "0": { "name": "punctuation.definition.interpolation.begin.zee" } },
+              "endCaptures": { "0": { "name": "punctuation.definition.interpolation.end.zee" } },
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.zee",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.zee",
+              "match": "\\\\[nt\\\\\"]"
+            }
+          ]
+        }
+      ]
+    },
+    "typeNames": {
+      "patterns": [
+        {
+          "match": "\\b(data)\\s+(struct|class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "keyword.declaration.zee" },
+            "3": { "name": "entity.name.type.data.zee" }
+          }
+        },
+        {
+          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "entity.name.type.class.zee" }
+          }
+        },
+        {
+          "match": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "entity.name.type.struct.zee" }
+          }
+        },
+        {
+          "match": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "entity.name.type.enum.zee" }
+          }
+        },
+        {
+          "match": "\\b(interface)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "entity.name.type.interface.zee" }
+          }
+        },
+        {
+          "match": "\\b(newtype)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "entity.name.type.newtype.zee" }
+          }
+        },
+        {
+          "match": "\\b(implements)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.zee" },
+            "2": { "name": "entity.name.type.interface.zee" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.zee",
+          "match": "\\b(fn|const|var|redim|struct|class|data|readonly|enum|sealed|type|newtype|interface|implements|preserve|import|pub|internal|as)\\b"
+        },
+        {
+          "name": "keyword.control.zee",
+          "match": "\\b(if|else|match|while|until|do|for|in|is|break|continue|return|defer)\\b"
+        },
+        {
+          "name": "keyword.control.panic.zee",
+          "match": "\\bpanic\\b"
+        },
+        {
+          "name": "variable.language.zee",
+          "match": "\\bself\\b"
+        },
+        {
+          "name": "constant.language.zee",
+          "match": "\\b(true|false|Some|None)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "name": "keyword.operator.zee",
+      "match": "<<=|>>=|&=|\\|=|\\^=|\\+=|-=|\\*=|/=|%=|<===>|===|!==|\\?\\?=|!!=|&&=|\\|\\|=|<<|>>|\\?:|->|\\.\\."
+    },
+    "types": {
+      "name": "support.type.zee",
+      "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64|isize|usize|f32|f64|bool|String|Char|Unit|Never|Error|Option|List|Map)\\b"
+    },
+    "typeUses": {
+      "name": "entity.name.type.zee",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "literals": {
+      "name": "constant.numeric.integer.zee",
+      "match": "\\b(?:0[xX][0-9A-Fa-f_]+|0[bB][01_]+|\\d[\\d_]*)(?:usize|isize|u(?:8|16|32|64)|i(?:8|16|32|64)|f(?:32|64))?\\b"
+    },
+    "functions": {
+      "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.zee" },
+        "2": { "name": "entity.name.function.zee" }
+      }
+    },
+    "builtins": {
+      "name": "support.function.builtin.zee",
+      "match": "\\b(print|println|str|error|getenv|envProfile|envAppMeta)\\b"
+    },
+    "functionCalls": {
+      "name": "entity.name.function.zee",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+    }
+  }
+}

@@ -14,6 +14,7 @@ describe('Zee color theme', () => {
     for (const item of SYNTAX) {
       const kind = KINDS.find((entry) => entry.id === item.id)
       expect(kind, item.id).toBeDefined()
+      if (!kind) continue
       expect(item.color).toBe(kind.color)
       expect(JSON.stringify(grammar)).toContain(item.scope)
       const rule = tokenColors().find((rule) => rule.scope === item.scope)

@@ -52,10 +52,17 @@ export function execute(source: string, options: ExecuteOptions = {}): ExecuteRe
 export const OFFICIAL_TEST_MODULE = 'ZeeTest'
 
 /** Loads a package plus `[deps]` (AC-ZEE-4). `zee test` injects `libs/ZeeTest`. */
-export function loadProgramFromPath(path: string, options?: { injectTestLib?: boolean }): Program {
+export function loadProgramFromPath(
+  path: string,
+  options?: { injectTestLib?: boolean; overlay?: Map<string, string> },
+): Program {
+  const read = (file: string) => {
+    const key = resolve(file)
+    return options?.overlay?.get(key) ?? options?.overlay?.get(file) ?? readFileSync(file, 'utf8')
+  }
   const root = isPackageSourceFile(path)
   if (!root) {
-    return parse(readFileSync(path, 'utf8'), path)
+    return parse(read(path), path)
   }
   const sources = listPackageSources(root)
   const localModules = new Set(sources.map((item) => item.module).filter((module) => module.length > 0))
@@ -77,7 +84,7 @@ export function loadProgramFromPath(path: string, options?: { injectTestLib?: bo
   }
   if (options?.injectTestLib) injectOfficialTestLib(root, sources, localModules, manifest)
   const units = sources.map((source) => {
-    const parsed = parse(readFileSync(source.file, 'utf8'), source.file)
+    const parsed = parse(read(source.file), source.file)
     return { file: source.file, module: source.module, stmts: parsed.stmts, innerDoc: parsed.innerDoc }
   })
   const stmts = units.flatMap((unit) => unit.stmts)

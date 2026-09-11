@@ -122,7 +122,7 @@ function tryParse(source: string, file: string): Program | undefined {
   }
 }
 
-function tokenAt(tokens: Token[], line: number, column: number): Token | undefined {
+export function tokenAt(tokens: Token[], line: number, column: number): Token | undefined {
   let atEnd: Token | undefined
   for (const tok of tokens) {
     if (tok.kind === 'eof' || tok.loc.line !== line || tok.lexeme.length === 0) continue
@@ -134,7 +134,7 @@ function tokenAt(tokens: Token[], line: number, column: number): Token | undefin
   return atEnd
 }
 
-function collectSymbols(program: Program, tokens: Token[], file: string): LocationHit[] {
+export function collectSymbols(program: Program, tokens: Token[], file: string): LocationHit[] {
   const out: LocationHit[] = []
   for (const stmt of program.stmts) collectStmt(stmt, tokens, file, out)
   return out

@@ -1,129 +1,205 @@
 const vscode = require('vscode')
-const { spawn } = require('node:child_process')
-const { parseCliDiagnostics } = require('./diagnostics.cjs')
 const { resolveZeeCli, formatShellCommand } = require('./cli.cjs')
+const { ZeeLspClient } = require('./lsp-client.cjs')
+
+const SEMANTIC_TOKEN_TYPES = [
+  'namespace',
+  'type',
+  'class',
+  'enum',
+  'interface',
+  'struct',
+  'function',
+  'variable',
+  'keyword',
+  'modifier',
+  'parameter',
+]
+
+/** @type {ZeeLspClient | undefined} */
+let client
 
 /**
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+  const cli = resolveZeeCli('lsp', undefined, workspaceRoot)
+  const lsp = new ZeeLspClient(cli)
+  client = lsp
   const diagnostics = vscode.languages.createDiagnosticCollection('zee')
-  context.subscriptions.push(diagnostics)
-
-  const checkDocument = (document) => {
-    if (document.languageId !== 'zee') return
-    void lintDocument(document, diagnostics)
+  lsp.onDiagnostics = (uri, items) => {
+    diagnostics.set(
+      vscode.Uri.parse(uri),
+      items.map((item) => toDiagnostic(item)),
+    )
   }
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('zee.runFile', () => runInTerminal('run')),
-    vscode.commands.registerCommand('zee.checkFile', async () => {
-      const editor = vscode.window.activeTextEditor
-      if (!editor) {
-        vscode.window.showErrorMessage('Open a .zee file first.')
-        return
-      }
-      await lintDocument(editor.document, diagnostics)
-    }),
-    vscode.languages.registerDefinitionProvider('zee', {
-      provideDefinition(document, position) {
-        return definitionAt(document, position)
-      },
-    }),
-    vscode.workspace.onDidSaveTextDocument((document) => {
-      if (vscode.workspace.getConfiguration('zee').get('checkOnSave', true)) {
-        checkDocument(document)
-      }
-    }),
-    vscode.workspace.onDidOpenTextDocument(checkDocument),
-    vscode.workspace.onDidCloseTextDocument((document) => diagnostics.delete(document.uri)),
+  const syncOpen = (document) => {
+    if (document.languageId !== 'zee') return
+    lsp.didOpen(document.uri.toString(), document.getText())
+  }
+
+  void lsp.start().then(
+    () => {
+      for (const document of vscode.workspace.textDocuments) syncOpen(document)
+    },
+    (error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      vscode.window.showErrorMessage(`Zee language server failed: ${message}`)
+    },
   )
 
-  for (const document of vscode.workspace.textDocuments) {
-    checkDocument(document)
-  }
-}
+  const legend = new vscode.SemanticTokensLegend(SEMANTIC_TOKEN_TYPES, [])
 
-/**
- * @param {vscode.TextDocument} document
- * @param {vscode.DiagnosticCollection} collection
- */
-async function lintDocument(document, collection) {
-  if (document.languageId !== 'zee') return
-  if (document.isDirty) await document.save()
-  const file = document.uri.fsPath
-  const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath
-  const cli = resolveZeeCli('check', file, workspaceRoot)
-  try {
-    const output = await spawnCapture(cli)
-    const parsed = parseCliDiagnostics(`${output.stderr}\n${output.stdout}`)
-    collection.set(
-      document.uri,
-      parsed.map((item) => toDiagnostic(document, item)),
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    vscode.window.showErrorMessage(`Zee check failed: ${message}`)
-  }
-}
-
-/**
- * @param {vscode.TextDocument} document
- * @param {{ line: number, column: number, message: string, severity: 'error' | 'panic' }} item
- */
-function toDiagnostic(document, item) {
-  const line = Math.min(Math.max(item.line - 1, 0), Math.max(document.lineCount - 1, 0))
-  const column = Math.max(item.column - 1, 0)
-  const range = new vscode.Range(line, column, line, column + 1)
-  const diagnostic = new vscode.Diagnostic(range, item.message, vscode.DiagnosticSeverity.Error)
-  diagnostic.source = item.severity === 'panic' ? 'zee panic' : 'zee'
-  return diagnostic
+  context.subscriptions.push(
+    diagnostics,
+    { dispose: () => void lsp.stop() },
+    vscode.commands.registerCommand('zee.runFile', () => runInTerminal('run')),
+    vscode.commands.registerCommand('zee.checkFile', () => runInTerminal('check')),
+    vscode.workspace.onDidOpenTextDocument(syncOpen),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      if (event.document.languageId !== 'zee') return
+      lsp.didChange(event.document.uri.toString(), event.document.getText())
+    }),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      if (document.languageId !== 'zee') return
+      lsp.didClose(document.uri.toString())
+      diagnostics.delete(document.uri)
+    }),
+    vscode.languages.registerHoverProvider('zee', {
+      async provideHover(document, position) {
+        const result = await lsp.request('textDocument/hover', positionParams(document, position))
+        if (!result?.contents?.value) return undefined
+        return new vscode.Hover(new vscode.MarkdownString(result.contents.value))
+      },
+    }),
+    vscode.languages.registerCompletionItemProvider(
+      'zee',
+      {
+        async provideCompletionItems(document, position) {
+          const items = await lsp.request('textDocument/completion', positionParams(document, position))
+          return (items ?? []).map((item) => {
+            const completion = new vscode.CompletionItem(item.label, completionKind(item.kind))
+            completion.detail = item.detail
+            return completion
+          })
+        },
+      },
+      '.',
+    ),
+    vscode.languages.registerDefinitionProvider('zee', {
+      async provideDefinition(document, position) {
+        const result = await lsp.request('textDocument/definition', positionParams(document, position))
+        return result ? locationFromLsp(result) : undefined
+      },
+    }),
+    vscode.languages.registerReferenceProvider('zee', {
+      async provideReferences(document, position) {
+        const result = await lsp.request('textDocument/references', {
+          ...positionParams(document, position),
+          context: { includeDeclaration: true },
+        })
+        return (result ?? []).map(locationFromLsp)
+      },
+    }),
+    vscode.languages.registerSignatureHelpProvider(
+      'zee',
+      {
+        async provideSignatureHelp(document, position) {
+          const result = await lsp.request('textDocument/signatureHelp', positionParams(document, position))
+          if (!result?.signatures?.length) return undefined
+          const help = new vscode.SignatureHelp()
+          help.signatures = result.signatures.map((item) => {
+            const signature = new vscode.SignatureInformation(item.label)
+            signature.parameters = (item.parameters ?? []).map(
+              (param) => new vscode.ParameterInformation(param.label),
+            )
+            return signature
+          })
+          help.activeSignature = result.activeSignature ?? 0
+          help.activeParameter = result.activeParameter ?? 0
+          return help
+        },
+      },
+      '(',
+    ),
+    vscode.languages.registerInlayHintsProvider('zee', {
+      async provideInlayHints(document) {
+        const result = await lsp.request('textDocument/inlayHint', {
+          textDocument: { uri: document.uri.toString() },
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: document.lineCount, character: 0 },
+          },
+        })
+        return (result ?? []).map(
+          (hint) =>
+            new vscode.InlayHint(
+              new vscode.Position(hint.position.line, hint.position.character),
+              hint.label,
+              vscode.InlayHintKind.Type,
+            ),
+        )
+      },
+    }),
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      'zee',
+      {
+        async provideDocumentSemanticTokens(document) {
+          const result = await lsp.request('textDocument/semanticTokens/full', {
+            textDocument: { uri: document.uri.toString() },
+          })
+          return new vscode.SemanticTokens(new Uint32Array(result?.data ?? []))
+        },
+      },
+      legend,
+    ),
+  )
 }
 
 /**
  * @param {vscode.TextDocument} document
  * @param {vscode.Position} position
  */
-async function definitionAt(document, position) {
-  if (document.languageId !== 'zee') return undefined
-  if (document.isDirty) await document.save()
-  const file = document.uri.fsPath
-  const workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath
-  const cli = resolveZeeCli('goto', file, workspaceRoot)
-  cli.args.push(String(position.line + 1), String(position.character + 1))
-  try {
-    const output = await spawnCapture(cli)
-    const hit = parseGoto(output.stdout)
-    if (!hit) return undefined
-    return new vscode.Location(
-      vscode.Uri.file(hit.file),
-      new vscode.Position(Math.max(hit.line - 1, 0), Math.max(hit.column - 1, 0)),
-    )
-  } catch {
-    return undefined
+function positionParams(document, position) {
+  return {
+    textDocument: { uri: document.uri.toString() },
+    position: { line: position.line, character: position.character },
   }
 }
 
 /**
- * @param {string} text
- * @returns {{ file: string, line: number, column: number } | undefined}
+ * @param {{ range: { start: { line: number, character: number }, end: { line: number, character: number } }, message: string }} item
  */
-function parseGoto(text) {
-  const line = text
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .at(-1)
-  if (!line) return undefined
-  try {
-    const hit = JSON.parse(line)
-    if (typeof hit.file !== 'string' || typeof hit.line !== 'number' || typeof hit.column !== 'number') {
-      return undefined
-    }
-    return hit
-  } catch {
-    return undefined
-  }
+function toDiagnostic(item) {
+  const start = item.range?.start ?? { line: 0, character: 0 }
+  const end = item.range?.end ?? { line: start.line, character: start.character + 1 }
+  const range = new vscode.Range(start.line, start.character, end.line, end.character)
+  const diagnostic = new vscode.Diagnostic(range, item.message, vscode.DiagnosticSeverity.Error)
+  diagnostic.source = 'zee'
+  return diagnostic
+}
+
+/**
+ * @param {{ uri: string, range: { start: { line: number, character: number } } }} hit
+ */
+function locationFromLsp(hit) {
+  return new vscode.Location(
+    vscode.Uri.parse(hit.uri),
+    new vscode.Position(hit.range.start.line, hit.range.start.character),
+  )
+}
+
+/**
+ * @param {number | undefined} kind
+ */
+function completionKind(kind) {
+  if (kind === 3) return vscode.CompletionItemKind.Function
+  if (kind === 22) return vscode.CompletionItemKind.Class
+  if (kind === 9) return vscode.CompletionItemKind.Module
+  if (kind === 14) return vscode.CompletionItemKind.Keyword
+  return vscode.CompletionItemKind.Variable
 }
 
 /**
@@ -145,29 +221,8 @@ async function runInTerminal(subcommand) {
   terminal.sendText(formatShellCommand(resolveZeeCli(subcommand, file, workspaceRoot)))
 }
 
-/**
- * @param {{ command: string, args: string[], cwd: string }} resolved
- * @returns {Promise<{ stdout: string, stderr: string }>}
- */
-function spawnCapture(resolved) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolved.command, resolved.args, {
-      cwd: resolved.cwd,
-      env: process.env,
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk
-    })
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk
-    })
-    child.on('error', reject)
-    child.on('close', () => resolve({ stdout, stderr }))
-  })
+function deactivate() {
+  return client?.stop()
 }
-
-function deactivate() {}
 
 module.exports = { activate, deactivate }

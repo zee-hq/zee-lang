@@ -1,6 +1,6 @@
 # Zee editor (VS Code / Cursor)
 
-Language support for `.zee` files: syntax, the Zee file icon, **Go to Definition** (F12) for types, functions, and `import` paths, **check on save** (Problems panel), snippets, and **Zee: Run File**.
+Language support for `.zee` files: syntax, the Zee file icon, **`zee lsp`** (hover, complete, go to definition, find references, inlay hints, semantic tokens, checker diagnostics), snippets, and **Zee: Run File**. Rename is out of scope (ZEE-3).
 
 The mark and file icons come from [`brand/`](../../brand/BRAND.md).
 
@@ -48,6 +48,6 @@ Regenerate SVGs: `npm run editor:icons` (from repo root). See [`brand/BRAND.md`]
 | Zee: Run File | ⌘⇧R / Ctrl+Shift+R |
 | Zee: Check File | Command Palette |
 
-Save a `.zee` file to type-check it. Turn that off with `zee.checkOnSave`.
+Save or edit a `.zee` file to type-check it through `zee lsp`. `zee.checkOnSave` is kept for compatibility.
 
-The checker uses this repository’s `src/cli.ts` when the workspace is `zee-lang`. In a package created with `zee new`, it uses `zee` on your `PATH` (`npm link` in the repo root).
+The language server uses this repository’s `src/cli.ts` when the workspace is `zee-lang`. In a package created with `zee new`, it uses `zee lsp` on your `PATH` (`npm link` in the repo root).

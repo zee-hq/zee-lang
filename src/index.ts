@@ -10,6 +10,7 @@ export {
   interpret,
   runPackageTests,
 } from './zee.ts'
+export { LspSession, serveLsp } from './lsp.ts'
 export { VERSION, ZeeError, PanicError } from './error.ts'
 export { createProject, findProjectRoot, resolveEntry, parseManifest } from './project.ts'
 export { getPackages, parseLockfile, parseCatalog, parseCatalogJson, readCatalog } from './pkg.ts'

@@ -17,6 +17,7 @@ import {
   type GeneratedFile,
 } from './generate.ts'
 import { findDefinition, formatGoto } from './navigate.ts'
+import { serveLsp } from './lsp.ts'
 import { getPackages, updatePackages } from './pkg.ts'
 import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
 import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
@@ -43,6 +44,7 @@ Usage:
   zee test                       Run fn test* in *.test.zee under src/
   zee goto <file> <line> <column>
                                  Print the definition at a 1-based position
+  zee lsp                        Language server (stdio JSON-RPC)
   zee help                       Show this help
   zee version                    Print the version
 `
@@ -173,6 +175,11 @@ async function main(argv: string[]): Promise<number> {
     })
     if (!hit) return 1
     stdout.write(`${formatGoto(hit)}\n`)
+    return 0
+  }
+
+  if (command === 'lsp') {
+    await serveLsp(stdin, stdout)
     return 0
   }
 

@@ -1,0 +1,21 @@
+{
+  "name": "zee",
+  "displayName": "Zee",
+  "engines": { "vscode": "*" },
+  "contributes": {
+    "languages": [
+      {
+        "id": "zee",
+        "aliases": ["Zee"],
+        "extensions": [".zee"]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zee",
+        "scopeName": "source.zee",
+        "path": "./syntaxes/zee.tmLanguage.json"
+      }
+    ]
+  }
+}

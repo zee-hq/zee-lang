@@ -55,7 +55,7 @@ describe('HTTP registry server (AC-ZEE-5)', () => {
       const put = await fetch(`${url}/api/v1/packages/json/1.2.1`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/zip' },
-        body: zip,
+        body: new Uint8Array(zip),
       })
       expect(put.status).toBe(200)
 
@@ -90,7 +90,7 @@ describe('HTTP registry server (AC-ZEE-5)', () => {
       const put = await fetch(`${url}/api/v1/packages/ZeeTest/0.1.0`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/zip' },
-        body: zip,
+        body: new Uint8Array(zip),
       })
       expect(put.status).toBe(200)
       const listed = await fetch(`${url}/api/v1/packages/ZeeTest`)
@@ -115,13 +115,13 @@ describe('HTTP registry server (AC-ZEE-5)', () => {
       const first = await fetch(`${url}/api/v1/packages/json/1.0.0`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/zip' },
-        body: zip,
+        body: new Uint8Array(zip),
       })
       expect(first.status).toBe(200)
       const again = await fetch(`${url}/api/v1/packages/json/1.0.0`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/zip' },
-        body: zip,
+        body: new Uint8Array(zip),
       })
       expect(again.status).toBe(409)
       expect(await again.json()).toEqual({ error: 'already_published' })
@@ -129,7 +129,7 @@ describe('HTTP registry server (AC-ZEE-5)', () => {
       const unauth = await fetch(`${url}/api/v1/packages/json/1.0.1`, {
         method: 'PUT',
         headers: { 'content-type': 'application/zip' },
-        body: zip,
+        body: new Uint8Array(zip),
       })
       expect(unauth.status).toBe(401)
       expect(await unauth.json()).toEqual({ error: 'unauthorized' })
