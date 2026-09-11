@@ -145,4 +145,87 @@ describe('List<T> (AC-list)', () => {
   it('panics on out of bounds list index', () => {
     expect(() => execute('const xs: List<i32> = [1]\nxs[1]')).toThrow(/bounds/)
   })
+
+  it('queries with contains, find, any, all, and isEmpty (ZEE-18)', () => {
+    expect(
+      execute(`
+        const xs: List<i32> = [1, 2, 3]
+        (
+          xs.contains(2),
+          xs.contains(9),
+          xs.find { it > 1 } == Some(2),
+          xs.find { it > 9 } == None,
+          xs.any { it == 3 },
+          xs.all { it > 0 },
+          xs.isEmpty(),
+          xs.isNotEmpty()
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'bool', value: true },
+        { type: 'bool', value: false },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: false },
+        { type: 'bool', value: true },
+      ],
+    })
+    expect(execute('const xs: List<i32> = []\nxs.isEmpty()').value).toEqual({
+      type: 'bool',
+      value: true,
+    })
+  })
+
+  it('sorts into a new List and slices a window (ZEE-18)', () => {
+    expect(
+      execute(`
+        const xs = [3, 1, 2]
+        const ordered = xs.sort()
+        (xs, ordered, ordered.slice(1, 3))
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'list', elem: { kind: 'i32' }, items: [
+          { type: 'i32', value: 3 },
+          { type: 'i32', value: 1 },
+          { type: 'i32', value: 2 },
+        ]},
+        { type: 'list', elem: { kind: 'i32' }, items: [
+          { type: 'i32', value: 1 },
+          { type: 'i32', value: 2 },
+          { type: 'i32', value: 3 },
+        ]},
+        { type: 'list', elem: { kind: 'i32' }, items: [
+          { type: 'i32', value: 2 },
+          { type: 'i32', value: 3 },
+        ]},
+      ],
+    })
+  })
+
+  it('concatenates List with + (ZEE-18)', () => {
+    expect(execute('const xs = [1, 2]\nxs + [3]').value).toEqual({
+      type: 'list',
+      elem: { kind: 'i32' },
+      items: [
+        { type: 'i32', value: 1 },
+        { type: 'i32', value: 2 },
+        { type: 'i32', value: 3 },
+      ],
+    })
+  })
+
+  it('rejects sort when T is not Ord (ZEE-18)', () => {
+    expect(() =>
+      execute(`
+        const xs: List<bool> = [true, false]
+        xs.sort()
+      `),
+    ).toThrow(/Ord/)
+  })
 })

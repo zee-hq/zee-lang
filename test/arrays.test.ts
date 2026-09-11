@@ -85,4 +85,21 @@ describe('arrays (AC-array)', () => {
     expect(() => execute('var xs: i32[] = [1]\nxs[1]')).toThrow(/bounds/)
     expect(() => execute('var xs = []')).toThrow(/type/)
   })
+
+  it('queries isEmpty, contains, and concatenates with + (ZEE-18)', () => {
+    expect(
+      execute(`
+        var xs: i32[] = [1, 2]
+        var tail: i32[] = [3]
+        (xs.isEmpty(), xs.contains(2), (xs + tail).len)
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'bool', value: false },
+        { type: 'bool', value: true },
+        { type: 'usize', value: 3n },
+      ],
+    })
+  })
 })

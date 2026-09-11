@@ -1347,6 +1347,19 @@ function callCollectionMethod(
   io: RuntimeIo,
   loc: { file: string; line: number; column: number },
 ): ZeeValue | undefined {
+  if (name === 'isEmpty' || name === 'isNotEmpty') {
+    const empty = collectionEmpty(target)
+    if (empty !== undefined) {
+      if (args.length !== 0) {
+        throw new ZeeError(`\`${name}\` takes no arguments`, loc.line, loc.column, loc.file)
+      }
+      return { type: 'bool', value: name === 'isEmpty' ? empty : !empty }
+    }
+  }
+  if (target.type === 'list' || target.type === 'array') {
+    const seq = callSeqMethod(target, name, args, io, loc)
+    if (seq) return seq
+  }
   if (target.type === 'list') {
     if (name === 'toArray') {
       return { type: 'array', items: target.items.map(copyValue), elem: target.elem }
@@ -1373,6 +1386,14 @@ function callCollectionMethod(
       }
       return UNIT
     }
+    if (name === 'sort') {
+      if (args.length !== 0) {
+        throw new ZeeError('`sort` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      const items = target.items.map(copyValue)
+      items.sort((left, right) => compareOrd(left, right, loc))
+      return { type: 'list', items, elem: target.elem }
+    }
   }
   if (target.type === 'array' && name === 'toList') {
     return { type: 'list', items: target.items.map(copyValue), elem: target.elem }
@@ -1394,6 +1415,109 @@ function callCollectionMethod(
     return UNIT
   }
   return undefined
+}
+
+function collectionEmpty(target: ZeeValue): boolean | undefined {
+  if (target.type === 'list' || target.type === 'array') return target.items.length === 0
+  if (target.type === 'map') return target.entries.size === 0
+  if (target.type === 'string') return new TextEncoder().encode(target.value).length === 0
+  return undefined
+}
+
+function callSeqMethod(
+  target: Extract<ZeeValue, { type: 'list' | 'array' }>,
+  name: string,
+  args: ZeeValue[],
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue | undefined {
+  if (name === 'contains') {
+    if (args.length !== 1) {
+      throw new ZeeError('`contains` takes one argument', loc.line, loc.column, loc.file)
+    }
+    return { type: 'bool', value: target.items.some((item) => valuesEqual(item, args[0]!)) }
+  }
+  if (name === 'find' || name === 'any' || name === 'all') {
+    if (args.length !== 1) {
+      throw new ZeeError(`\`${name}\` takes one function`, loc.line, loc.column, loc.file)
+    }
+    if (name === 'all') {
+      for (const item of target.items) {
+        const keep = applyFnValue(args[0]!, [item], io, loc)
+        if (keep.type !== 'bool') {
+          throw new ZeeError(`\`${name}\` expects \`(T) -> bool\``, loc.line, loc.column, loc.file)
+        }
+        if (!keep.value) return { type: 'bool', value: false }
+      }
+      return { type: 'bool', value: true }
+    }
+    for (const item of target.items) {
+      const keep = applyFnValue(args[0]!, [item], io, loc)
+      if (keep.type !== 'bool') {
+        throw new ZeeError(`\`${name}\` expects \`(T) -> bool\``, loc.line, loc.column, loc.file)
+      }
+      if (keep.value) {
+        if (name === 'find') return { type: 'option', tag: 'some', value: copyValue(item) }
+        return { type: 'bool', value: true }
+      }
+    }
+    if (name === 'find') return { type: 'option', tag: 'none' }
+    return { type: 'bool', value: false }
+  }
+  if (name === 'slice') {
+    if (args.length !== 2) {
+      throw new ZeeError('`slice` takes start and end (`usize`)', loc.line, loc.column, loc.file)
+    }
+    const start = usizeIndex(args[0]!, loc, 'slice start')
+    const end = usizeIndex(args[1]!, loc, 'slice end')
+    if (start > end || end > target.items.length) {
+      throw new ZeeError('slice out of bounds', loc.line, loc.column, loc.file)
+    }
+    const items = target.items.slice(start, end).map(copyValue)
+    return { type: target.type, items, elem: target.elem }
+  }
+  return undefined
+}
+
+function usizeIndex(
+  value: ZeeValue,
+  loc: { file: string; line: number; column: number },
+  what: string,
+): number {
+  if (!isIntValue(value) || value.type !== 'usize') {
+    throw new ZeeError(`${what} must be usize`, loc.line, loc.column, loc.file)
+  }
+  return Number(intBigInt(value))
+}
+
+function compareOrd(
+  left: ZeeValue,
+  right: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): number {
+  let a = left
+  let b = right
+  if (
+    a.type === 'newtype' &&
+    b.type === 'newtype' &&
+    a.name === b.name &&
+    a.module === b.module
+  ) {
+    a = a.inner
+    b = b.inner
+  }
+  if (isIntValue(a) && isIntValue(b) && a.type === b.type) {
+    const l = intBigInt(a)
+    const r = intBigInt(b)
+    return l < r ? -1 : l > r ? 1 : 0
+  }
+  if ((a.type === 'string' && b.type === 'string') || (a.type === 'char' && b.type === 'char')) {
+    return utf8Compare(a.value, b.value)
+  }
+  if (a.type === 'enum' && b.type === 'enum' && a.name === b.name && a.module === b.module) {
+    return a.ordinal < b.ordinal ? -1 : a.ordinal > b.ordinal ? 1 : 0
+  }
+  throw new ZeeError('`sort` requires `T: Ord`', loc.line, loc.column, loc.file)
 }
 
 function formatExpect(value: ZeeValue): string {
@@ -1720,6 +1844,17 @@ function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: Runti
   }
   if (expr.op === '+' && leftVal.type === 'string' && right.type === 'string') {
     return { type: 'string', value: leftVal.value + right.value }
+  }
+  if (
+    expr.op === '+' &&
+    (leftVal.type === 'list' || leftVal.type === 'array') &&
+    right.type === leftVal.type
+  ) {
+    return {
+      type: leftVal.type,
+      items: [...leftVal.items.map(copyValue), ...right.items.map(copyValue)],
+      elem: leftVal.elem,
+    }
   }
   if (isFloatValue(leftVal) && isFloatValue(right) && leftVal.type === right.type) {
     const kind = leftVal.type

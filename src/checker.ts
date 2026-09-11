@@ -2514,6 +2514,14 @@ function checkBinary(
 
   if (op === '+' && typeEq(left, T_STRING) && typeEq(right, T_STRING)) return T_STRING
   if (
+    op === '+' &&
+    (left.kind === 'list' || left.kind === 'array') &&
+    right.kind === left.kind &&
+    typeEq(left, right)
+  ) {
+    return left
+  }
+  if (
     (op === '+' || op === '-' || op === '*' || op === '/' || op === '%') &&
     (isIntType(left) || isFloatType(left)) &&
     typeEq(left, right)
@@ -2948,6 +2956,21 @@ function checkBuiltinMethod(
   env: TypeEnv,
   returnType: ZeeType,
 ): ZeeType | undefined {
+  if (name === 'isEmpty' || name === 'isNotEmpty') {
+    if (
+      targetType.kind === 'list' ||
+      targetType.kind === 'array' ||
+      targetType.kind === 'string' ||
+      targetType.kind === 'map'
+    ) {
+      if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
+      return T_BOOL
+    }
+  }
+  if (targetType.kind === 'list' || targetType.kind === 'array') {
+    const seq = checkSeqMethod(targetType, name, expr, env, returnType)
+    if (seq) return seq
+  }
   if (targetType.kind === 'list') {
     if (name === 'toArray') {
       if (expr.args.length !== 0) throw error(expr.loc, '`toArray` takes no arguments')
@@ -2976,6 +2999,13 @@ function checkBuiltinMethod(
       })
       return T_UNIT
     }
+    if (name === 'sort') {
+      if (expr.args.length !== 0) throw error(expr.loc, '`sort` takes no arguments')
+      if (!isOrdType(targetType.elem)) {
+        throw error(expr.loc, '`sort` requires `T: Ord`')
+      }
+      return targetType
+    }
   }
   if (targetType.kind === 'array' && name === 'toList') {
     if (expr.args.length !== 0) throw error(expr.loc, '`toList` takes no arguments')
@@ -2985,6 +3015,40 @@ function checkBuiltinMethod(
     if (expr.args.length !== 1) throw error(expr.loc, `\`expect(...).${name}\` takes one argument`)
     checkExpr(expr.args[0]!, env, returnType, targetType.inner)
     return T_UNIT
+  }
+  return undefined
+}
+
+function checkSeqMethod(
+  targetType: Extract<ZeeType, { kind: 'list' | 'array' }>,
+  name: string,
+  expr: Extract<Expr, { kind: 'call' }>,
+  env: TypeEnv,
+  returnType: ZeeType,
+): ZeeType | undefined {
+  if (name === 'contains') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`contains` takes one argument')
+    if (!isEquatable(targetType.elem)) {
+      throw error(expr.loc, '`contains` requires `T: Eq`')
+    }
+    checkExpr(expr.args[0]!, env, returnType, targetType.elem)
+    return T_BOOL
+  }
+  if (name === 'find' || name === 'any' || name === 'all') {
+    if (expr.args.length !== 1) throw error(expr.loc, `\`${name}\` takes one function`)
+    checkExpr(expr.args[0]!, env, returnType, {
+      kind: 'fn',
+      params: [targetType.elem],
+      ret: T_BOOL,
+    })
+    if (name === 'find') return { kind: 'option', inner: targetType.elem }
+    return T_BOOL
+  }
+  if (name === 'slice') {
+    if (expr.args.length !== 2) throw error(expr.loc, '`slice` takes start and end (`usize`)')
+    checkExpr(expr.args[0]!, env, returnType, T_USIZE)
+    checkExpr(expr.args[1]!, env, returnType, T_USIZE)
+    return targetType
   }
   return undefined
 }

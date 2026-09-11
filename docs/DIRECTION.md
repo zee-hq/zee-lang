@@ -29,7 +29,7 @@ v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `T
 | Unsafe / FFI | C / Go | `unsafe`, `*T` / `*var T`, `repr(C)`, `extern "C"` / `"host"` |
 | Constructors | C# / Kotlin | **`Name { fields }`** + associated factories (`Type.empty()`). No `new`, no `Type(x)` as a class constructor |
 | DI | Nest | **`main` wires by hand.** No `@Inject`, no scan, no language container. Hexagonal is the course, not a keyword |
-| Collection methods | Kotlin | **`forEach` / `map` / `filter` / `any` / `all`…** — catalog in §8f. `List` already has `map`/`filter`/`forEach` |
+| Collection methods | Kotlin | **`forEach` / `map` / `filter` / `any` / `all` / `contains` / `find` / `sort` / `slice`** — catalog in §8f |
 | Emptiness / blank | Kotlin | **`isEmpty` / `isBlank` / `isNoneOrEmpty`** — catalog in §8g. No `null` |
 
 Non-goals: implicit casts, `null`, PHP/JS falsy (`0`, `""`, `[]`), language-level **zero values**, `Result<T, E>` as the **standard** error convention, `try` / `catch` / `throw` / `recover`, `async`/`await`, macros, operator overloading, `++`/`--`.
@@ -1370,7 +1370,7 @@ Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id
 
 `List<T>` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
 
-v0 today: `List` has `map` / `filter` / `forEach`. `T[]` has `toList`. `List` has `toArray`. `Map` and `T[]` walk with `for`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
+v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` / `slice` / `isEmpty`. `T[]` has `toList` plus the same query methods except `sort` (List only in this drop). `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` and `T[]` walk with `for`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
 
 | Method | Meaning | `List<T>` | `T[]` | `Map<K, V>` |
 |---|---|---|---|---|
@@ -1380,22 +1380,22 @@ v0 today: `List` has `map` / `filter` / `forEach`. `T[]` has `toList`. `List` ha
 | `filter` | keep if true | **in** | yes | `{ K, V -> bool }` |
 | `unique` | drop duplicates (`T: Eq`), **first-seen** | new `List` | copy | keys already unique |
 | `flat` | **one** level | `List<List<T>>` → `List<T>` | `T[][]` → `T[]` | no |
-| `find` | first match → `Option<T>` | yes | yes | `{ K, V -> bool }` → `Option<(K, V)>` |
-| `any` | any match → `bool` | yes | yes | yes |
-| `all` | every match → `bool` | yes | yes | yes |
+| `find` | first match → `Option<T>` | **in** | **in** | `{ K, V -> bool }` → `Option<(K, V)>` |
+| `any` | any match → `bool` | **in** | **in** | yes |
+| `all` | every match → `bool` | **in** | **in** | yes |
 | `first` / `last` | ends → `Option<T>` | yes | yes | no (not ordered) |
-| `contains` | `T: Eq` → `bool` | yes | yes | key (`containsKey`) |
+| `contains` | `T: Eq` → `bool` | **in** | **in** | key (`containsKey`) |
 | `join` | `List<String>` → `String` | yes | yes | no |
 | `toString` | debug dump (not `Eq`, not `str`) | yes | yes | yes |
 | `push` | add at **end** | no (immutable) | **`var`**, grows | no |
 | `pop` | take last → `Option<T>` | no (immutable) | **`var`**, shrinks | no |
 | `fill` | write every slot | no | **`var`** | no |
-| `+` | concat | new `List` | new `T[]` | no |
+| `+` | concat | **in** | **in** | no |
 | `merge` | putAll, **right wins** | no | no | `var` or new `Map` |
 | `keys` / `values` | project | no | no | `List<K>` / `List<V>` |
-| `slice` | window `[start, end)` | new `List` | copy | no |
+| `slice` | window `[start, end)` | **in** | **in** | no |
 | `reverse` | reverse order | new `List` | `var` or copy | no |
-| `sort` | `T: Ord` | new `List` | `var` or copy | no |
+| `sort` | `T: Ord` | **in** (new `List`) | `var` or copy | no |
 
 `take(n)` / `drop(n)` are `slice(0, n)` / `slice(n, len)` — not a second API. `shift` / `unshift` wait for a deque. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait until this table is in the interpreter.
 
@@ -1415,11 +1415,11 @@ v0 today: `List` has `map` / `filter` / `forEach`. `T[]` has `toList`. `List` ha
 
 ### 8g. Emptiness, blank, none
 
-v0 today: `xs.len == 0`, `s.len == 0`, `x == None` / `x != None`. No truthiness (`if xs` is illegal). No `null`. The methods below are **defined**; the interpreter may lag.
+v0 today: `isEmpty` / `isNotEmpty` on `String`, `List`, `T[]`, `Map`. Also `xs.len == 0`, `s.len == 0`, `x == None` / `x != None`. No truthiness (`if xs` is illegal). No `null`. `isBlank` / `isNoneOrEmpty` are **defined**; the interpreter may lag.
 
 | Kotlin | Zee | On |
 |---|---|---|
-| `isEmpty()` | `isEmpty()` | `String`, `List`, `T[]`, `Map` |
+| `isEmpty()` | `isEmpty()` | `String`, `List`, `T[]`, `Map` — **in** |
 | `isNotEmpty()` | `isNotEmpty()` | same |
 | `isBlank()` | `isBlank()` | `String` only — empty or only Unicode whitespace `Char`s |
 | `isNotBlank()` | `isNotBlank()` | `String` |

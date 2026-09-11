@@ -108,4 +108,11 @@ describe('Map<K, V> (AC-map)', () => {
   it('needs a type for empty {}', () => {
     expect(() => execute('var ages = {}')).toThrow(/type/)
   })
+
+  it('reports isEmpty (ZEE-18)', () => {
+    expect(execute('var ages: Map<String, i32> = {}\nages.isEmpty()').value).toEqual({
+      type: 'bool',
+      value: true,
+    })
+  })
 })

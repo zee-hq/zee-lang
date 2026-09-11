@@ -70,6 +70,11 @@ describe('String / Char (ZEE-8 / §0c)', () => {
     ).toThrow(/String index/)
   })
 
+  it('reports isEmpty as byte-empty (ZEE-18)', () => {
+    expect(execute('"".isEmpty()').value).toEqual({ type: 'bool', value: true })
+    expect(execute('"zee".isNotEmpty()').value).toEqual({ type: 'bool', value: true })
+  })
+
   it('iterates Unicode scalars with for-in, not bytes', () => {
     expect(
       execute(`
