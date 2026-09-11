@@ -79,32 +79,35 @@ class Parser {
   }
 
   parseProgram(): Program {
+    const innerDoc = this.takeInnerDocs()
     const stmts: Stmt[] = []
     while (!this.isAtEnd()) {
       stmts.push(this.parseTopLevel())
     }
-    return { file: this.file, stmts, units: [{ file: this.file, module: '', stmts }] }
+    return { file: this.file, stmts, innerDoc, units: [{ file: this.file, module: '', stmts, innerDoc }] }
   }
 
   private parseTopLevel(): Stmt {
-    if (this.match('import')) return this.parseImport()
+    const doc = this.takeDocs()
+    if (this.isAtEnd()) this.fail('doc comment with no following declaration')
+    if (this.match('import')) return this.attachDoc(this.parseImport(), doc)
     const visibility = this.parseVisibility()
-    if (this.match('const')) return this.parseBind(false, true, visibility ?? 'private')
-    if (this.match('var')) return this.parseBind(true, true, visibility ?? 'private')
-    if (this.match('fn')) return this.parseFn(visibility ?? 'private')
-    if (this.match('enum')) return this.parseEnumDecl(visibility ?? 'private')
-    if (this.match('type')) return this.parseTypeAliasDecl(visibility ?? 'private')
-    if (this.match('newtype')) return this.parseNewtypeDecl(visibility ?? 'private')
+    if (this.match('const')) return this.attachDoc(this.parseBind(false, true, visibility ?? 'private'), doc)
+    if (this.match('var')) return this.attachDoc(this.parseBind(true, true, visibility ?? 'private'), doc)
+    if (this.match('fn')) return this.attachDoc(this.parseFn(visibility ?? 'private'), doc)
+    if (this.match('enum')) return this.attachDoc(this.parseEnumDecl(visibility ?? 'private'), doc)
+    if (this.match('type')) return this.attachDoc(this.parseTypeAliasDecl(visibility ?? 'private'), doc)
+    if (this.match('newtype')) return this.attachDoc(this.parseNewtypeDecl(visibility ?? 'private'), doc)
     if (this.looksLikeInterfaceDecl()) {
-      return this.parseInterfaceDecl(visibility ?? 'private')
+      return this.attachDoc(this.parseInterfaceDecl(visibility ?? 'private'), doc)
     }
     if (this.looksLikeTypeDecl()) {
-      return this.parseStructDecl(visibility ?? 'private')
+      return this.attachDoc(this.parseStructDecl(visibility ?? 'private'), doc)
     }
     if (visibility) {
       this.fail('expected `fn`, `const`, `var`, `struct`, `class`, `enum`, `type`, `newtype`, or `interface` after visibility')
     }
-    return this.parseStatement()
+    return this.parseStatement(doc)
   }
 
   private parseVisibility(): Visibility | undefined {
@@ -145,35 +148,40 @@ class Parser {
     return { kind: 'import', path, names, alias, loc }
   }
 
-  private parseStatement(): Stmt {
-    if (this.match('const')) return this.parseBind(false)
-    if (this.match('var')) return this.parseBind(true)
-    if (this.match('redim')) return this.parseRedim()
+  private parseStatement(incomingDoc?: string): Stmt {
+    const doc = incomingDoc ?? this.takeDocs()
+    if (this.match('const')) return this.attachDoc(this.parseBind(false), doc)
+    if (this.match('var')) return this.attachDoc(this.parseBind(true), doc)
+    if (this.match('redim')) return this.attachDoc(this.parseRedim(), doc)
     if (this.looksLikeInterfaceDecl()) {
-      return this.parseInterfaceDecl()
+      return this.attachDoc(this.parseInterfaceDecl(), doc)
     }
     if (this.looksLikeTypeDecl()) {
-      return this.parseStructDecl()
+      return this.attachDoc(this.parseStructDecl(), doc)
     }
-    if (this.check('ident') && ASSIGN_OPS.includes(this.peekAt(1).kind)) return this.parseAssign()
-    if (this.match('while')) return this.parsePretestLoop('while')
-    if (this.match('until')) return this.parsePretestLoop('until')
-    if (this.match('do')) return this.parseDoLoop()
-    if (this.match('break')) return this.parseJump('break')
-    if (this.match('continue')) return this.parseJump('continue')
-    if (this.match('for')) return this.parseFor()
-    if (this.match('fn')) return this.parseFn()
-    if (this.match('type')) return this.parseTypeAliasDecl()
-    if (this.match('newtype')) return this.parseNewtypeDecl()
+    if (this.check('ident') && ASSIGN_OPS.includes(this.peekAt(1).kind)) {
+      return this.attachDoc(this.parseAssign(), doc)
+    }
+    if (this.match('while')) return this.attachDoc(this.parsePretestLoop('while'), doc)
+    if (this.match('until')) return this.attachDoc(this.parsePretestLoop('until'), doc)
+    if (this.match('do')) return this.attachDoc(this.parseDoLoop(), doc)
+    if (this.match('break')) return this.attachDoc(this.parseJump('break'), doc)
+    if (this.match('continue')) return this.attachDoc(this.parseJump('continue'), doc)
+    if (this.match('for')) return this.attachDoc(this.parseFor(), doc)
+    if (this.match('fn')) return this.attachDoc(this.parseFn(), doc)
+    if (this.match('type')) return this.attachDoc(this.parseTypeAliasDecl(), doc)
+    if (this.match('newtype')) return this.attachDoc(this.parseNewtypeDecl(), doc)
     if (this.looksLikeInterfaceDecl()) {
-      return this.parseInterfaceDecl()
+      return this.attachDoc(this.parseInterfaceDecl(), doc)
     }
-    if (this.match('return')) return this.parseReturn()
-    if (this.match('defer')) return this.parseDefer()
+    if (this.match('return')) return this.attachDoc(this.parseReturn(), doc)
+    if (this.match('defer')) return this.attachDoc(this.parseDefer(), doc)
     const expr = this.parseExpression()
-    if (LVALUE_ASSIGN_OPS.includes(this.peek().kind)) return this.parseLvalueAssign(expr)
+    if (LVALUE_ASSIGN_OPS.includes(this.peek().kind)) {
+      return this.attachDoc(this.parseLvalueAssign(expr), doc)
+    }
     this.match(';')
-    return { kind: 'expr', expr, loc: expr.loc }
+    return this.attachDoc({ kind: 'expr', expr, loc: expr.loc }, doc)
   }
 
   private parseBind(mutable: boolean, eatSemi = true, visibility: Visibility = 'private'): Stmt {
@@ -299,7 +307,13 @@ class Parser {
       const variants: StructVariant[] = []
       const seen = new Set<string>()
       while (!this.check('}') && !this.isAtEnd()) {
+        const doc = this.takeDocs()
+        if (this.check('}')) {
+          if (doc) this.fail('doc comment with no following declaration')
+          break
+        }
         const variant = this.parseStructVariant(identity)
+        if (doc) variant.doc = doc
         if (seen.has(variant.name)) this.fail(`duplicate variant \`${variant.name}\``)
         seen.add(variant.name)
         variants.push(variant)
@@ -391,6 +405,11 @@ class Parser {
       if (this.looksLikeTypeDecl()) {
         this.fail('nested types are only allowed inside `sealed` types')
       }
+      const doc = this.takeDocs()
+      if (this.check('}')) {
+        if (doc) this.fail('doc comment with no following declaration')
+        break
+      }
       const fieldVis = this.parseVisibility() ?? 'private'
       const mutable = this.match('var')
       if (!mutable) this.consume('const', 'expected `const` or `var` field')
@@ -407,6 +426,7 @@ class Parser {
         visibility: fieldVis,
         type,
         loc: fieldName.loc,
+        doc,
       })
     }
     return fields
@@ -428,43 +448,48 @@ class Parser {
       seen.add(name)
     }
     while (!this.check('}') && !this.isAtEnd()) {
+      const doc = this.takeDocs()
+      if (this.check('}')) {
+        if (doc) this.fail('doc comment with no following declaration')
+        break
+      }
       const memberVis = this.parseVisibility() ?? 'private'
       if (this.match('fn')) {
-        const fn = this.parseFn(memberVis, receiverName)
+        const fn = this.attachDoc(this.parseFn(memberVis, receiverName), doc)
         claim(fn.name)
         methods.push(fn)
         continue
       }
       if (this.match('enum')) {
-        const decl = this.parseEnumDecl(memberVis)
+        const decl = this.attachDoc(this.parseEnumDecl(memberVis), doc)
         if (decl.kind !== 'enumDecl') this.fail('expected nested `enum`')
         claim(decl.name)
         nested.push(decl)
         continue
       }
       if (this.match('type')) {
-        const decl = this.parseTypeAliasDecl(memberVis)
+        const decl = this.attachDoc(this.parseTypeAliasDecl(memberVis), doc)
         if (decl.kind !== 'typeAliasDecl') this.fail('expected nested `type`')
         claim(decl.name)
         nested.push(decl)
         continue
       }
       if (this.match('newtype')) {
-        const decl = this.parseNewtypeDecl(memberVis)
+        const decl = this.attachDoc(this.parseNewtypeDecl(memberVis), doc)
         if (decl.kind !== 'newtypeDecl') this.fail('expected nested `newtype`')
         claim(decl.name)
         nested.push(decl)
         continue
       }
       if (this.looksLikeInterfaceDecl()) {
-        const decl = this.parseInterfaceDecl(memberVis)
+        const decl = this.attachDoc(this.parseInterfaceDecl(memberVis), doc)
         if (decl.kind !== 'interfaceDecl') this.fail('expected nested `interface`')
         claim(decl.name)
         nested.push(decl)
         continue
       }
       if (this.looksLikeTypeDecl()) {
-        const decl = this.parseStructDecl(memberVis)
+        const decl = this.attachDoc(this.parseStructDecl(memberVis), doc)
         if (decl.kind !== 'structDecl') this.fail('expected nested type')
         claim(decl.name)
         nested.push(decl)
@@ -486,6 +511,7 @@ class Parser {
           typeAnn,
           init,
           loc: nameTok.loc,
+          doc,
         })
         continue
       }
@@ -498,6 +524,7 @@ class Parser {
         visibility: memberVis,
         type: typeAnn,
         loc: nameTok.loc,
+        doc,
       })
     }
     return { fields, associated, nested, methods }
@@ -510,10 +537,15 @@ class Parser {
     const variants: { name: string; loc: Loc }[] = []
     const seen = new Set<string>()
     while (!this.check('}') && !this.isAtEnd()) {
+      const doc = this.takeDocs()
+      if (this.check('}')) {
+        if (doc) this.fail('doc comment with no following declaration')
+        break
+      }
       const name = this.consume('ident', 'expected variant name')
       if (seen.has(name.lexeme)) this.fail(`duplicate variant \`${name.lexeme}\``)
       seen.add(name.lexeme)
-      variants.push({ name: name.lexeme, loc: name.loc })
+      variants.push({ name: name.lexeme, loc: name.loc, doc })
       this.match(';')
       this.match(',')
     }
@@ -564,11 +596,17 @@ class Parser {
     const methods: InterfaceMethod[] = []
     const seen = new Set<string>()
     while (!this.check('}') && !this.isAtEnd()) {
+      const doc = this.takeDocs()
+      if (this.check('}')) {
+        if (doc) this.fail('doc comment with no following declaration')
+        break
+      }
       if (this.check('const') || this.check('var') || this.check('pub') || this.check('internal')) {
         throw new ZeeError('interface methods only; no fields', loc.line, loc.column, this.file)
       }
       this.consume('fn', 'expected `fn` in interface body')
       const method = this.parseInterfaceMethod()
+      if (doc) method.doc = doc
       if (seen.has(method.name)) this.fail(`duplicate method \`${method.name}\``)
       seen.add(method.name)
       methods.push(method)
@@ -624,8 +662,13 @@ class Parser {
     this.consume('{', 'expected `{` after `implements`')
     const methods: Extract<Stmt, { kind: 'fn' }>[] = []
     while (!this.check('}') && !this.isAtEnd()) {
+      const doc = this.takeDocs()
+      if (this.check('}')) {
+        if (doc) this.fail('doc comment with no following declaration')
+        break
+      }
       this.consume('fn', 'expected `fn` in implements block')
-      const fn = this.parseFn('private', receiverName)
+      const fn = this.attachDoc(this.parseFn('private', receiverName), doc)
       if (fn.kind !== 'fn') this.fail('expected a method')
       methods.push(fn)
     }
@@ -1468,6 +1511,41 @@ class Parser {
     if (this.matchCloseAngle()) return
     const tok = this.peek()
     throw new ZeeError(message, tok.loc.line, tok.loc.column, this.file)
+  }
+
+  private takeInnerDocs(): string | undefined {
+    const lines: string[] = []
+    while (this.match('innerDoc')) lines.push(this.previous().lexeme)
+    return lines.length > 0 ? lines.join('\n') : undefined
+  }
+
+  private takeDocs(): string | undefined {
+    if (this.check('innerDoc')) {
+      this.fail('inner doc `//!` must be at the top of the file')
+    }
+    const lines: string[] = []
+    while (this.match('doc')) lines.push(this.previous().lexeme)
+    if (this.check('innerDoc')) {
+      this.fail('inner doc `//!` must be at the top of the file')
+    }
+    return lines.length > 0 ? lines.join('\n') : undefined
+  }
+
+  private attachDoc<T extends Stmt>(stmt: T, doc: string | undefined): T {
+    if (!doc) return stmt
+    switch (stmt.kind) {
+      case 'fn':
+      case 'bind':
+      case 'destructure':
+      case 'structDecl':
+      case 'enumDecl':
+      case 'typeAliasDecl':
+      case 'newtypeDecl':
+      case 'interfaceDecl':
+        return { ...stmt, doc }
+      default:
+        this.fail('doc comment with no following declaration')
+    }
   }
 
   private consume(kind: TokenKind, message: string): Token {

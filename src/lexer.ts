@@ -96,6 +96,8 @@ export type TokenKind =
   | ':'
   | '->'
   | ';'
+  | 'doc'
+  | 'innerDoc'
 
 export interface Token {
   kind: TokenKind
@@ -263,7 +265,15 @@ class Lexer {
         break
       case '/':
         if (this.match('/')) {
-          while (this.peek() !== '\n' && !this.isAtEnd()) this.advance()
+          if (this.peek() === '/' && this.peekNext() !== '/') {
+            this.advance()
+            this.docLine('doc')
+          } else if (this.peek() === '!') {
+            this.advance()
+            this.docLine('innerDoc')
+          } else {
+            while (this.peek() !== '\n' && !this.isAtEnd()) this.advance()
+          }
         } else if (this.match('*')) {
           this.blockComment()
         } else {
@@ -293,6 +303,17 @@ class Lexer {
         else if (isIdentStart(char)) this.ident()
         else this.error(`unexpected character \`${char}\``)
     }
+  }
+
+  private docLine(kind: 'doc' | 'innerDoc'): void {
+    if (this.peek() === ' ') this.advance()
+    const start = this.current
+    while (this.peek() !== '\n' && !this.isAtEnd()) this.advance()
+    this.tokens.push({
+      kind,
+      lexeme: this.source.slice(start, this.current),
+      loc: locOf(this.file, this.line, this.tokenColumn),
+    })
   }
 
   private blockComment(): void {

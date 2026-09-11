@@ -68,7 +68,7 @@ export function loadProgramFromPath(path: string): Program {
   }
   const units = sources.map((source) => {
     const parsed = parse(readFileSync(source.file, 'utf8'), source.file)
-    return { file: source.file, module: source.module, stmts: parsed.stmts }
+    return { file: source.file, module: source.module, stmts: parsed.stmts, innerDoc: parsed.innerDoc }
   })
   const stmts = units.flatMap((unit) => unit.stmts)
   return { file: path, stmts, units }

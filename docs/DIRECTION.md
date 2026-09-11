@@ -2,7 +2,7 @@
 
 North star for syntax that is **not** in v0 yet. Still hosted on Node; still no PHP/JS coercions.
 
-v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `Type.CONST`, nested types (`User.Constants`, no outer instance), unconstrained `fn f<T>` (infer or `f<i32>(…)`), `const` / `var`, `if`/`else`/`match`, `while`/`until`/`do`/`for`/`break`/`continue`, integer widths, `f32`/`f64`, `Option`, `?:` / `??=` / `!!=` / `&&=` / `||=` / `+=` `-=` `*=` / `/=` `%=` / `& | ^ ~ << >>` / `wrap.add`, `<===>`, `T[]` + array `redim`, `List<T>` / `Map<K, V>`, `struct` / `class` / `data` / `readonly`, `enum` / `sealed struct` / `sealed class` + `match` on variants, `===` / `!==` on `class`, `copy()` on `data`, `for x in xs` / `for (i, x) in xs`, `pub` / `internal` + `import`, `type` / `newtype`, `interface` / `sealed interface` / `implements`, `is`, stdlib `Error`, `panic` / `Never`, `defer`.
+v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `Type.CONST`, nested types (`User.Constants`, no outer instance), unconstrained `fn f<T>` (infer or `f<i32>(…)`), `const` / `var`, `if`/`else`/`match`, `while`/`until`/`do`/`for`/`break`/`continue`, integer widths, `f32`/`f64`, `Option`, `?:` / `??=` / `!!=` / `&&=` / `||=` / `+=` `-=` `*=` / `/=` `%=` / `& | ^ ~ << >>` / `wrap.add`, `<===>`, `T[]` + array `redim`, `List<T>` / `Map<K, V>`, `struct` / `class` / `data` / `readonly`, `enum` / `sealed struct` / `sealed class` + `match` on variants, `===` / `!==` on `class`, `copy()` on `data`, `for x in xs` / `for (i, x) in xs`, `pub` / `internal` + `import`, `type` / `newtype`, `interface` / `sealed interface` / `implements`, `is`, stdlib `Error`, `panic` / `Never`, `defer`, `///` / `//!` docs.
 
 | Wanted | Source | Zee |
 |---|---|---|
@@ -226,7 +226,7 @@ line two
 
 ## 0d. Comments and docs
 
-`//` to end of line. `/* … */` block (not nested in v1). Those are **not** API docs.
+`//` to end of line. `/* … */` block (not nested in v1). Those are **not** API docs. *(in the interpreter: `///` / `//!` are on the AST)*
 
 **`///`** is a doc comment on the **next** declaration (`fn`, `const`, `var`, `struct`, `class`, `interface`, `enum`, `type`, `newtype`, field, method). Consecutive `///` lines merge.
 
@@ -1215,7 +1215,7 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 22. **Equality** — `data` / primitives / `enum` / `List` / tuples / `Option` are `Eq` (and `Hash` when safe). Plain `struct`/`class` are not. Identity is `===` on `class` only. No custom `equals`. `data` is not auto-`Ord`.
 23. **Interfaces** — nominative `implements` (not Go). `interface` anyone may implement; `sealed interface` same-module + exhaustive `match`. Methods only, no default bodies. `T: Closeable` or existential `Closeable`. `is Type` narrows. `Error` is `fn message(self) -> String` plus `error("…")` / `Fail`. No operator overloading.
 24. **`type` / `newtype`** — `type A = T` is alias (interchangeable). `newtype UserId = i32` is a distinct wrapper; wrap/unwrap with `UserId(n)` / `i32(id)`; inherits `Eq`/`Hash`/`Ord` of inner, not user interfaces. IDs use `newtype`, not alias.
-25. **Docs** — `///` on the next item, `//!` on the file/module. Markdown. `//` / `/* */` are not docs. No Javadoc/`/**`.
+25. **Docs** — `///` on the next item, `//!` on the file/module. Markdown. `//` / `/* */` are not docs. No Javadoc/`/**`. *(in the interpreter; hover is ZEE-2)*
 26. **Methods** — `self` / `var self`; associated `Type.fn()` / `Type.CONST`; nested types (`User.Constants`) with **no** outer instance; no Java inner; no anonymous; `abstract` only on `open class`; no operator overloading.
 27. **Bits / wrap** — `& | ^ ~ << >>` and compounds on integers. `+` panics; wrap is `wrap.add`. No `++` / `--` / `**=` / `>>>`. *(in the interpreter)*
 28. **Concurrency** — Zee scheduler, **explicit coroutines**. Spawn names the dispatcher (`task cpu { }`). Hop queues with `on io { }` (runs that block there, then resumes here). `yield` is an explicit scheduler turn. `recv` / `send` / `select` also park. No `go`, no `async`/`await`, no function coloring. `Chan<T>` + `select` stay. Not Go’s runtime, not Promises, not OS threads as the language.

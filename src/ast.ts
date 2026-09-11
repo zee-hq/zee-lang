@@ -57,6 +57,7 @@ export interface SourceUnit {
   file: string
   module: string
   stmts: Stmt[]
+  innerDoc?: string
 }
 
 export type TypeAst =
@@ -73,6 +74,7 @@ export interface StructField {
   visibility: Visibility
   type: TypeAst
   loc: Loc
+  doc?: string
 }
 
 export interface AssociatedConst {
@@ -82,6 +84,7 @@ export interface AssociatedConst {
   typeAnn?: TypeAst
   init: Expr
   loc: Loc
+  doc?: string
 }
 
 export interface Param {
@@ -104,6 +107,7 @@ export interface StructVariant {
   identity: boolean
   fields: StructField[]
   loc: Loc
+  doc?: string
 }
 
 export interface InterfaceMethod {
@@ -112,6 +116,7 @@ export interface InterfaceMethod {
   params: Param[]
   returnType?: TypeAst
   loc: Loc
+  doc?: string
 }
 
 export type InterpPart =
@@ -177,6 +182,7 @@ export type Stmt =
       typeAnn?: TypeAst
       init: Expr
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'destructure'
@@ -184,6 +190,7 @@ export type Stmt =
       names: string[]
       init: Expr
       loc: Loc
+      doc?: string
     }
   | { kind: 'assign'; name: string; op: AssignOp; value: Expr; loc: Loc }
   | { kind: 'indexAssign'; target: Expr; index: Expr; op: AssignOp; value: Expr; loc: Loc }
@@ -215,6 +222,7 @@ export type Stmt =
       returnType?: TypeAst
       body: Block
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'structDecl'
@@ -231,13 +239,15 @@ export type Stmt =
       implements: string[]
       methods: Extract<Stmt, { kind: 'fn' }>[]
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'enumDecl'
       visibility: Visibility
       name: string
-      variants: { name: string; loc: Loc }[]
+      variants: { name: string; loc: Loc; doc?: string }[]
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'typeAliasDecl'
@@ -246,6 +256,7 @@ export type Stmt =
       typeParams: string[]
       aliased: TypeAst
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'newtypeDecl'
@@ -253,6 +264,7 @@ export type Stmt =
       name: string
       inner: TypeAst
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'interfaceDecl'
@@ -261,6 +273,7 @@ export type Stmt =
       sealed: boolean
       methods: InterfaceMethod[]
       loc: Loc
+      doc?: string
     }
   | {
       kind: 'import'
@@ -275,4 +288,5 @@ export interface Program {
   file: string
   stmts: Stmt[]
   units: SourceUnit[]
+  innerDoc?: string
 }

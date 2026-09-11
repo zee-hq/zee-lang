@@ -328,4 +328,46 @@ describe('lexer', () => {
       'eof',
     ])
   })
+
+  it('tokenizes /// and //! docs and still skips //', () => {
+    expect(tokenize('/// Opens path.\nfn f() {}').map((token) => token.kind)).toEqual([
+      'doc',
+      'fn',
+      'ident',
+      '(',
+      ')',
+      '{',
+      '}',
+      'eof',
+    ])
+    expect(tokenize('/// Opens path.')[0]?.lexeme).toBe('Opens path.')
+    expect(tokenize('//! HTTP client.\nfn f() {}').map((token) => token.kind)).toEqual([
+      'innerDoc',
+      'fn',
+      'ident',
+      '(',
+      ')',
+      '{',
+      '}',
+      'eof',
+    ])
+    expect(tokenize('// not a doc\nfn f() {}').map((token) => token.kind)).toEqual([
+      'fn',
+      'ident',
+      '(',
+      ')',
+      '{',
+      '}',
+      'eof',
+    ])
+    expect(tokenize('//// not a doc\nfn f() {}').map((token) => token.kind)).toEqual([
+      'fn',
+      'ident',
+      '(',
+      ')',
+      '{',
+      '}',
+      'eof',
+    ])
+  })
 })
