@@ -313,4 +313,65 @@ describe('List<T> (AC-list)', () => {
       `),
     ).toThrow(/sortByKey|sortByValue|field/)
   })
+
+  it('first last reverse unique join and toString (ZEE-22)', () => {
+    expect(
+      execute(`
+        const xs = [1, 2, 1, 3]
+        const names = ["a", "b", "a"]
+        const empty: List<i32> = []
+        (
+          xs.first() == Some(1),
+          xs.last() == Some(3),
+          empty.first() == None,
+          empty.last() == None,
+          xs.reverse(),
+          xs.unique(),
+          xs[0],
+          names.join("-"),
+          xs.toString()
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        {
+          type: 'list',
+          elem: { kind: 'i32' },
+          items: [
+            { type: 'i32', value: 3 },
+            { type: 'i32', value: 1 },
+            { type: 'i32', value: 2 },
+            { type: 'i32', value: 1 },
+          ],
+        },
+        {
+          type: 'list',
+          elem: { kind: 'i32' },
+          items: [
+            { type: 'i32', value: 1 },
+            { type: 'i32', value: 2 },
+            { type: 'i32', value: 3 },
+          ],
+        },
+        { type: 'i32', value: 1 },
+        { type: 'string', value: 'a-b-a' },
+        { type: 'string', value: '[1, 2, 1, 3]' },
+      ],
+    })
+  })
+
+  it('rejects unique without Eq and join on non-String (ZEE-22)', () => {
+    expect(() =>
+      execute(`
+        const xs: List<f64> = [1.0, 2.0]
+        xs.unique()
+      `),
+    ).toThrow(/Eq/)
+    expect(() => execute('const xs = [1, 2]\nxs.join(",")')).toThrow(/String/)
+  })
 })

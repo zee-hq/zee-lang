@@ -16,6 +16,17 @@ describe('lexer', () => {
     ])
   })
 
+  it('tokenizes toString as an identifier, not Object.prototype.toString (ZEE-22)', () => {
+    expect(tokenize('xs.toString()').map((token) => token.kind)).toEqual([
+      'ident',
+      '.',
+      'ident',
+      '(',
+      ')',
+      'eof',
+    ])
+  })
+
   it('tokenizes enum and sealed keywords', () => {
     expect(tokenize('pub enum Status sealed struct Shape').map((token) => token.kind)).toEqual([
       'pub',

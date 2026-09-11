@@ -1358,6 +1358,14 @@ function callCollectionMethod(
       return { type: 'bool', value: name === 'isEmpty' ? empty : !empty }
     }
   }
+  if (name === 'toString') {
+    if (target.type === 'list' || target.type === 'array' || target.type === 'map') {
+      if (args.length !== 0) {
+        throw new ZeeError('`toString` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      return { type: 'string', value: display(target) }
+    }
+  }
   if (target.type === 'list' || target.type === 'array') {
     const seq = callSeqMethod(target, name, args, io, loc)
     if (seq) return seq
@@ -1425,6 +1433,48 @@ function callCollectionMethod(
       }))
       decorated.sort((left, right) => compareOrd(left.key, right.key, loc))
       return { type: 'list', items: decorated.map((row) => row.item), elem: target.elem }
+    }
+    if (name === 'first' || name === 'last') {
+      if (args.length !== 0) {
+        throw new ZeeError(`\`${name}\` takes no arguments`, loc.line, loc.column, loc.file)
+      }
+      if (target.items.length === 0) return { type: 'option', tag: 'none' }
+      const item = name === 'first' ? target.items[0]! : target.items[target.items.length - 1]!
+      return { type: 'option', tag: 'some', value: copyValue(item) }
+    }
+    if (name === 'reverse') {
+      if (args.length !== 0) {
+        throw new ZeeError('`reverse` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      return {
+        type: 'list',
+        items: [...target.items].reverse().map(copyValue),
+        elem: target.elem,
+      }
+    }
+    if (name === 'unique') {
+      if (args.length !== 0) {
+        throw new ZeeError('`unique` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      const items: ZeeValue[] = []
+      for (const item of target.items) {
+        if (items.some((kept) => valuesEqual(kept, item))) continue
+        items.push(copyValue(item))
+      }
+      return { type: 'list', items, elem: target.elem }
+    }
+    if (name === 'join') {
+      const sep = args[0]
+      if (args.length !== 1 || !sep || sep.type !== 'string') {
+        throw new ZeeError('`join` takes a String separator', loc.line, loc.column, loc.file)
+      }
+      const parts = target.items.map((item) => {
+        if (item.type !== 'string') {
+          throw new ZeeError('`join` requires `List<String>`', loc.line, loc.column, loc.file)
+        }
+        return item.value
+      })
+      return { type: 'string', value: parts.join(sep.value) }
     }
   }
   if (target.type === 'array' && name === 'toList') {

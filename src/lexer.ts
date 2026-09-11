@@ -628,7 +628,7 @@ class Lexer {
   private ident(): void {
     while (isIdentPart(this.peek())) this.advance()
     const lexeme = this.source.slice(this.start, this.current)
-    this.add(KEYWORDS[lexeme] ?? 'ident')
+    this.add(Object.hasOwn(KEYWORDS, lexeme) ? KEYWORDS[lexeme]! : 'ident')
   }
 
   private add(kind: TokenKind): void {

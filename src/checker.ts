@@ -2972,6 +2972,16 @@ function checkBuiltinMethod(
       return T_BOOL
     }
   }
+  if (name === 'toString') {
+    if (
+      targetType.kind === 'list' ||
+      targetType.kind === 'array' ||
+      targetType.kind === 'map'
+    ) {
+      if (expr.args.length !== 0) throw error(expr.loc, '`toString` takes no arguments')
+      return T_STRING
+    }
+  }
   if (targetType.kind === 'map') {
     const mapped = checkMapMethod(targetType, name, expr)
     if (mapped) return mapped
@@ -3032,6 +3042,29 @@ function checkBuiltinMethod(
         throw error(expr.loc, '`sortBy` requires the key to be `Ord`')
       }
       return targetType
+    }
+    if (name === 'first' || name === 'last') {
+      if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
+      return { kind: 'option', inner: targetType.elem }
+    }
+    if (name === 'reverse') {
+      if (expr.args.length !== 0) throw error(expr.loc, '`reverse` takes no arguments')
+      return targetType
+    }
+    if (name === 'unique') {
+      if (expr.args.length !== 0) throw error(expr.loc, '`unique` takes no arguments')
+      if (!isEquatable(targetType.elem)) {
+        throw error(expr.loc, '`unique` requires `T: Eq`')
+      }
+      return targetType
+    }
+    if (name === 'join') {
+      if (expr.args.length !== 1) throw error(expr.loc, '`join` takes a String separator')
+      if (targetType.elem.kind !== 'string') {
+        throw error(expr.loc, '`join` requires `List<String>`')
+      }
+      checkExpr(expr.args[0]!, env, returnType, T_STRING)
+      return T_STRING
     }
   }
   if (targetType.kind === 'array' && name === 'toList') {

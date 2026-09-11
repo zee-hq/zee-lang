@@ -1370,7 +1370,7 @@ Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id
 
 `List<T>` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
 
-v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` (`T: Ord` or `(T, T) -> i32`) / `sortBy` / `slice` / `isEmpty`. `T[]` has `toList` plus the same query methods except `sort` (List only in this drop). `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `isEmpty`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
+v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` (`T: Ord` or `(T, T) -> i32`) / `sortBy` / `first` / `last` / `reverse` / `unique` / `join` / `toString` / `slice` / `isEmpty`. `T[]` has `toList` plus the same query methods except `sort` (List only in this drop) and `toString`. `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `isEmpty` / `toString`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
 
 | Method | Meaning | `List<T>` | `T[]` | `Map<K, V>` |
 |---|---|---|---|---|
@@ -1378,15 +1378,15 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `map` | transform | **in** | yes | no — use `mapValues` |
 | `mapValues` | transform values | no | no | `{ V -> U }` → `Map<K, U>` |
 | `filter` | keep if true | **in** | yes | `{ K, V -> bool }` |
-| `unique` | drop duplicates (`T: Eq`), **first-seen** | new `List` | copy | keys already unique |
+| `unique` | drop duplicates (`T: Eq`), **first-seen** | **in** | copy | keys already unique |
 | `flat` | **one** level | `List<List<T>>` → `List<T>` | `T[][]` → `T[]` | no |
 | `find` | first match → `Option<T>` | **in** | **in** | `{ K, V -> bool }` → `Option<(K, V)>` |
 | `any` | any match → `bool` | **in** | **in** | yes |
 | `all` | every match → `bool` | **in** | **in** | yes |
-| `first` / `last` | ends → `Option<T>` | yes | yes | no (not ordered) |
+| `first` / `last` | ends → `Option<T>` | **in** | yes | no (not ordered) |
 | `contains` | `T: Eq` → `bool` | **in** | **in** | key (`containsKey`) |
-| `join` | `List<String>` → `String` | yes | yes | no |
-| `toString` | debug dump (not `Eq`, not `str`) | yes | yes | yes |
+| `join` | `List<String>` + sep → `String` | **in** | yes | no |
+| `toString` | debug dump (not `Eq`, not `str`) | **in** | **in** | **in** |
 | `push` | add at **end** | no (immutable) | **`var`**, grows | no |
 | `pop` | take last → `Option<T>` | no (immutable) | **`var`**, shrinks | no |
 | `fill` | write every slot | no | **`var`** | no |
@@ -1394,7 +1394,7 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `merge` | putAll, **right wins** | no | no | `var` or new `Map` |
 | `keys` / `values` | project | no | no | **in** |
 | `slice` | window `[start, end)` | **in** | **in** | no |
-| `reverse` | reverse order | new `List` | `var` or copy | no |
+| `reverse` | reverse order | **in** (new `List`) | `var` or copy | no |
 | `sort` | `T: Ord`, or `(T, T) -> i32` | **in** (new `List`) | `var` or copy | no — use **`sortByKey` / `sortByValue`** |
 | `sortBy` | `(T) -> K` with `K: Ord` | **in** (new `List`) | no | no — use **`sortByKey` / `sortByValue`** |
 | `sortByKey` | `K: Ord`, new Map | no | no | **in** |
