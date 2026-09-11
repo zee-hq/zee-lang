@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "versions": {
+    "env": "0.1.1",
+    "ZeeTest": "0.1.0"
+  },
+  "libraries": {
+    "env": {
+      "git": "https://github.com/zee-hq/env.git",
+      "version.ref": "env"
+    },
+    "ZeeTest": {
+      "git": "https://github.com/zee-hq/ZeeTest.git",
+      "version.ref": "ZeeTest"
+    }
+  }
+}

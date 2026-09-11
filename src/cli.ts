@@ -34,7 +34,7 @@ Usage:
   zee generate controller <path>      HTTP in; --api or -i like Laravel
   zee generate resource <path>        HTTP response mapper (not the whole stack)
   zee g feat <path>                   Alias (also: zee g co / act / s / re / repo / mod / api / mo)
-  zee get [alias...]             Add libs.toml aliases and fetch [deps] into .zee/ (honors zee.lock)
+  zee get [alias...]             Add catalog aliases and fetch [deps] into .zee/ (honors zee.lock)
   zee update [name...]           Re-resolve deps within current constraints and rewrite zee.lock
   zee publish                    Publish this package to ZEE_REGISTRY or [registry] url
   zee registry                   Serve the HTTP registry (file-backed)

@@ -54,7 +54,7 @@ zee run
 
 `zee new` creates `zee.toml` + `src/main.zee`. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee test` injects the official [`ZeeTest`](https://github.com/zee-hq/ZeeTest) package and calls `ZeeTest.run()` — `fn test*` in `*.test.zee` under `src/` (`users.service.test.zee`, not `foo_test.zee` or `.spec.zee`), including library packages with `src/lib.zee`. Group with `describe("title") { const row = …; fn testFoo() { } }` — the block is a closure; inner `fn` get that env. Lifecycle hooks are `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. You can also `import ZeeTest` yourself. Assertions are Vitest-shaped: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch). `it()` is not a test helper — Zee `it` is the lambda parameter. Failure is also `panic` or a visible `err`. `zee init` scaffolds the current directory.
 
-Dependencies are Gradle-style aliases from a workspace `libs.toml` (walks up, like `libs.versions.toml`). `zee get json` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed and **honors `zee.lock`**. `zee update` (or `zee update env`) re-resolves within the current constraint and rewrites the lock — `1.2` can pick a newer `1.2.x`, `1.2.3` stays exact. It does not edit `libs.toml`. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` is SemVer precision (`1.2` → latest `1.2.x`). Registry order: `ZEE_REGISTRY`, `[registry] url`, then `~/.zee/registry`. `zee publish` refuses overwrite. Contract: [`docs/REGISTRY.md`](docs/REGISTRY.md).
+Dependencies are Gradle-style aliases. `zee get ZeeTest` looks up the name in a workspace `libs.toml` if you have one, otherwise in the official [`catalog.json`](catalog.json) (Maven-style index: where the package lives). You can point `ZEE_CATALOG` at a JSON URL or file — later that URL will be the landing-page central. `zee get` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed and **honors `zee.lock`**. `zee update` (or `zee update env`) re-resolves within the current constraint and rewrites the lock — `1.2` can pick a newer `1.2.x`, `1.2.3` stays exact. It does not edit `libs.toml`. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` is SemVer precision (`1.2` → latest `1.2.x`). Registry order: `ZEE_REGISTRY`, `[registry] url`, then `~/.zee/registry`. `zee publish` refuses overwrite. Contract: [`docs/REGISTRY.md`](docs/REGISTRY.md).
 
 ```toml
 # libs.toml (workspace root)
@@ -278,6 +278,7 @@ These exist because Zee is meant to grow into a language that can host its own O
 src/            lexer, parser, checker, interpreter, CLI
 test/           vitest — language behavior, not snapshots of implementation
 examples/       programs the interpreter must keep running
+catalog.json    official library index (`zee get ZeeTest` / `zee get env`)
 editor/vscode   TextMate grammar + Run/Check commands
 ```
 
@@ -293,7 +294,7 @@ editor/vscode   TextMate grammar + Run/Check commands
 | `zee generate controller <name> [--api\|-i]` | HTTP in; Laravel `--api` or invokable `-i` |
 | `zee generate resource <name>` | HTTP mapper (`users.resource.zee`) |
 | `zee generate action\|service\|repository\|model\|api\|module <name>` | one layer file |
-| `zee get [alias...]` | fetch `[deps]` into `.zee/` (catalog aliases optional; honors lock) |
+| `zee get [alias...]` | resolve alias from `libs.toml` or `catalog.json`, fetch into `.zee/` |
 | `zee update [name...]` | re-resolve deps within current constraints and rewrite `zee.lock` |
 | `zee publish` | publish this package to `ZEE_REGISTRY` / `[registry] url` |
 | `zee registry` | serve the HTTP registry from a file root (`--root`, `--token`, `--port`) |

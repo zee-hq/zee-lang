@@ -2,6 +2,15 @@
 
 Zee is not JavaScript. The registry is **not npm**. A package is `zee.toml` + `src/`. The lockfile (`zee.lock`) remains the pin: the registry only answers “which versions exist” and hands back those files.
 
+Until the landing-page **central** exists, `zee get <alias>` uses [`catalog.json`](../catalog.json) as a Maven-style index (git URL + version). Lookup order:
+
+1. Workspace `libs.toml` (walks up; overlay for path / private git)
+2. `ZEE_CATALOG` (JSON file or `https://…`)
+3. `https://raw.githubusercontent.com/zee-hq/zee-lang/main/catalog.json`
+4. The `catalog.json` bundled with the CLI
+
+Alias match is case-insensitive (`zee get zeetest` writes `ZeeTest`). The central will keep this JSON shape (or a strict superset) so the CLI does not change twice.
+
 ## SemVer
 
 Constraint precision is Gradle-shaped, not npm caret:

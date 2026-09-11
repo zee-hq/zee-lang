@@ -2,8 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ZeeError } from './error.ts'
 import { fetchRegistryPackage } from './registry.ts'
+import { registryHttpRequest } from './registry-http.ts'
 import {
   type DepSpec,
   listPackageSources,
@@ -17,6 +19,9 @@ import { isVersionConstraint, parseVersion, pickMatchingVersion, satisfiesConstr
 export const LOCK_FILE = 'zee.lock'
 export const CACHE_DIR = '.zee'
 export const CATALOG_FILE = 'libs.toml'
+export const CATALOG_JSON = 'catalog.json'
+/** Default Maven-style index until the landing-page central exists. Override with `ZEE_CATALOG`. */
+export const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/zee-hq/zee-lang/main/catalog.json'
 
 export interface LockedPackage {
   name: string
@@ -181,6 +186,149 @@ export function parseCatalog(source: string, file: string): Catalog {
   return { file, dir: dirname(file), versions, libraries }
 }
 
+export function parseCatalogJson(source: string, file: string): Catalog {
+  let payload: unknown
+  try {
+    payload = JSON.parse(source)
+  } catch {
+    throw new ZeeError('invalid catalog json', 1, 1, file)
+  }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new ZeeError('invalid catalog json', 1, 1, file)
+  }
+  const root = payload as Record<string, unknown>
+  const versions = new Map<string, string>()
+  if (root.versions !== undefined) {
+    if (typeof root.versions !== 'object' || root.versions === null || Array.isArray(root.versions)) {
+      throw new ZeeError('invalid catalog json versions', 1, 1, file)
+    }
+    for (const [name, value] of Object.entries(root.versions as Record<string, unknown>)) {
+      if (typeof value !== 'string') {
+        throw new ZeeError(`invalid version \`${name}\``, 1, 1, file)
+      }
+      versions.set(name, value)
+    }
+  }
+  const libraries = new Map<string, DepSpec>()
+  if (root.libraries !== undefined) {
+    if (typeof root.libraries !== 'object' || root.libraries === null || Array.isArray(root.libraries)) {
+      throw new ZeeError('invalid catalog json libraries', 1, 1, file)
+    }
+    for (const [name, value] of Object.entries(root.libraries as Record<string, unknown>)) {
+      libraries.set(name, specFromCatalogJson(value, name, file, versions))
+    }
+  }
+  return { file, dir: catalogDir(file), versions, libraries }
+}
+
+function specFromCatalogJson(
+  raw: unknown,
+  name: string,
+  file: string,
+  versions: Map<string, string>,
+): DepSpec {
+  if (typeof raw === 'string') return { kind: 'version', version: raw }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new ZeeError(`invalid catalog library \`${name}\``, 1, 1, file)
+  }
+  const fields = raw as Record<string, unknown>
+  const ref = fields['version.ref']
+  if (typeof fields.git === 'string') {
+    let tag: string | undefined
+    if (typeof ref === 'string') {
+      const version = versions.get(ref)
+      if (version === undefined) {
+        throw new ZeeError(`unknown version.ref \`${ref}\` for \`${name}\``, 1, 1, file)
+      }
+      tag = version
+    } else if (typeof fields.tag === 'string') {
+      tag = fields.tag
+    }
+    return {
+      kind: 'git',
+      git: fields.git,
+      tag,
+      rev: typeof fields.rev === 'string' ? fields.rev : undefined,
+      branch: typeof fields.branch === 'string' ? fields.branch : undefined,
+    }
+  }
+  if (typeof fields.path === 'string') return { kind: 'path', path: fields.path }
+  if (typeof fields.lib === 'string') return { kind: 'lib', lib: fields.lib }
+  if (typeof fields.version === 'string') return { kind: 'version', version: fields.version }
+  throw new ZeeError(`invalid catalog library \`${name}\``, 1, 1, file)
+}
+
+function catalogDir(file: string): string {
+  if (file.startsWith('http://') || file.startsWith('https://')) return '.'
+  const path = file.startsWith('file://') ? file.slice('file://'.length) : file
+  return dirname(resolve(path))
+}
+
+function tryReadLocalCatalog(startDir: string): Catalog | undefined {
+  const file = findCatalogFile(startDir)
+  if (!file) return undefined
+  return parseCatalog(readFileSync(file, 'utf8'), file)
+}
+
+function bundledCatalogPath(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), `../${CATALOG_JSON}`)
+}
+
+function loadBundledCatalog(): Catalog {
+  const file = bundledCatalogPath()
+  return parseCatalogJson(readFileSync(file, 'utf8'), file)
+}
+
+function loadCatalogFromLocation(location: string): Catalog {
+  if (location.startsWith('http://') || location.startsWith('https://')) {
+    const response = registryHttpRequest({ method: 'GET', url: location })
+    if (response.status !== 200) {
+      throw new ZeeError(`catalog fetch failed (${response.status})`, 1, 1, location)
+    }
+    return parseCatalogJson(response.body.toString('utf8'), location)
+  }
+  const path = location.startsWith('file://') ? location.slice('file://'.length) : resolve(location)
+  if (!existsSync(path)) {
+    throw new ZeeError(`missing ${CATALOG_JSON}`, 1, 1, path)
+  }
+  return parseCatalogJson(readFileSync(path, 'utf8'), path)
+}
+
+function loadCentralCatalog(): Catalog {
+  const override = process.env.ZEE_CATALOG?.trim()
+  if (override) return loadCatalogFromLocation(override)
+  if (!process.env.ZEE_OFFLINE) {
+    try {
+      return loadCatalogFromLocation(DEFAULT_CATALOG_URL)
+    } catch {
+      /* landing-page central is later; bundled index is enough for v0 */
+    }
+  }
+  return loadBundledCatalog()
+}
+
+function findAlias(catalog: Catalog, alias: string): { name: string; spec: DepSpec } | undefined {
+  const exact = catalog.libraries.get(alias)
+  if (exact) return { name: alias, spec: exact }
+  const lower = alias.toLowerCase()
+  for (const [name, spec] of catalog.libraries) {
+    if (name.toLowerCase() === lower) return { name, spec }
+  }
+  return undefined
+}
+
+function lookupLibrary(startDir: string, alias: string): { name: string; spec: DepSpec; catalog: Catalog } {
+  const local = tryReadLocalCatalog(startDir)
+  if (local) {
+    const hit = findAlias(local, alias)
+    if (hit) return { ...hit, catalog: local }
+  }
+  const central = loadCentralCatalog()
+  const hit = findAlias(central, alias)
+  if (hit) return { ...hit, catalog: central }
+  throw new ZeeError(`unknown library \`${alias}\``, 1, 1, central.file)
+}
+
 function parseLibrarySpec(raw: string, name: string, file: string, versions: Map<string, string>): DepSpec {
   if (raw.startsWith('{') && raw.endsWith('}')) {
     const fields = parseInlineTable(raw.slice(1, -1), file)
@@ -200,15 +348,13 @@ function parseLibrarySpec(raw: string, name: string, file: string, versions: Map
 }
 
 function addCatalogAlias(root: string, alias: string): void {
-  const catalog = readCatalog(root)
-  if (!catalog.libraries.has(alias)) {
-    throw new ZeeError(`unknown library \`${alias}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
-  }
+  const hit = lookupLibrary(root, alias)
   const manifest = readManifest(root)
-  if (manifest.deps.has(alias)) return
+  const already = [...manifest.deps.keys()].some((name) => name.toLowerCase() === hit.name.toLowerCase())
+  if (already) return
   const file = join(root, 'zee.toml')
   const current = readFileSync(file, 'utf8')
-  const line = `${alias} = { lib = "${alias}" }`
+  const line = `${hit.name} = { lib = "${hit.name}" }`
   if (/\n\[deps\]\s*$/m.test(current) || current.includes('[deps]')) {
     writeFileSync(file, `${current.trimEnd()}\n${line}\n`, 'utf8')
     return
@@ -353,12 +499,7 @@ function lockedFrom(
 }
 
 function resolveLibSpec(startDir: string, alias: string): DepSpec {
-  const catalog = readCatalog(startDir)
-  const inner = catalog.libraries.get(alias)
-  if (!inner) {
-    throw new ZeeError(`unknown library \`${alias}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
-  }
-  return inner
+  return lookupLibrary(startDir, alias).spec
 }
 
 function resolveDep(
@@ -370,12 +511,8 @@ function resolveDep(
   refresh: Refresh,
 ): string {
   if (spec.kind === 'lib') {
-    const catalog = readCatalog(pkgRoot)
-    const inner = catalog.libraries.get(spec.lib)
-    if (!inner) {
-      throw new ZeeError(`unknown library \`${spec.lib}\` in ${CATALOG_FILE}`, 1, 1, catalog.file)
-    }
-    return resolveDep(catalog.dir, cacheRoot, name, inner, lock, refresh)
+    const hit = lookupLibrary(pkgRoot, spec.lib)
+    return resolveDep(hit.catalog.dir, cacheRoot, name, hit.spec, lock, refresh)
   }
   const pin = pinFor(name, spec, lock, refresh)
   if (spec.kind === 'version') {

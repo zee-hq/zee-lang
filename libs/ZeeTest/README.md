@@ -2,18 +2,12 @@
 
 Official Zee test runner. `zee test` injects this package and calls `ZeeTest.run()`.
 
-```toml
-# libs.toml (workspace)
-[versions]
-ZeeTest = "0.1.0"
-
-[libraries]
-ZeeTest = { git = "https://github.com/zee-hq/ZeeTest.git", version.ref = "ZeeTest" }
-```
-
 ```bash
 zee get ZeeTest
+zee get env
 ```
+
+Workspace `libs.toml` is still an overlay (path deps, private git, pin a different tag). Official names live in [catalog.json](https://github.com/zee-hq/zee-lang/blob/main/catalog.json).
 
 `zee test` already injects ZeeTest — you only need the dep if you want to call `ZeeTest.run()` yourself.
 

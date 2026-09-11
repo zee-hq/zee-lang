@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { getPackages, parseLockfile } from '../src/pkg.ts'
+import { getPackages, parseCatalogJson, parseLockfile } from '../src/pkg.ts'
 import { createProject, parseManifest } from '../src/project.ts'
 import { checkPath, executePath } from '../src/zee.ts'
 
@@ -18,6 +19,7 @@ function scratch(): string {
 afterEach(() => {
   delete process.env.ZEE_REGISTRY
   delete process.env.ZEE_HOME
+  delete process.env.ZEE_CATALOG
   for (const dir of temps.splice(0)) {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -279,5 +281,83 @@ describe('libs.toml catalog (AC-ZEE-4)', () => {
     write(parent, 'libs.toml', `[libraries]\njson = { path = "json" }\n`)
     const app = createProject({ name: 'app', parentDir: parent, mode: 'new' })
     expect(() => getPackages(app.root, ['nope'])).toThrow(/unknown library/)
+  })
+})
+
+describe('catalog.json central index', () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+  it('lists env and ZeeTest in the shipped catalog.json', () => {
+    const file = join(repoRoot, 'catalog.json')
+    const catalog = parseCatalogJson(readFileSync(file, 'utf8'), file)
+    expect(catalog.libraries.has('env')).toBe(true)
+    expect(catalog.libraries.has('ZeeTest')).toBe(true)
+    expect(catalog.libraries.get('ZeeTest')).toMatchObject({
+      kind: 'git',
+      git: 'https://github.com/zee-hq/ZeeTest.git',
+      tag: '0.1.0',
+    })
+  })
+
+  it('zee get json works from ZEE_CATALOG without a local libs.toml', () => {
+    const parent = scratch()
+    libWithPing(parent)
+    write(
+      parent,
+      'catalog.json',
+      JSON.stringify({
+        schema: 1,
+        libraries: { json: { path: join(parent, 'json') } },
+      }),
+    )
+    process.env.ZEE_CATALOG = join(parent, 'catalog.json')
+    const app = createProject({ name: 'app', parentDir: parent, mode: 'new' })
+    getPackages(app.root, ['json'])
+    expect(readFileSync(join(app.root, 'zee.toml'), 'utf8')).toMatch(/json = \{ lib = "json" \}/)
+    write(app.root, 'src/main.zee', 'import json.ping\nfn main() {\n  println(ping())\n}\n')
+    expect(executePath(join(app.root, 'src/main.zee')).stdout).toBe('pong\n')
+  })
+
+  it('matches a catalog alias case-insensitively (zeetest → ZeeTest)', () => {
+    const parent = scratch()
+    const lib = createProject({ name: 'ZeeTest', parentDir: parent, mode: 'new' }).root
+    write(lib, 'src/lib.zee', 'pub fn ping() -> String { "pong" }\n')
+    write(
+      parent,
+      'catalog.json',
+      JSON.stringify({
+        schema: 1,
+        libraries: { ZeeTest: { path: lib } },
+      }),
+    )
+    process.env.ZEE_CATALOG = join(parent, 'catalog.json')
+    const app = createProject({ name: 'app', parentDir: parent, mode: 'new' })
+    getPackages(app.root, ['zeetest'])
+    expect(readFileSync(join(app.root, 'zee.toml'), 'utf8')).toMatch(/ZeeTest = \{ lib = "ZeeTest" \}/)
+    write(app.root, 'src/main.zee', 'import ZeeTest.ping\nfn main() {\n  println(ping())\n}\n')
+    expect(executePath(join(app.root, 'src/main.zee')).stdout).toBe('pong\n')
+  })
+
+  it('prefers a workspace libs.toml over the central catalog', () => {
+    const parent = scratch()
+    const local = createProject({ name: 'json', parentDir: parent, mode: 'new' }).root
+    write(local, 'src/lib.zee', 'pub fn ping() -> String { "local" }\n')
+    const otherParent = scratch()
+    const remote = createProject({ name: 'json', parentDir: otherParent, mode: 'new' }).root
+    write(remote, 'src/lib.zee', 'pub fn ping() -> String { "central" }\n')
+    write(parent, 'libs.toml', `[libraries]\njson = { path = "json" }\n`)
+    write(
+      parent,
+      'catalog.json',
+      JSON.stringify({
+        schema: 1,
+        libraries: { json: { path: remote } },
+      }),
+    )
+    process.env.ZEE_CATALOG = join(parent, 'catalog.json')
+    const app = createProject({ name: 'app', parentDir: parent, mode: 'new' })
+    getPackages(app.root, ['json'])
+    write(app.root, 'src/main.zee', 'import json.ping\nfn main() {\n  println(ping())\n}\n')
+    expect(executePath(join(app.root, 'src/main.zee')).stdout).toBe('local\n')
   })
 })
