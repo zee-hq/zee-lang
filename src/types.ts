@@ -109,6 +109,7 @@ export type ZeeType =
 
 export const T_I32: ZeeType = { kind: 'i32' }
 export const T_U8: ZeeType = { kind: 'u8' }
+export const T_U32: ZeeType = { kind: 'u32' }
 export const T_USIZE: ZeeType = { kind: 'usize' }
 export const T_BOOL: ZeeType = { kind: 'bool' }
 export const T_F32: ZeeType = { kind: 'f32' }

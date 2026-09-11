@@ -4,7 +4,9 @@ import { hostEnvFor, lookupEnv } from './host-env.ts'
 import {
   INT_KINDS,
   canWidenInt,
+  intBits,
   intFits,
+  intSigned,
   isFloatKind,
   isIntKind,
   type FloatKind,
@@ -847,6 +849,9 @@ function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
         return floatValue(inner.type, -inner.value)
       }
       if (expr.op === '!' && inner.type === 'bool') return { type: 'bool', value: !inner.value }
+      if (expr.op === '~' && isIntValue(inner)) {
+        return intWrap(inner.type, ~intBigInt(inner))
+      }
       throw new ZeeError('invalid unary operand', expr.loc.line, expr.loc.column, expr.loc.file)
     }
     case 'binary':
@@ -991,6 +996,13 @@ function applyCompound(
   if (op === '+=' && left.type === 'string' && right.type === 'string') {
     return { type: 'string', value: left.value + right.value }
   }
+  if ((op === '<<=' || op === '>>=') && isIntValue(left) && isIntValue(right)) {
+    const kind = left.type
+    const l = intBigInt(left)
+    const amount = shiftAmount(kind, right, loc, false)
+    if (op === '<<=') return intChecked(kind, l << amount, loc)
+    return intValue(kind, l >> amount)
+  }
   if (isIntValue(left) && isIntValue(right) && left.type === right.type) {
     const kind = left.type
     const l = intBigInt(left)
@@ -1012,6 +1024,12 @@ function applyCompound(
           throw new ZeeError('division by zero', loc.line, loc.column, loc.file)
         }
         return intValue(kind, l % r)
+      case '&=':
+        return intValue(kind, l & r)
+      case '|=':
+        return intValue(kind, l | r)
+      case '^=':
+        return intValue(kind, l ^ r)
     }
   }
   if (isFloatValue(left) && isFloatValue(right) && left.type === right.type) {
@@ -1596,6 +1614,12 @@ function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: Runti
         return floatValue(kind, l % r)
     }
   }
+  if ((expr.op === '<<' || expr.op === '>>') && isIntValue(leftVal) && isIntValue(right)) {
+    const kind = leftVal.type
+    const amount = shiftAmount(kind, right, expr.loc, false)
+    if (expr.op === '<<') return intChecked(kind, intBigInt(leftVal) << amount, expr.loc)
+    return intValue(kind, intBigInt(leftVal) >> amount)
+  }
   if (
     (leftVal.type === 'string' && right.type === 'string') ||
     (leftVal.type === 'char' && right.type === 'char')
@@ -1635,6 +1659,12 @@ function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: Runti
           throw new ZeeError('division by zero', expr.loc.line, expr.loc.column, expr.loc.file)
         }
         return intValue(kind, l % r)
+      case '&':
+        return intValue(kind, l & r)
+      case '|':
+        return intValue(kind, l | r)
+      case '^':
+        return intValue(kind, l ^ r)
       case '<===>':
         return { type: 'i32', value: l < r ? -1 : l > r ? 1 : 0 }
       case '<':
@@ -1738,6 +1768,9 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
     }
   }
   if (expr.callee.kind === 'member') {
+    if (expr.callee.target.kind === 'ident' && expr.callee.target.name === 'wrap') {
+      return bindWrapCall(expr, env, io)
+    }
     if (
       expr.callee.target.kind === 'ident' &&
       expr.callee.target.name === 'String' &&
@@ -2448,6 +2481,81 @@ function intChecked(
     throw new ZeeError('integer overflow', loc.line, loc.column, loc.file)
   }
   return intValue(kind, n)
+}
+
+function intWrap(kind: IntKind, n: bigint): ZeeValue {
+  const bits = BigInt(intBits(kind))
+  const mask = (1n << bits) - 1n
+  let wrapped = n & mask
+  if (intSigned(kind)) {
+    const sign = 1n << (bits - 1n)
+    wrapped = (wrapped ^ sign) - sign
+  }
+  return intValue(kind, wrapped)
+}
+
+function shiftAmount(
+  kind: IntKind,
+  count: ZeeValue,
+  loc: { file: string; line: number; column: number },
+  wrapping: boolean,
+): bigint {
+  if (!isIntValue(count)) {
+    throw new ZeeError('shift count must be an integer', loc.line, loc.column, loc.file)
+  }
+  const bits = BigInt(intBits(kind))
+  const n = intBigInt(count)
+  if (wrapping) {
+    const widthMask = (1n << bits) - 1n
+    return (n & widthMask) & (bits - 1n)
+  }
+  if (n < 0n || n >= bits) {
+    throw new ZeeError('shift count is out of range', loc.line, loc.column, loc.file)
+  }
+  return n
+}
+
+function bindWrapCall(
+  expr: Extract<Expr, { kind: 'call' }>,
+  env: Env,
+  io: RuntimeIo,
+): () => ZeeValue {
+  const name = expr.callee.kind === 'member' ? expr.callee.field : ''
+  if (name !== 'add' && name !== 'sub' && name !== 'mul' && name !== 'shl') {
+    throw new ZeeError(
+      `undefined name \`${name}\` on module \`wrap\``,
+      expr.loc.line,
+      expr.loc.column,
+      expr.loc.file,
+    )
+  }
+  if (expr.args.length !== 2) {
+    throw new ZeeError(
+      `\`wrap.${name}\` takes two arguments`,
+      expr.loc.line,
+      expr.loc.column,
+      expr.loc.file,
+    )
+  }
+  const left = evalExpr(expr.args[0]!, env, io)
+  const right = evalExpr(expr.args[1]!, env, io)
+  return () => {
+    if (!isIntValue(left) || !isIntValue(right) || left.type !== right.type) {
+      throw new ZeeError(
+        `\`wrap.${name}\` expects integers`,
+        expr.loc.line,
+        expr.loc.column,
+        expr.loc.file,
+      )
+    }
+    const kind = left.type
+    const l = intBigInt(left)
+    const r = intBigInt(right)
+    if (name === 'add') return intWrap(kind, l + r)
+    if (name === 'sub') return intWrap(kind, l - r)
+    if (name === 'mul') return intWrap(kind, l * r)
+    return intWrap(kind, l << shiftAmount(kind, right, expr.loc, true))
+  }
 }
 
 function intKindFromTypeAst(ast: TypeAst): IntKind {

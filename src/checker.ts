@@ -3,6 +3,7 @@ import { ZeeError } from './error.ts'
 import {
   canWidenInt,
   intFits,
+  intBits,
   intSigned,
   isEquatable,
   isHashable,
@@ -25,6 +26,7 @@ import {
   T_NEVER,
   T_STRING,
   T_U8,
+  T_U32,
   T_UNIT,
   T_USIZE,
   typeEq,
@@ -1624,15 +1626,55 @@ function checkCompoundAssign(
   returnType: ZeeType,
   loc: { file: string; line: number; column: number },
 ): void {
+  if (op === '<<=') {
+    checkShiftAssign(lhsType, value, env, returnType, loc, '<<=')
+    return
+  }
+  if (op === '>>=') {
+    checkShiftAssign(lhsType, value, env, returnType, loc, '>>=')
+    return
+  }
   checkExpr(value, env, returnType, lhsType)
   if (op === '=') return
   if (op === '+=' && typeEq(lhsType, T_STRING)) return
   if (isCompoundArith(op) && (isIntType(lhsType) || isFloatType(lhsType))) return
+  if (isCompoundBit(op) && isIntType(lhsType)) return
   throw error(loc, `operator \`${op}\` is not defined for ${typeName(lhsType)}`)
+}
+
+function checkShiftAssign(
+  lhsType: ZeeType,
+  value: Expr,
+  env: TypeEnv,
+  returnType: ZeeType,
+  loc: { file: string; line: number; column: number },
+  op: '<<=' | '>>=',
+): void {
+  if (!isIntType(lhsType)) {
+    throw error(loc, `operator \`${op}\` is not defined for ${typeName(lhsType)}`)
+  }
+  const countExpected = value.kind === 'int' && !value.suffix ? T_U32 : undefined
+  const countType = checkExpr(value, env, returnType, countExpected)
+  if (!isShiftCountType(lhsType, countType)) {
+    throw error(
+      loc,
+      `shift count must be u32 or unsigned of the same width as ${typeName(lhsType)}`,
+    )
+  }
 }
 
 function isCompoundArith(op: AssignOp): boolean {
   return op === '+=' || op === '-=' || op === '*=' || op === '/=' || op === '%='
+}
+
+function isCompoundBit(op: AssignOp): boolean {
+  return op === '&=' || op === '|=' || op === '^='
+}
+
+function isShiftCountType(lhs: ZeeType, count: ZeeType): boolean {
+  if (!isIntType(lhs) || !isIntType(count)) return false
+  if (count.kind === 'u32') return true
+  return !intSigned(count.kind) && intBits(count.kind) === intBits(lhs.kind)
 }
 
 function checkBlock(block: Block, env: TypeEnv, returnType: ZeeType, expected?: ZeeType): ZeeType {
@@ -1742,6 +1784,7 @@ function inferExpr(expr: Expr, env: TypeEnv, returnType: ZeeType, expected?: Zee
       const inner = checkExpr(expr.expr, env, returnType, innerExpected)
       if (expr.op === '-' && (isIntType(inner) || isFloatType(inner))) return inner
       if (expr.op === '!' && typeEq(inner, T_BOOL)) return T_BOOL
+      if (expr.op === '~' && isIntType(inner)) return inner
       throw error(expr.loc, `unary \`${expr.op}\` is not defined for ${typeName(inner)}`)
     }
     case 'binary':
@@ -2354,9 +2397,31 @@ function checkBinary(
     return T_BOOL
   }
 
+  if (op === '<<' || op === '>>') {
+    const leftExpected = expected && isIntType(expected) ? expected : undefined
+    const left = checkExpr(expr.left, env, returnType, leftExpected)
+    const countExpected = expr.right.kind === 'int' && !expr.right.suffix ? T_U32 : undefined
+    const right = checkExpr(expr.right, env, returnType, countExpected)
+    if (!isIntType(left)) {
+      throw error(expr.loc, `operator \`${op}\` is not defined for ${typeName(left)}`)
+    }
+    if (!isShiftCountType(left, right)) {
+      throw error(
+        expr.loc,
+        `shift count must be u32 or unsigned of the same width as ${typeName(left)}`,
+      )
+    }
+    return left
+  }
+
   const arithmetic = op === '+' || op === '-' || op === '*' || op === '/' || op === '%'
+  const bitwise = op === '&' || op === '|' || op === '^'
   const numExpected =
-    arithmetic && expected && (isIntType(expected) || isFloatType(expected)) ? expected : undefined
+    arithmetic && expected && (isIntType(expected) || isFloatType(expected))
+      ? expected
+      : bitwise && expected && isIntType(expected)
+        ? expected
+        : undefined
   let left: ZeeType
   let right: ZeeType
   if (isNumericLiteral(expr.left) && !isNumericLiteral(expr.right)) {
@@ -2381,6 +2446,9 @@ function checkBinary(
     (isIntType(left) || isFloatType(left)) &&
     typeEq(left, right)
   ) {
+    return left
+  }
+  if ((op === '&' || op === '|' || op === '^') && isIntType(left) && typeEq(left, right)) {
     return left
   }
   if (op === '<===>' && isOrdType(left) && typeEq(left, right)) return T_I32
@@ -2454,6 +2522,29 @@ function checkCopy(
     checkExpr(field.value, env, returnType, decl.type)
   }
   return target
+}
+
+function checkWrapCall(
+  expr: Extract<Expr, { kind: 'call' }>,
+  env: TypeEnv,
+  returnType: ZeeType,
+): ZeeType {
+  const name = expr.callee.kind === 'member' ? expr.callee.field : ''
+  if (name !== 'add' && name !== 'sub' && name !== 'mul' && name !== 'shl') {
+    throw error(expr.loc, `undefined name \`${name}\` on module \`wrap\``)
+  }
+  if (expr.args.length !== 2) {
+    throw error(expr.loc, `\`wrap.${name}\` takes two arguments`)
+  }
+  const first = checkExpr(expr.args[0]!, env, returnType)
+  if (!isIntType(first)) {
+    throw error(expr.args[0]!.loc, `\`wrap.${name}\` expects integers`)
+  }
+  const second = checkExpr(expr.args[1]!, env, returnType, first)
+  if (!typeEq(first, second)) {
+    throw error(expr.loc, `\`wrap.${name}\` needs the same integer type on both sides`)
+  }
+  return first
 }
 
 function checkCall(
@@ -2539,6 +2630,9 @@ function checkCall(
     }
   }
   if (expr.callee.kind === 'member') {
+    if (expr.callee.target.kind === 'ident' && expr.callee.target.name === 'wrap') {
+      return checkWrapCall(expr, env, returnType)
+    }
     if (
       expr.callee.target.kind === 'ident' &&
       expr.callee.target.name === 'String' &&

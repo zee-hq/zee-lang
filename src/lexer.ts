@@ -69,9 +69,19 @@ export type TokenKind =
   | '!'
   | '&&'
   | '&&='
+  | '&'
+  | '&='
   | '||'
   | '||='
   | '|'
+  | '|='
+  | '^'
+  | '^='
+  | '~'
+  | '<<'
+  | '>>'
+  | '<<='
+  | '>>='
   | '?:'
   | '??='
   | '!!='
@@ -218,12 +228,21 @@ class Lexer {
           this.advance()
           this.advance()
           this.add('<===>')
+        } else if (this.match('<')) {
+          this.add(this.match('=') ? '<<=' : '<<')
         } else {
           this.add(this.match('=') ? '<=' : '<')
         }
         break
       case '>':
-        this.add(this.match('=') ? '>=' : '>')
+        if (this.match('>')) this.add(this.match('=') ? '>>=' : '>>')
+        else this.add(this.match('=') ? '>=' : '>')
+        break
+      case '^':
+        this.add(this.match('=') ? '^=' : '^')
+        break
+      case '~':
+        this.add('~')
         break
       case '?':
         if (this.match(':')) this.add('?:')
@@ -235,11 +254,12 @@ class Lexer {
         }
         break
       case '&':
-        if (!this.match('&')) this.error('unexpected character `&`')
-        this.add(this.match('=') ? '&&=' : '&&')
+        if (this.match('&')) this.add(this.match('=') ? '&&=' : '&&')
+        else this.add(this.match('=') ? '&=' : '&')
         break
       case '|':
-        this.add(this.match('|') ? (this.match('=') ? '||=' : '||') : '|')
+        if (this.match('|')) this.add(this.match('=') ? '||=' : '||')
+        else this.add(this.match('=') ? '|=' : '|')
         break
       case '/':
         if (this.match('/')) {

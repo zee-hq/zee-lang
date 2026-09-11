@@ -2,7 +2,7 @@
 
 North star for syntax that is **not** in v0 yet. Still hosted on Node; still no PHP/JS coercions.
 
-v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `Type.CONST`, nested types (`User.Constants`, no outer instance), unconstrained `fn f<T>` (infer or `f<i32>(…)`), `const` / `var`, `if`/`else`/`match`, `while`/`until`/`do`/`for`/`break`/`continue`, integer widths, `Option`, `?:` / `??=` / `!!=` / `&&=` / `||=` / `+=` `-=` `*=` / `/=` `%=` / `<===>`, `T[]` + array `redim`, `List<T>` / `Map<K, V>`, `struct` / `class` / `data` / `readonly`, `enum` / `sealed struct` / `sealed class` + `match` on variants, `===` / `!==` on `class`, `copy()` on `data`, `for x in xs` / `for (i, x) in xs`, `pub` / `internal` + `import`, `type` / `newtype`, `interface` / `sealed interface` / `implements`, `is`, stdlib `Error`, `panic` / `Never`, `defer`.
+v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `Type.CONST`, nested types (`User.Constants`, no outer instance), unconstrained `fn f<T>` (infer or `f<i32>(…)`), `const` / `var`, `if`/`else`/`match`, `while`/`until`/`do`/`for`/`break`/`continue`, integer widths, `f32`/`f64`, `Option`, `?:` / `??=` / `!!=` / `&&=` / `||=` / `+=` `-=` `*=` / `/=` `%=` / `& | ^ ~ << >>` / `wrap.add`, `<===>`, `T[]` + array `redim`, `List<T>` / `Map<K, V>`, `struct` / `class` / `data` / `readonly`, `enum` / `sealed struct` / `sealed class` + `match` on variants, `===` / `!==` on `class`, `copy()` on `data`, `for x in xs` / `for (i, x) in xs`, `pub` / `internal` + `import`, `type` / `newtype`, `interface` / `sealed interface` / `implements`, `is`, stdlib `Error`, `panic` / `Never`, `defer`.
 
 | Wanted | Source | Zee |
 |---|---|---|
@@ -800,7 +800,7 @@ s += "b"           // String concat
 
 ### Bitwise
 
-On **integer** types only (not float, not `bool`): `& | ^ ~ << >>` and `&= |= ^= <<= >>=` on `var`. `~` is unary. Shifts: count is `u32` or unsigned of same width; `>>` on signed is arithmetic, on unsigned is logical. No `>>>`.
+On **integer** types only (not float, not `bool`): `& | ^ ~ << >>` and `&= |= ^= <<= >>=` on `var`. `~` is unary. Shifts: count is `u32` or unsigned of same width; `>>` on signed is arithmetic, on unsigned is logical. No `>>>`. *(in the interpreter)*
 
 ```zee
 const flags = 0b1010u8
@@ -809,7 +809,7 @@ const x = flags & 0b0010u8
 
 ### Wrapping arithmetic (not a second `+`)
 
-Language `+ - *` **panic** on overflow. Wrap is **named**, in stdlib module `wrap`: `wrap.add`, `wrap.sub`, `wrap.mul`, `wrap.shl`. Same types both sides. Kernel uses these when wrap is the point.
+Language `+ - *` **panic** on overflow. Wrap is **named**, in stdlib module `wrap`: `wrap.add`, `wrap.sub`, `wrap.mul`, `wrap.shl`. Same types both sides. Kernel uses these when wrap is the point. Hosted v0: `wrap` is a builtin (no `import`).
 
 ### `defer` (Go)
 
@@ -1217,7 +1217,7 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 24. **`type` / `newtype`** — `type A = T` is alias (interchangeable). `newtype UserId = i32` is a distinct wrapper; wrap/unwrap with `UserId(n)` / `i32(id)`; inherits `Eq`/`Hash`/`Ord` of inner, not user interfaces. IDs use `newtype`, not alias.
 25. **Docs** — `///` on the next item, `//!` on the file/module. Markdown. `//` / `/* */` are not docs. No Javadoc/`/**`.
 26. **Methods** — `self` / `var self`; associated `Type.fn()` / `Type.CONST`; nested types (`User.Constants`) with **no** outer instance; no Java inner; no anonymous; `abstract` only on `open class`; no operator overloading.
-27. **Bits / wrap** — `& | ^ ~ << >>` and compounds on integers. `+` panics; wrap is `wrap.add`. No `++` / `--` / `**=` / `>>>`.
+27. **Bits / wrap** — `& | ^ ~ << >>` and compounds on integers. `+` panics; wrap is `wrap.add`. No `++` / `--` / `**=` / `>>>`. *(in the interpreter)*
 28. **Concurrency** — Zee scheduler, **explicit coroutines**. Spawn names the dispatcher (`task cpu { }`). Hop queues with `on io { }` (runs that block there, then resumes here). `yield` is an explicit scheduler turn. `recv` / `send` / `select` also park. No `go`, no `async`/`await`, no function coloring. `Chan<T>` + `select` stay. Not Go’s runtime, not Promises, not OS threads as the language.
 29. **Unsafe / FFI** — `unsafe { }` / `unsafe fn`; `*T` / `*var T`; `repr(C)` / `repr(packed)`; `extern "C"` / `extern "host"`; `asm("…")` inside unsafe. Host may refuse `asm` (capability).
 30. **No macros.** Codegen is `zee generate`. No preprocessor.

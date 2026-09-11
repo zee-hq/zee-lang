@@ -22,8 +22,36 @@ import { ZeeError, type Loc } from './error.ts'
 import { tokenize, type Token, type TokenKind } from './lexer.ts'
 import { parseFloatLexeme, parseIntLexeme, splitFloatLiteral, splitIntLiteral } from './types.ts'
 
-const ASSIGN_OPS: TokenKind[] = ['=', '??=', '!!=', '&&=', '||=', '+=', '-=', '*=', '/=', '%=']
-const LVALUE_ASSIGN_OPS: TokenKind[] = ['=', '+=', '-=', '*=', '/=', '%=']
+const ASSIGN_OPS: TokenKind[] = [
+  '=',
+  '??=',
+  '!!=',
+  '&&=',
+  '||=',
+  '+=',
+  '-=',
+  '*=',
+  '/=',
+  '%=',
+  '&=',
+  '|=',
+  '^=',
+  '<<=',
+  '>>=',
+]
+const LVALUE_ASSIGN_OPS: TokenKind[] = [
+  '=',
+  '+=',
+  '-=',
+  '*=',
+  '/=',
+  '%=',
+  '&=',
+  '|=',
+  '^=',
+  '<<=',
+  '>>=',
+]
 
 export function parse(source: string, file = '<input>'): Program {
   return new Parser(tokenize(source, file), file).parseProgram()
@@ -33,6 +61,7 @@ class Parser {
   private current = 0
   private trailingBrace = true
   private typeSelf: string | undefined
+  private extraGt = 0
 
   constructor(
     private readonly tokens: Token[],
@@ -614,7 +643,7 @@ class Parser {
       seen.add(tok.lexeme)
       params.push(tok.lexeme)
     } while (this.match(','))
-    this.consume('>', 'expected `>` after type parameters')
+    this.consumeCloseAngle('expected `>` after type parameters')
     if (params.length === 0) this.fail('expected a type parameter')
     return params
   }
@@ -824,12 +853,12 @@ class Parser {
     }
     if (this.match('<')) {
       const args: TypeAst[] = []
-      if (!this.check('>')) {
+      if (!this.checkCloseAngle()) {
         do {
           args.push(this.parseType())
         } while (this.match(','))
       }
-      this.consume('>', 'expected `>` after type arguments')
+      this.consumeCloseAngle('expected `>` after type arguments')
       return { kind: 'generic', name: tok.lexeme, args, loc: tok.loc }
     }
     return { kind: 'named', name: tok.lexeme, loc: tok.loc }
@@ -889,8 +918,38 @@ class Parser {
   }
 
   private parseAnd(): Expr {
-    let expr = this.parseEquality()
+    let expr = this.parseBitOr()
     while (this.match('&&')) {
+      const op = this.previous().kind as BinaryOp
+      const right = this.parseBitOr()
+      expr = { kind: 'binary', op, left: expr, right, loc: expr.loc }
+    }
+    return expr
+  }
+
+  private parseBitOr(): Expr {
+    let expr = this.parseBitXor()
+    while (this.match('|')) {
+      const op = this.previous().kind as BinaryOp
+      const right = this.parseBitXor()
+      expr = { kind: 'binary', op, left: expr, right, loc: expr.loc }
+    }
+    return expr
+  }
+
+  private parseBitXor(): Expr {
+    let expr = this.parseBitAnd()
+    while (this.match('^')) {
+      const op = this.previous().kind as BinaryOp
+      const right = this.parseBitAnd()
+      expr = { kind: 'binary', op, left: expr, right, loc: expr.loc }
+    }
+    return expr
+  }
+
+  private parseBitAnd(): Expr {
+    let expr = this.parseEquality()
+    while (this.match('&')) {
       const op = this.previous().kind as BinaryOp
       const right = this.parseEquality()
       expr = { kind: 'binary', op, left: expr, right, loc: expr.loc }
@@ -916,8 +975,18 @@ class Parser {
   }
 
   private parseComparison(): Expr {
-    let expr = this.parseTerm()
+    let expr = this.parseShift()
     while (this.match('<', '<=', '>', '>=', '<===>')) {
+      const op = this.previous().kind as BinaryOp
+      const right = this.parseShift()
+      expr = { kind: 'binary', op, left: expr, right, loc: expr.loc }
+    }
+    return expr
+  }
+
+  private parseShift(): Expr {
+    let expr = this.parseTerm()
+    while (this.match('<<', '>>')) {
       const op = this.previous().kind as BinaryOp
       const right = this.parseTerm()
       expr = { kind: 'binary', op, left: expr, right, loc: expr.loc }
@@ -946,13 +1015,13 @@ class Parser {
   }
 
   private parseUnary(): Expr {
-    if (this.match('!', '-')) {
+    if (this.match('!', '-', '~')) {
       const opTok = this.previous()
       const expr = this.parseUnary()
       if (opTok.kind === '-' && expr.kind === 'int') {
         return { kind: 'int', value: -expr.value, suffix: expr.suffix, loc: opTok.loc }
       }
-      return { kind: 'unary', op: opTok.kind as '-' | '!', expr, loc: opTok.loc }
+      return { kind: 'unary', op: opTok.kind as '-' | '!' | '~', expr, loc: opTok.loc }
     }
     return this.parseCall()
   }
@@ -963,12 +1032,12 @@ class Parser {
       if (expr.kind === 'ident' && this.looksLikeTypeArgs()) {
         this.advance()
         const typeArgs: TypeAst[] = []
-        if (!this.check('>')) {
+        if (!this.checkCloseAngle()) {
           do {
             typeArgs.push(this.parseType())
           } while (this.match(','))
         }
-        this.consume('>', 'expected `>` after type arguments')
+        this.consumeCloseAngle('expected `>` after type arguments')
         this.consume('(', 'expected `(` after type arguments')
         const args: Expr[] = []
         if (!this.check(')')) {
@@ -1332,6 +1401,10 @@ class Parser {
       else if (tok.kind === '>') {
         depth -= 1
         if (depth === 0) return this.peekAt(i + 1).kind === '('
+      } else if (tok.kind === '>>') {
+        depth -= 2
+        if (depth === 0) return this.peekAt(i + 1).kind === '('
+        if (depth < 0) return false
       }
     }
     return false
@@ -1372,6 +1445,29 @@ class Parser {
       }
     }
     return false
+  }
+
+  private checkCloseAngle(): boolean {
+    return this.extraGt > 0 || this.check('>') || this.check('>>')
+  }
+
+  private matchCloseAngle(): boolean {
+    if (this.extraGt > 0) {
+      this.extraGt -= 1
+      return true
+    }
+    if (this.match('>')) return true
+    if (this.match('>>')) {
+      this.extraGt += 1
+      return true
+    }
+    return false
+  }
+
+  private consumeCloseAngle(message: string): void {
+    if (this.matchCloseAngle()) return
+    const tok = this.peek()
+    throw new ZeeError(message, tok.loc.line, tok.loc.column, this.file)
   }
 
   private consume(kind: TokenKind, message: string): Token {

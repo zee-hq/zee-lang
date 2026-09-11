@@ -277,4 +277,55 @@ describe('lexer', () => {
     expect(raw[0]?.kind).toBe('string')
     expect(raw[0]?.lexeme).toBe('line one\nline two')
   })
+
+  it('tokenizes bitwise ops without eating && or match |', () => {
+    expect(tokenize('a & b | c ^ ~d << e >> f').map((token) => token.kind)).toEqual([
+      'ident',
+      '&',
+      'ident',
+      '|',
+      'ident',
+      '^',
+      '~',
+      'ident',
+      '<<',
+      'ident',
+      '>>',
+      'ident',
+      'eof',
+    ])
+    expect(tokenize('a && b || c').map((token) => token.kind)).toEqual([
+      'ident',
+      '&&',
+      'ident',
+      '||',
+      'ident',
+      'eof',
+    ])
+    expect(tokenize('x &= 1 x |= 1 x ^= 1 x <<= 1 x >>= 1').map((token) => token.kind)).toEqual([
+      'ident',
+      '&=',
+      'number',
+      'ident',
+      '|=',
+      'number',
+      'ident',
+      '^=',
+      'number',
+      'ident',
+      '<<=',
+      'number',
+      'ident',
+      '>>=',
+      'number',
+      'eof',
+    ])
+    expect(tokenize('a >>> 1').map((token) => token.kind)).toEqual([
+      'ident',
+      '>>',
+      '>',
+      'number',
+      'eof',
+    ])
+  })
 })
