@@ -314,6 +314,55 @@ describe('List<T> (AC-list)', () => {
     ).toThrow(/sortByKey|sortByValue|field/)
   })
 
+  it('sorts by a key extractor descending (ZEE-27)', () => {
+    expect(
+      execute(`
+        struct Row {
+          const name: String
+          const age: i32
+        }
+        const xs = [Row { name: "bo", age: 2 }, Row { name: "ana", age: 30 }]
+        const byAge = xs.sortByDescending { it.age }
+        const byName = xs.sortByDescending { it.name }
+        (byAge[0].name, byAge[1].name, byName[0].name, xs[0].name)
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'string', value: 'ana' },
+        { type: 'string', value: 'bo' },
+        { type: 'string', value: 'bo' },
+        { type: 'string', value: 'bo' },
+      ],
+    })
+  })
+
+  it('rejects PHP rsort and sortByDescending on Map and T[] (ZEE-27)', () => {
+    expect(() => execute('const xs = [3, 1]\nxs.rsort()')).toThrow(/rsort|field/)
+    expect(() => execute('const xs = [3, 1]\nxs.arsort()')).toThrow(/arsort|field/)
+    expect(() =>
+      execute(`
+        struct Row {
+          const name: String
+        }
+        const xs = [Row { name: "a" }]
+        xs.sortByDescending { it }
+      `),
+    ).toThrow(/Ord/)
+    expect(() =>
+      execute(`
+        const ages: Map<String, i32> = { "bo": 2 }
+        ages.sortByDescending { it }
+      `),
+    ).toThrow(/sortByKey|sortByValue|field/)
+    expect(() =>
+      execute(`
+        var xs: i32[] = [3, 1]
+        xs.sortByDescending { it }
+      `),
+    ).toThrow(/sortByDescending|field/)
+  })
+
   it('first last reverse unique join and toString (ZEE-22)', () => {
     expect(
       execute(`

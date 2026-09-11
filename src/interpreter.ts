@@ -1448,15 +1448,19 @@ function callCollectionMethod(
       }
       return { type: 'list', items, elem: target.elem }
     }
-    if (name === 'sortBy') {
+    if (name === 'sortBy' || name === 'sortByDescending') {
       if (args.length !== 1) {
-        throw new ZeeError('`sortBy` takes one function', loc.line, loc.column, loc.file)
+        throw new ZeeError(`\`${name}\` takes one function`, loc.line, loc.column, loc.file)
       }
       const decorated = target.items.map((item) => ({
         item: copyValue(item),
         key: applyFnValue(args[0]!, [item], io, loc),
       }))
-      decorated.sort((left, right) => compareOrd(left.key, right.key, loc))
+      decorated.sort((left, right) =>
+        name === 'sortByDescending'
+          ? compareOrd(right.key, left.key, loc)
+          : compareOrd(left.key, right.key, loc),
+      )
       return { type: 'list', items: decorated.map((row) => row.item), elem: target.elem }
     }
     if (name === 'push' || name === 'pop' || name === 'fill') {

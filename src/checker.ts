@@ -3050,11 +3050,11 @@ function checkBuiltinMethod(
       })
       return targetType
     }
-    if (name === 'sortBy') {
-      if (expr.args.length !== 1) throw error(expr.loc, '`sortBy` takes one function')
+    if (name === 'sortBy' || name === 'sortByDescending') {
+      if (expr.args.length !== 1) throw error(expr.loc, `\`${name}\` takes one function`)
       const keyed = inferFnArg(expr.args[0]!, [targetType.elem], env, returnType)
       if (!isOrdType(keyed.ret)) {
-        throw error(expr.loc, '`sortBy` requires the key to be `Ord`')
+        throw error(expr.loc, `\`${name}\` requires the key to be \`Ord\``)
       }
       return targetType
     }
@@ -3189,8 +3189,8 @@ function checkMapMethod(
   if (name === 'sort') {
     throw error(expr.loc, '`sort` is List; Map uses `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`)')
   }
-  if (name === 'sortBy') {
-    throw error(expr.loc, '`sortBy` is List; Map uses `sortByKey` / `sortByValue`')
+  if (name === 'sortBy' || name === 'sortByDescending') {
+    throw error(expr.loc, `\`${name}\` is List; Map uses \`sortByKey\` / \`sortByValue\``)
   }
   if (name === 'map') {
     throw error(expr.loc, '`map` is List / `T[]`; Map uses `mapValues`')
