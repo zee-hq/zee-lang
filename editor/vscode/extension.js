@@ -69,9 +69,13 @@ function activate(context) {
     }),
     vscode.languages.registerHoverProvider('zee', {
       async provideHover(document, position) {
-        const result = await lsp.request('textDocument/hover', positionParams(document, position))
-        if (!result?.contents?.value) return undefined
-        return new vscode.Hover(new vscode.MarkdownString(result.contents.value))
+        try {
+          const result = await lsp.request('textDocument/hover', positionParams(document, position))
+          if (!result?.contents?.value) return undefined
+          return new vscode.Hover(new vscode.MarkdownString(result.contents.value))
+        } catch {
+          return undefined
+        }
       },
     }),
     vscode.languages.registerCompletionItemProvider(

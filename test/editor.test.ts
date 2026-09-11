@@ -24,7 +24,8 @@ const { resolveZeeCli } = require('../editor/vscode/cli.cjs') as {
     subcommand: string,
     file: string | undefined,
     workspaceRoot: string | undefined,
-    exists: (path: string) => boolean,
+    exists?: (path: string) => boolean,
+    execPath?: string,
   ) => { command: string; args: string[]; cwd: string }
 }
 
@@ -113,6 +114,50 @@ describe('editor CLI resolver', () => {
       join(root, 'src/cli.ts'),
       'lsp',
     ])
+  })
+
+  it('does not spawn the editor binary as zee lsp', () => {
+    const root = '/Users/zeth/Projects/zee-lang'
+    const electron = '/Applications/Cursor.app/Contents/MacOS/Cursor'
+    const resolved = resolveZeeCli(
+      'lsp',
+      undefined,
+      root,
+      (item) =>
+        item === join(root, 'src/cli.ts') || item === join(root, 'node_modules/tsx/dist/cli.mjs'),
+      electron,
+    )
+    expect(resolved.command).not.toBe(electron)
+    expect(resolved.command).toBe('node')
+    expect(resolved.args.at(-1)).toBe('lsp')
+  })
+
+  it('answers hover over stdio from the vscode lsp client', async () => {
+    const { ZeeLspClient } = require('../editor/vscode/lsp-client.cjs') as {
+      ZeeLspClient: new (cli: { command: string; args: string[]; cwd: string }) => {
+        start: () => Promise<void>
+        request: (method: string, params: unknown) => Promise<{ contents?: { value?: string } } | null>
+        didOpen: (uri: string, text: string) => void
+        stop: () => Promise<void>
+      }
+    }
+    const root = join(import.meta.dirname, '..')
+    const cli = resolveZeeCli('lsp', undefined, root)
+    const client = new ZeeLspClient(cli)
+    try {
+      await client.start()
+      const file = join(root, 'examples/hello.zee')
+      const text = readFileSync(file, 'utf8')
+      const uri = `file://${file}`
+      client.didOpen(uri, text)
+      const hover = await client.request('textDocument/hover', {
+        textDocument: { uri },
+        position: { line: 1, character: 4 },
+      })
+      expect(hover?.contents?.value).toMatch(/fn |println|main/)
+    } finally {
+      await client.stop()
+    }
   })
 })
 

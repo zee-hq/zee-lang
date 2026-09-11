@@ -27,6 +27,7 @@ class ZeeLspClient {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.child.stdout.on('data', (chunk) => this._onData(chunk))
+    this.child.stderr.on('data', () => {})
     this.child.on('error', (err) => {
       for (const item of this.pending.values()) item.reject(err)
       this.pending.clear()
