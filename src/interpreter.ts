@@ -327,6 +327,8 @@ export function interpret(
   const builtins = new Env(undefined)
   builtins.define('print', { type: 'builtin', name: 'print' })
   builtins.define('println', { type: 'builtin', name: 'println' })
+  builtins.define('printf', { type: 'builtin', name: 'printf' })
+  builtins.define('sprintf', { type: 'builtin', name: 'sprintf' })
   builtins.define('str', { type: 'builtin', name: 'str' })
   builtins.define('error', { type: 'builtin', name: 'error' })
   builtins.define('panic', { type: 'builtin', name: 'panic' })
@@ -1360,6 +1362,10 @@ function callCollectionMethod(
     const seq = callSeqMethod(target, name, args, io, loc)
     if (seq) return seq
   }
+  if (target.type === 'map') {
+    const mapped = callMapMethod(target, name, args, loc)
+    if (mapped) return mapped
+  }
   if (target.type === 'list') {
     if (name === 'toArray') {
       return { type: 'array', items: target.items.map(copyValue), elem: target.elem }
@@ -1421,6 +1427,54 @@ function collectionEmpty(target: ZeeValue): boolean | undefined {
   if (target.type === 'list' || target.type === 'array') return target.items.length === 0
   if (target.type === 'map') return target.entries.size === 0
   if (target.type === 'string') return new TextEncoder().encode(target.value).length === 0
+  return undefined
+}
+
+function callMapMethod(
+  target: Extract<ZeeValue, { type: 'map' }>,
+  name: string,
+  args: ZeeValue[],
+  loc: { file: string; line: number; column: number },
+): ZeeValue | undefined {
+  if (name === 'keys') {
+    if (args.length !== 0) {
+      throw new ZeeError('`keys` takes no arguments', loc.line, loc.column, loc.file)
+    }
+    return {
+      type: 'list',
+      items: [...target.entries.values()].map((entry) => copyValue(entry.key)),
+      elem: target.key,
+    }
+  }
+  if (name === 'values') {
+    if (args.length !== 0) {
+      throw new ZeeError('`values` takes no arguments', loc.line, loc.column, loc.file)
+    }
+    return {
+      type: 'list',
+      items: [...target.entries.values()].map((entry) => copyValue(entry.value)),
+      elem: target.value,
+    }
+  }
+  if (name === 'sortByKey' || name === 'sortByValue') {
+    if (args.length !== 0) {
+      throw new ZeeError(`\`${name}\` takes no arguments`, loc.line, loc.column, loc.file)
+    }
+    const items = [...target.entries.values()]
+    items.sort((left, right) =>
+      name === 'sortByKey'
+        ? compareOrd(left.key, right.key, loc)
+        : compareOrd(left.value, right.value, loc),
+    )
+    const entries = new Map<string, { key: ZeeValue; value: ZeeValue }>()
+    for (const item of items) {
+      entries.set(mapHashKey(item.key, loc), {
+        key: copyValue(item.key),
+        value: copyValue(item.value),
+      })
+    }
+    return { type: 'map', entries, key: target.key, value: target.value }
+  }
   return undefined
 }
 
@@ -2231,6 +2285,12 @@ function callBuiltin(
     io.print(name === 'println' ? `${text}\n` : text)
     return UNIT
   }
+  if (name === 'printf' || name === 'sprintf') {
+    const formatted = formatPrintf(args, loc)
+    if (name === 'sprintf') return { type: 'string', value: formatted }
+    io.print(formatted)
+    return UNIT
+  }
   if (name === 'str') {
     return { type: 'string', value: display(args[0] ?? UNIT) }
   }
@@ -2670,6 +2730,67 @@ function visibleTestErr(value: ZeeValue): string | undefined {
     return visibleTestErr(value.items[value.items.length - 1]!)
   }
   return undefined
+}
+
+function formatPrintf(
+  args: ZeeValue[],
+  loc: { file: string; line: number; column: number },
+): string {
+  const fmt = args[0]
+  if (!fmt || fmt.type !== 'string') {
+    throw new ZeeError('`printf` needs a format String', loc.line, loc.column, loc.file)
+  }
+  const values = args.slice(1)
+  let out = ''
+  let i = 0
+  let vi = 0
+  while (i < fmt.value.length) {
+    const ch = fmt.value[i]!
+    if (ch !== '%') {
+      out += ch
+      i += 1
+      continue
+    }
+    const spec = fmt.value[i + 1]
+    if (spec === undefined) {
+      throw new ZeeError('truncated `%` in format', loc.line, loc.column, loc.file)
+    }
+    if (spec === '%') {
+      out += '%'
+      i += 2
+      continue
+    }
+    const arg = values[vi]
+    vi += 1
+    if (arg === undefined) {
+      throw new ZeeError('missing `printf` argument', loc.line, loc.column, loc.file)
+    }
+    if (spec === 's') {
+      out += display(arg)
+    } else if (spec === 'd') {
+      if (!isIntValue(arg)) {
+        throw new ZeeError('`%d` expects an integer', loc.line, loc.column, loc.file)
+      }
+      out += String(arg.value)
+    } else if (spec === 'f') {
+      if (!isFloatValue(arg)) {
+        throw new ZeeError('`%f` expects a float', loc.line, loc.column, loc.file)
+      }
+      out += String(arg.value)
+    } else if (spec === 'b') {
+      if (arg.type !== 'bool') {
+        throw new ZeeError('`%b` expects a bool', loc.line, loc.column, loc.file)
+      }
+      out += arg.value ? 'true' : 'false'
+    } else {
+      throw new ZeeError(`unknown format \`%${spec}\``, loc.line, loc.column, loc.file)
+    }
+    i += 2
+  }
+  if (vi !== values.length) {
+    throw new ZeeError('extra `printf` argument', loc.line, loc.column, loc.file)
+  }
+  return out
 }
 
 export function display(value: ZeeValue): string {

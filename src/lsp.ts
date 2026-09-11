@@ -19,6 +19,8 @@ import { loadProgramFromPath } from './zee.ts'
 export const BUILTIN_NAMES = [
   'print',
   'println',
+  'printf',
+  'sprintf',
   'str',
   'getenv',
   'envProfile',

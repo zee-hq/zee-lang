@@ -2,7 +2,7 @@
 
 North star for syntax that is **not** in v0 yet. Still hosted on Node; still no PHP/JS coercions.
 
-v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `Type.CONST`, nested types (`User.Constants`, no outer instance), unconstrained `fn f<T>` (infer or `f<i32>(…)`), `const` / `var`, `if`/`else`/`match`, `while`/`until`/`do`/`for`/`break`/`continue`, integer widths, `f32`/`f64`, `Option`, `?:` / `??=` / `!!=` / `&&=` / `||=` / `+=` `-=` `*=` / `/=` `%=` / `& | ^ ~ << >>` / `wrap.add`, `<===>`, `T[]` + array `redim`, `List<T>` / `Map<K, V>`, `struct` / `class` / `data` / `readonly`, `enum` / `sealed struct` / `sealed class` + `match` on variants, `===` / `!==` on `class`, `copy()` on `data`, `for x in xs` / `for (i, x) in xs`, `pub` / `internal` + `import`, `type` / `newtype`, `interface` / `sealed interface` / `implements`, `is`, stdlib `Error`, `panic` / `Never`, `defer`, `///` / `//!` docs, `zee test` via official lib **ZeeTest** (`*.test.zee` / `fn testFoo()` / `describe("title")` / `fn beforeEach()` / `expect().toBe()`).
+v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `Type.CONST`, nested types (`User.Constants`, no outer instance), unconstrained `fn f<T>` (infer or `f<i32>(…)`), `const` / `var`, `if`/`else`/`match`, `while`/`until`/`do`/`for`/`break`/`continue`, integer widths, `f32`/`f64`, `Option`, `?:` / `??=` / `!!=` / `&&=` / `||=` / `+=` `-=` `*=` / `/=` `%=` / `& | ^ ~ << >>` / `wrap.add`, `<===>`, `T[]` + array `redim`, `List<T>` / `Map<K, V>`, `struct` / `class` / `data` / `readonly`, `enum` / `sealed struct` / `sealed class` + `match` on variants, `===` / `!==` on `class`, `copy()` on `data`, `for x in xs` / `for (i, x) in xs`, `pub` / `internal` + `import`, `type` / `newtype`, `interface` / `sealed interface` / `implements`, `is`, stdlib `Error`, `panic` / `Never`, `print` / `println` / `printf` / `sprintf`, `defer`, `///` / `//!` docs, `zee test` via official lib **ZeeTest** (`*.test.zee` / `fn testFoo()` / `describe("title")` / `fn beforeEach()` / `expect().toBe()`).
 
 | Wanted | Source | Zee |
 |---|---|---|
@@ -29,7 +29,7 @@ v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `T
 | Unsafe / FFI | C / Go | `unsafe`, `*T` / `*var T`, `repr(C)`, `extern "C"` / `"host"` |
 | Constructors | C# / Kotlin | **`Name { fields }`** + associated factories (`Type.empty()`). No `new`, no `Type(x)` as a class constructor |
 | DI | Nest | **`main` wires by hand.** No `@Inject`, no scan, no language container. Hexagonal is the course, not a keyword |
-| Collection methods | Kotlin | **`forEach` / `map` / `filter` / `any` / `all` / `contains` / `find` / `sort` / `slice`** — catalog in §8f |
+| Collection methods | Kotlin | **`forEach` / `map` / `filter` / `any` / `all` / `contains` / `find` / `sort` / `sortByKey` / `sortByValue` / `slice`** — catalog in §8f |
 | Emptiness / blank | Kotlin | **`isEmpty` / `isBlank` / `isNoneOrEmpty`** — catalog in §8g. No `null` |
 
 Non-goals: implicit casts, `null`, PHP/JS falsy (`0`, `""`, `[]`), language-level **zero values**, `Result<T, E>` as the **standard** error convention, `try` / `catch` / `throw` / `recover`, `async`/`await`, macros, operator overloading, `++`/`--`.
@@ -1225,7 +1225,7 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 32. **`<===>`** — three-way compare (PHP `<=>`), spelled so it cannot be `<=` / `=>` / `===`. `Ord` only; result is `i32` (`-1` / `0` / `1`). `||=` stays on `var bool` with `&&=` (short-circuit).
 33. **Construction** — `Name { fields }` is the only literal. Public construction of types with private fields is an associated factory (`Type.empty()`, `Type.of(…)`). No `new`. No `Type(x)` as a class/struct constructor (`T(x)` is conversion). No `init`. No overloads. `var self` on a `const` field is illegal — the field is `var` if you mutate it.
 34. **Composition** — `main` wires by hand. Not a language container, not a stdlib `App.get`, not `zee generate` filling a graph. `*.module.zee` stays a comment. Bind by the name you pass. `main` chooses the impl of an interface. Instance cycles are errors. Hexagonal architecture is the course (module 08), not a keyword.
-35. **Collection methods** — catalog in §8f. `forEach` (not `each`). `any` (not `some`). `map` on `Map` is `mapValues`. `push`/`pop` only on `var T[]`. Debug dump is `toString`, not `str`. Interpreter may lag (same as `task`).
+35. **Collection methods** — catalog in §8f. `forEach` (not `each`). `any` (not `some`). `map` on `Map` is `mapValues`. Map order is `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`). `push`/`pop` only on `var T[]`. Debug dump is `toString`, not `str`. Interpreter may lag (same as `task`).
 36. **Emptiness** — catalog in §8g. Predicates are `is*` (`Type.empty()` stays the factory). Unicode whitespace on `Char`. `== None` stays; `isNone`/`isSome` are sugar. No `null`.
 
 ---
@@ -1370,7 +1370,7 @@ Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id
 
 `List<T>` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
 
-v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` / `slice` / `isEmpty`. `T[]` has `toList` plus the same query methods except `sort` (List only in this drop). `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` and `T[]` walk with `for`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
+v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` / `slice` / `isEmpty`. `T[]` has `toList` plus the same query methods except `sort` (List only in this drop). `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `isEmpty`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
 
 | Method | Meaning | `List<T>` | `T[]` | `Map<K, V>` |
 |---|---|---|---|---|
@@ -1392,10 +1392,12 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `fill` | write every slot | no | **`var`** | no |
 | `+` | concat | **in** | **in** | no |
 | `merge` | putAll, **right wins** | no | no | `var` or new `Map` |
-| `keys` / `values` | project | no | no | `List<K>` / `List<V>` |
+| `keys` / `values` | project | no | no | **in** |
 | `slice` | window `[start, end)` | **in** | **in** | no |
 | `reverse` | reverse order | new `List` | `var` or copy | no |
-| `sort` | `T: Ord` | **in** (new `List`) | `var` or copy | no |
+| `sort` | `T: Ord` | **in** (new `List`) | `var` or copy | no — use **`sortByKey` / `sortByValue`** |
+| `sortByKey` | `K: Ord`, new Map | no | no | **in** |
+| `sortByValue` | `V: Ord`, new Map | no | no | **in** |
 
 `take(n)` / `drop(n)` are `slice(0, n)` / `slice(n, len)` — not a second API. `shift` / `unshift` wait for a deque. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait until this table is in the interpreter.
 
@@ -1407,11 +1409,14 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `some` next to `any` | one name: **`any`** (pair is `all`) |
 | `(x) -> { }` as a second lambda | `{ a, b -> … }` (§1) |
 | PHP `foreach` / JS `for…of` keywords | `for in` exists |
+| PHP `asort` / `ksort` | Map is **`sortByValue` / `sortByKey`** (new Map; `for (k, v)` follows that order) |
 | LINQ query syntax | methods + lambdas |
 | mutating `forEach` that resizes under the callback | iterator is not the owner |
 | `pop`/`push`/`fill` on `List` in place | `List` is immutable |
 | `map` overloaded on `Map` | `mapValues` + `values.map` |
 | `str()` as collection dump | `str` stays integer/`bool`; dump is `toString` |
+
+Host IO (not collection methods): `print` / `println` / **`printf` / `sprintf`**. Specifiers `%s` `%d` `%f` `%b` `%%`. No C width or precision (`%02d`). `printf` does not add a newline.
 
 ### 8g. Emptiness, blank, none
 
@@ -1522,6 +1527,7 @@ That is the language. It does not scale past a handful of modules, and that is a
 8. `pop` returns `Option<T>` (empty is `None`). Only on **`var T[]`**. Not on `List`.
 9. One window API: **`slice(start, end)`**. `take`/`drop` are that slice, not a second name.
 10. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait until §8f is in the interpreter.
+11. Map order is **`sortByKey` / `sortByValue`** (new Map). Not PHP `ksort` / `asort`. `sort` stays on `List`.
 
 ### 9d. Checker holes the demo hit — **in the interpreter** (ZEE-7)
 

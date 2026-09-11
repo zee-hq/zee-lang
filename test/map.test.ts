@@ -115,4 +115,52 @@ describe('Map<K, V> (AC-map)', () => {
       value: true,
     })
   })
+
+  it('sorts by key and by value without PHP names (ZEE-19)', () => {
+    expect(
+      execute(`
+        fn joined(m: Map<String, i32>) -> String {
+          var s = ""
+          for (k, v) in m {
+            s = s + k
+          }
+          s
+        }
+        const ages: Map<String, i32> = { "bo": 2, "ana": 30 }
+        (joined(ages.sortByKey()), joined(ages.sortByValue()), ages.keys(), ages.values())
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'string', value: 'anabo' },
+        { type: 'string', value: 'boana' },
+        {
+          type: 'list',
+          elem: { kind: 'string' },
+          items: [
+            { type: 'string', value: 'bo' },
+            { type: 'string', value: 'ana' },
+          ],
+        },
+        {
+          type: 'list',
+          elem: { kind: 'i32' },
+          items: [
+            { type: 'i32', value: 2 },
+            { type: 'i32', value: 30 },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('rejects PHP asort/ksort names and sort() on Map (ZEE-19)', () => {
+    expect(() => execute('const ages: Map<String, i32> = { "a": 1 }\nages.asort()')).toThrow(
+      /asort|field/,
+    )
+    expect(() => execute('const ages: Map<String, i32> = { "a": 1 }\nages.ksort()')).toThrow(
+      /ksort|field/,
+    )
+    expect(() => execute('const ages: Map<String, i32> = { "a": 1 }\nages.sort()')).toThrow(/sort/)
+  })
 })

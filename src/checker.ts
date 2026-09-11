@@ -1182,6 +1182,8 @@ function defineBuiltins(env: TypeEnv): void {
   const printable: ZeeType = T_STRING
   env.define('print', { kind: 'fn', params: [printable], ret: T_UNIT })
   env.define('println', { kind: 'fn', params: [printable], ret: T_UNIT })
+  env.define('printf', { kind: 'fn', params: [T_STRING], ret: T_UNIT })
+  env.define('sprintf', { kind: 'fn', params: [T_STRING], ret: T_STRING })
   env.define('str', { kind: 'fn', params: [T_I32], ret: T_STRING })
   env.define('getenv', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
   env.define('envProfile', { kind: 'fn', params: [], ret: T_STRING })
@@ -2720,6 +2722,9 @@ function checkCall(
       }
       return T_UNIT
     }
+    if (name === 'printf' || name === 'sprintf') {
+      return checkPrintfCall(name, expr, env, returnType)
+    }
     if (name === 'str') {
       if (expr.args.length !== 1) throw error(expr.loc, '`str` takes one argument')
       const arg = checkExpr(expr.args[0]!, env, returnType)
@@ -2967,6 +2972,10 @@ function checkBuiltinMethod(
       return T_BOOL
     }
   }
+  if (targetType.kind === 'map') {
+    const mapped = checkMapMethod(targetType, name, expr)
+    if (mapped) return mapped
+  }
   if (targetType.kind === 'list' || targetType.kind === 'array') {
     const seq = checkSeqMethod(targetType, name, expr, env, returnType)
     if (seq) return seq
@@ -3015,6 +3024,56 @@ function checkBuiltinMethod(
     if (expr.args.length !== 1) throw error(expr.loc, `\`expect(...).${name}\` takes one argument`)
     checkExpr(expr.args[0]!, env, returnType, targetType.inner)
     return T_UNIT
+  }
+  return undefined
+}
+
+function checkPrintfCall(
+  name: 'printf' | 'sprintf',
+  expr: Extract<Expr, { kind: 'call' }>,
+  env: TypeEnv,
+  returnType: ZeeType,
+): ZeeType {
+  if (expr.args.length < 1) throw error(expr.loc, `\`${name}\` needs a format String`)
+  checkExpr(expr.args[0]!, env, returnType, T_STRING)
+  for (let index = 1; index < expr.args.length; index += 1) {
+    const arg = checkExpr(expr.args[index]!, env, returnType)
+    if (arg.kind !== 'string' && arg.kind !== 'bool' && !isIntType(arg) && !isFloatType(arg)) {
+      throw error(expr.args[index]!.loc, `\`${name}\` cannot format ${typeName(arg)}`)
+    }
+  }
+  return name === 'sprintf' ? T_STRING : T_UNIT
+}
+
+function checkMapMethod(
+  targetType: Extract<ZeeType, { kind: 'map' }>,
+  name: string,
+  expr: Extract<Expr, { kind: 'call' }>,
+): ZeeType | undefined {
+  if (name === 'keys') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`keys` takes no arguments')
+    return { kind: 'list', elem: targetType.key }
+  }
+  if (name === 'values') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`values` takes no arguments')
+    return { kind: 'list', elem: targetType.value }
+  }
+  if (name === 'sortByKey') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`sortByKey` takes no arguments')
+    if (!isOrdType(targetType.key)) {
+      throw error(expr.loc, '`sortByKey` requires `K: Ord`')
+    }
+    return targetType
+  }
+  if (name === 'sortByValue') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`sortByValue` takes no arguments')
+    if (!isOrdType(targetType.value)) {
+      throw error(expr.loc, '`sortByValue` requires `V: Ord`')
+    }
+    return targetType
+  }
+  if (name === 'sort') {
+    throw error(expr.loc, '`sort` is List; Map uses `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`)')
   }
   return undefined
 }
