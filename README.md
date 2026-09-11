@@ -145,7 +145,7 @@ zee> add(x, 2)
 
 ## Language (v0)
 
-**Types:** `i8`…`i64`, `u8`…`u64`, `isize`/`usize` (hosted = 64-bit), `bool`, `String`, `Char`, `Unit`, `Never`, `Error`, `Option<T>`, `List<T>`, `Map<K, V>`, `(T, U)`, `(A, B) -> R`, `T[]`, user `struct` / `class`, `enum`, `sealed struct` / `sealed class`, `type` alias, `newtype`, `interface` / `sealed interface`.
+**Types:** `i8`…`i64`, `u8`…`u64`, `isize`/`usize` (hosted = 64-bit), `f32`/`f64`, `bool`, `String`, `Char`, `Unit`, `Never`, `Error`, `Option<T>`, `List<T>`, `Map<K, V>`, `(T, U)`, `(A, B) -> R`, `T[]`, user `struct` / `class`, `enum`, `sealed struct` / `sealed class`, `type` alias, `newtype`, `interface` / `sealed interface`.
 
 **Bindings:** `const` is immutable, `var` is mutable. Both require an initializer. The type may be written or inferred from the initializer — never from “whatever would make this compile”. Tuple bindings: `const (q, r) = divmod(10, 3)` — arity must match; `_` discards a slot. `redim x: i32` widens a `var` on the same signedness ladder. `redim xs, n` / `redim preserve xs, n` change array length (`n: usize`).
 
@@ -173,11 +173,13 @@ zee> add(x, 2)
 
 **Modules:** a package is `zee.toml`. A module is a directory under `src/` (`src/` is the root module; `src/http/` is `http`). Unmarked names are file-private. `internal` is visible in the same folder without `import`. `pub` is importable from another module or package. Imports are Kotlin-shaped: `import http`, `import http.Client`, `import http.{A, B as C}`. A `[deps]` name is the same: `import json.Value`. No glob, no `public`/`protected`. Cycles and file-vs-folder clashes are compile errors.
 
-**Operators:** `?:` unwraps `Option<T>` (not PHP falsy; not `??`). `??=` / `!!=` fill a `var Option<T>` when `None` / `Some`. `&&=` / `||=` are short-circuit assigns on `var bool`. `+=` `-=` `*=` `/=` `%=` are compound assigns on `var` (lhs evaluated once); integers take all five, `String` only `+=`. No `++` / `--`. `<===>` is three-way compare on integers, `String`, `Char`, and `enum` and yields `i32` (`-1` / `0` / `1`). Strings and chars are also ordered with `<` `<=` `>` `>=`. `===` / `!==` are identity on `class` only, not three-way compare.
+**Operators:** `?:` unwraps `Option<T>` (not PHP falsy; not `??`). `??=` / `!!=` fill a `var Option<T>` when `None` / `Some`. `&&=` / `||=` are short-circuit assigns on `var bool`. `+=` `-=` `*=` `/=` `%=` are compound assigns on `var` (lhs evaluated once); integers and floats take all five, `String` only `+=`. No `++` / `--`. `<===>` is three-way compare on integers, `String`, `Char`, and `enum` and yields `i32` (`-1` / `0` / `1`). Strings and chars are also ordered with `<` `<=` `>` `>=`. Float is not `Ord` and not a `Map` key. `===` / `!==` are identity on `class` only, not three-way compare.
 
 **Integers:** unsuffixed literals take the expected width or default to `i32`. Suffixes `40u8`, hex `0xFF`, binary `0b1010`, separators `1_000`. No mixed arithmetic. Widen with `i64(n)`; narrow with `narrow<i8>(n) -> Option<i8>`. `+ - *` panic on overflow.
 
-**Builtins:** `print`, `println` (integers | `bool` | `String`), `str` (integer | `bool`) -> `String`, `error(String) -> Error` (constructs `Fail`, which implements `Error`; call `e.message()`), `panic(String) -> Never`, `Some(x)`, `None` (needs a type context).
+**Floats:** unsuffixed `1.0` is `f64` (or the expected `f32`/`f64`). Suffixes `1.0f32` / `1.0f64`. IEEE: `NaN == NaN` is false; `/ 0.0` is `Infinity`. Convert int→float with `f64(n)` / `f32(n)`; float→int with `narrow<i32>(x)` (`None` on NaN / out of range). No mixed `i32 + f64`.
+
+**Builtins:** `print`, `println` (integers | floats | `bool` | `String`), `str` (integer | float | `bool`) -> `String`, `error(String) -> Error` (constructs `Fail`, which implements `Error`; call `e.message()`), `panic(String) -> Never`, `Some(x)`, `None` (needs a type context).
 
 What the checker **refuses**:
 
@@ -213,7 +215,7 @@ typeHead    = named | "()" | "(" type ("," type)+ ")" | genericType
             | "(" type ("," type)* ")" "->" type
             | "()" "->" type
 genericType = ("Option" | "List" | ident) "<" type ">" | "Map" "<" type "," type ">"
-named       = intWidth | "bool" | "String" | "Char" | "Unit" | "Never" | "Error" | ident
+named       = intWidth | "f32" | "f64" | "bool" | "String" | "Char" | "Unit" | "Never" | "Error" | ident
 structDecl  = ("readonly" | "data" | "sealed")* ("struct" | "class") ident implements? "{" typeMember* "}" implements? ("{" fn* "}")?
 implements  = "implements" ident ("," ident)*
 typeMember  = structField | associatedConst | nestedType | fn | structVariant

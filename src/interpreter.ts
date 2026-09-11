@@ -5,7 +5,9 @@ import {
   INT_KINDS,
   canWidenInt,
   intFits,
+  isFloatKind,
   isIntKind,
+  type FloatKind,
   type IntKind,
   type ZeeType,
   typeName,
@@ -14,6 +16,7 @@ import {
 export type ZeeValue =
   | { type: 'i8' | 'i16' | 'i32' | 'u8' | 'u16' | 'u32'; value: number }
   | { type: 'i64' | 'u64' | 'isize' | 'usize'; value: bigint }
+  | { type: 'f32' | 'f64'; value: number }
   | { type: 'bool'; value: boolean }
   | { type: 'string'; value: string }
   | { type: 'char'; value: string }
@@ -812,6 +815,8 @@ function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
   switch (expr.kind) {
     case 'int':
       return intValue(expr.suffix ?? 'i32', expr.value)
+    case 'float':
+      return floatValue(expr.suffix ?? 'f64', expr.value)
     case 'bool':
       return { type: 'bool', value: expr.value }
     case 'string':
@@ -837,6 +842,9 @@ function evalExpr(expr: Expr, env: Env, io: RuntimeIo): ZeeValue {
       const inner = evalExpr(expr.expr, env, io)
       if (expr.op === '-' && isIntValue(inner)) {
         return intChecked(inner.type, -intBigInt(inner), expr.loc)
+      }
+      if (expr.op === '-' && isFloatValue(inner)) {
+        return floatValue(inner.type, -inner.value)
       }
       if (expr.op === '!' && inner.type === 'bool') return { type: 'bool', value: !inner.value }
       throw new ZeeError('invalid unary operand', expr.loc.line, expr.loc.column, expr.loc.file)
@@ -1004,6 +1012,23 @@ function applyCompound(
           throw new ZeeError('division by zero', loc.line, loc.column, loc.file)
         }
         return intValue(kind, l % r)
+    }
+  }
+  if (isFloatValue(left) && isFloatValue(right) && left.type === right.type) {
+    const kind = left.type
+    const l = left.value
+    const r = right.value
+    switch (op) {
+      case '+=':
+        return floatValue(kind, l + r)
+      case '-=':
+        return floatValue(kind, l - r)
+      case '*=':
+        return floatValue(kind, l * r)
+      case '/=':
+        return floatValue(kind, l / r)
+      case '%=':
+        return floatValue(kind, l % r)
     }
   }
   throw new ZeeError(
@@ -1554,6 +1579,23 @@ function evalBinary(expr: Extract<Expr, { kind: 'binary' }>, env: Env, io: Runti
   if (expr.op === '+' && leftVal.type === 'string' && right.type === 'string') {
     return { type: 'string', value: leftVal.value + right.value }
   }
+  if (isFloatValue(leftVal) && isFloatValue(right) && leftVal.type === right.type) {
+    const kind = leftVal.type
+    const l = leftVal.value
+    const r = right.value
+    switch (expr.op) {
+      case '+':
+        return floatValue(kind, l + r)
+      case '-':
+        return floatValue(kind, l - r)
+      case '*':
+        return floatValue(kind, l * r)
+      case '/':
+        return floatValue(kind, l / r)
+      case '%':
+        return floatValue(kind, l % r)
+    }
+  }
   if (
     (leftVal.type === 'string' && right.type === 'string') ||
     (leftVal.type === 'char' && right.type === 'char')
@@ -1642,14 +1684,25 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
       }
       const target = intKindFromTypeAst(expr.typeArgs[0]!)
       const arg = evalExpr(expr.args[0]!, env, io)
+      if (isFloatValue(arg)) {
+        const n = arg.value
+        return () => narrowFloatToInt(n, target)
+      }
       if (!isIntValue(arg)) {
-        throw new ZeeError('`narrow` expects an integer', expr.loc.line, expr.loc.column, expr.loc.file)
+        throw new ZeeError('`narrow` expects an integer or float', expr.loc.line, expr.loc.column, expr.loc.file)
       }
       const n = intBigInt(arg)
       return () => {
         if (!intFits(n, target)) return { type: 'option', tag: 'none' }
         return { type: 'option', tag: 'some', value: intValue(target, n) }
       }
+    }
+    if (isFloatKind(name)) {
+      if (expr.args.length !== 1) {
+        throw new ZeeError(`\`${name}\` takes one argument`, expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const arg = evalExpr(expr.args[0]!, env, io)
+      return () => toFloatValue(name, arg, expr.loc)
     }
     if (isIntKind(name)) {
       if (expr.args.length !== 1) {
@@ -2007,6 +2060,9 @@ export function display(value: ZeeValue): string {
   switch (value.type) {
     case 'bool':
       return value.value ? 'true' : 'false'
+    case 'f32':
+    case 'f64':
+      return String(value.value)
     case 'string':
     case 'char':
       return value.value
@@ -2067,6 +2123,9 @@ function valuesEqual(left: ZeeValue, right: ZeeValue): boolean {
     case 'bool':
     case 'string':
     case 'char':
+      return right.type === left.type && left.value === right.value
+    case 'f32':
+    case 'f64':
       return right.type === left.type && left.value === right.value
     case 'unit':
       return true
@@ -2194,6 +2253,9 @@ function typeOfValue(value: ZeeValue): ZeeType {
       return { kind: 'string' }
     case 'char':
       return { kind: 'char' }
+    case 'f32':
+    case 'f64':
+      return { kind: value.type }
     case 'unit':
       return { kind: 'unit' }
     case 'error':
@@ -2302,6 +2364,9 @@ function zeroValue(type: ZeeType, loc: { file: string; line: number; column: num
       return { type: 'string', value: '' }
     case 'char':
       return { type: 'char', value: '\0' }
+    case 'f32':
+    case 'f64':
+      return floatValue(type.kind, 0)
     case 'option':
       return { type: 'option', tag: 'none' }
     case 'unit':
@@ -2330,6 +2395,37 @@ function isIntValue(
   value: ZeeValue,
 ): value is Extract<ZeeValue, { type: IntKind }> {
   return (INT_KINDS as readonly string[]).includes(value.type)
+}
+
+function isFloatValue(value: ZeeValue): value is Extract<ZeeValue, { type: FloatKind }> {
+  return value.type === 'f32' || value.type === 'f64'
+}
+
+function floatValue(kind: FloatKind, n: number): ZeeValue {
+  return { type: kind, value: kind === 'f32' ? Math.fround(n) : n }
+}
+
+function toFloatValue(
+  kind: FloatKind,
+  value: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (value.type === 'newtype') return toFloatValue(kind, value.inner, loc)
+  if (isIntValue(value)) return floatValue(kind, Number(intBigInt(value)))
+  if (isFloatValue(value)) return floatValue(kind, value.value)
+  throw new ZeeError(`cannot convert this value to ${kind}`, loc.line, loc.column, loc.file)
+}
+
+function narrowFloatToInt(n: number, target: IntKind): ZeeValue {
+  if (!Number.isFinite(n)) return { type: 'option', tag: 'none' }
+  let bits: bigint
+  try {
+    bits = BigInt(Math.trunc(n))
+  } catch {
+    return { type: 'option', tag: 'none' }
+  }
+  if (!intFits(bits, target)) return { type: 'option', tag: 'none' }
+  return { type: 'option', tag: 'some', value: intValue(target, bits) }
 }
 
 function intBigInt(value: Extract<ZeeValue, { type: IntKind }>): bigint {

@@ -1,5 +1,5 @@
 import type { Loc } from './error.ts'
-import type { IntKind, ZeeType } from './types.ts'
+import type { FloatKind, IntKind, ZeeType } from './types.ts'
 
 export type BinaryOp =
   | '+'
@@ -111,6 +111,7 @@ export interface MatchArm {
 
 export type Expr =
   | { kind: 'int'; value: bigint; suffix?: IntKind; loc: Loc }
+  | { kind: 'float'; value: number; suffix?: FloatKind; loc: Loc }
   | { kind: 'bool'; value: boolean; loc: Loc }
   | { kind: 'string'; value: string; loc: Loc }
   | { kind: 'char'; value: string; loc: Loc }

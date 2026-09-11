@@ -13,6 +13,10 @@ export const INT_KINDS = [
 
 export type IntKind = (typeof INT_KINDS)[number]
 
+export const FLOAT_KINDS = ['f32', 'f64'] as const
+
+export type FloatKind = (typeof FLOAT_KINDS)[number]
+
 export type StructFieldType = {
   name: string
   type: ZeeType
@@ -73,6 +77,7 @@ export type SealedType = {
 
 export type ZeeType =
   | { kind: IntKind }
+  | { kind: FloatKind }
   | { kind: 'bool' }
   | { kind: 'string' }
   | { kind: 'char' }
@@ -106,6 +111,8 @@ export const T_I32: ZeeType = { kind: 'i32' }
 export const T_U8: ZeeType = { kind: 'u8' }
 export const T_USIZE: ZeeType = { kind: 'usize' }
 export const T_BOOL: ZeeType = { kind: 'bool' }
+export const T_F32: ZeeType = { kind: 'f32' }
+export const T_F64: ZeeType = { kind: 'f64' }
 export const T_STRING: ZeeType = { kind: 'string' }
 export const T_CHAR: ZeeType = { kind: 'char' }
 export const T_UNIT: ZeeType = { kind: 'unit' }
@@ -137,6 +144,16 @@ export function isIntKind(name: string): name is IntKind {
 
 export function isIntType(type: ZeeType): type is { kind: IntKind } {
   return isIntKind(type.kind)
+}
+
+const FLOAT_KIND_SET = new Set<string>(FLOAT_KINDS)
+
+export function isFloatKind(name: string): name is FloatKind {
+  return FLOAT_KIND_SET.has(name)
+}
+
+export function isFloatType(type: ZeeType): type is { kind: FloatKind } {
+  return isFloatKind(type.kind)
 }
 
 export function isOrdType(type: ZeeType): boolean {
@@ -245,6 +262,23 @@ export function splitIntLiteral(lexeme: string): { digits: string; suffix?: IntK
   return { digits: lexeme }
 }
 
+export function splitFloatLiteral(lexeme: string): { digits: string; suffix?: FloatKind } {
+  for (const suffix of FLOAT_KINDS) {
+    if (lexeme.length > suffix.length && lexeme.endsWith(suffix)) {
+      const digits = lexeme.slice(0, -suffix.length)
+      if (parseFloatLexeme(digits) !== undefined) return { digits, suffix }
+    }
+  }
+  return { digits: lexeme }
+}
+
+export function parseFloatLexeme(lexeme: string): number | undefined {
+  const cleaned = lexeme.replaceAll('_', '')
+  if (cleaned.length === 0 || !/^\d+\.\d+$/.test(cleaned)) return undefined
+  const value = Number(cleaned)
+  return Number.isFinite(value) ? value : undefined
+}
+
 export function parseIntLexeme(lexeme: string): bigint | undefined {
   const cleaned = lexeme.replaceAll('_', '')
   if (cleaned.length === 0 || cleaned.endsWith('_') || lexeme.includes('__')) return undefined
@@ -344,6 +378,8 @@ export function isEquatable(type: ZeeType): boolean {
     case 'typeNs':
     case 'interface':
     case 'typeParam':
+    case 'f32':
+    case 'f64':
       return false
     case 'list':
       return isEquatable(type.elem)
@@ -363,7 +399,7 @@ export function isInterpolable(type: ZeeType): boolean {
 }
 
 export function typeName(type: ZeeType): string {
-  if (isIntType(type)) return type.kind
+  if (isIntType(type) || isFloatType(type)) return type.kind
   switch (type.kind) {
     case 'bool':
       return 'bool'
@@ -405,7 +441,7 @@ export function typeName(type: ZeeType): string {
 }
 
 export function typeFromName(name: string): ZeeType | undefined {
-  if (isIntKind(name)) return { kind: name }
+  if (isIntKind(name) || isFloatKind(name)) return { kind: name }
   switch (name) {
     case 'bool':
       return T_BOOL

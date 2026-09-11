@@ -61,6 +61,19 @@ describe('lexer', () => {
     expect(kinds).toEqual(['ident', '.', 'number', '%', 'number', 'eof'])
   })
 
+  it('tokenizes float literals without stealing tuple index dots', () => {
+    expect(tokenize('1.0 1.0f32 pair.0').map((token) => token.kind)).toEqual([
+      'number',
+      'number',
+      'ident',
+      '.',
+      'number',
+      'eof',
+    ])
+    expect(tokenize('1.0')[0]?.lexeme).toBe('1.0')
+    expect(tokenize('1.0f32')[0]?.lexeme).toBe('1.0f32')
+  })
+
   it('tokenizes loop keywords', () => {
     expect(tokenize('while until do break continue').map((token) => token.kind)).toEqual([
       'while',

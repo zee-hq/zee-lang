@@ -9,6 +9,8 @@ import {
   isIdentityType,
   isIntKind,
   isIntType,
+  isFloatKind,
+  isFloatType,
   isInterpolable,
   isNeverType,
   isOrdType,
@@ -1625,7 +1627,7 @@ function checkCompoundAssign(
   checkExpr(value, env, returnType, lhsType)
   if (op === '=') return
   if (op === '+=' && typeEq(lhsType, T_STRING)) return
-  if (isCompoundArith(op) && isIntType(lhsType)) return
+  if (isCompoundArith(op) && (isIntType(lhsType) || isFloatType(lhsType))) return
   throw error(loc, `operator \`${op}\` is not defined for ${typeName(lhsType)}`)
 }
 
@@ -1699,6 +1701,12 @@ function inferExpr(expr: Expr, env: TypeEnv, returnType: ZeeType, expected?: Zee
       expr.suffix = kind
       return { kind }
     }
+    case 'float': {
+      if (expr.suffix) return { kind: expr.suffix }
+      const kind = expected && isFloatType(expected) ? expected.kind : 'f64'
+      expr.suffix = kind
+      return { kind }
+    }
     case 'bool':
       return T_BOOL
     case 'string':
@@ -1729,9 +1737,10 @@ function inferExpr(expr: Expr, env: TypeEnv, returnType: ZeeType, expected?: Zee
       return type
     }
     case 'unary': {
-      const innerExpected = expr.op === '-' && expected && isIntType(expected) ? expected : undefined
+      const innerExpected =
+        expr.op === '-' && expected && (isIntType(expected) || isFloatType(expected)) ? expected : undefined
       const inner = checkExpr(expr.expr, env, returnType, innerExpected)
-      if (expr.op === '-' && isIntType(inner)) return inner
+      if (expr.op === '-' && (isIntType(inner) || isFloatType(inner))) return inner
       if (expr.op === '!' && typeEq(inner, T_BOOL)) return T_BOOL
       throw error(expr.loc, `unary \`${expr.op}\` is not defined for ${typeName(inner)}`)
     }
@@ -2336,7 +2345,7 @@ function checkBinary(
     const firstType = checkExpr(first, env, returnType)
     const secondType = checkExpr(second, env, returnType, firstType)
     const noneCompare = leftIsNone || rightIsNone
-    if (!typeEq(firstType, secondType) || (!noneCompare && !isEquatable(firstType))) {
+    if (!typeEq(firstType, secondType) || (!noneCompare && !isEquatable(firstType) && !isFloatType(firstType))) {
       throw error(
         expr.loc,
         `operator \`${op}\` is not defined for ${typeName(firstType)} and ${typeName(secondType)}`,
@@ -2346,29 +2355,30 @@ function checkBinary(
   }
 
   const arithmetic = op === '+' || op === '-' || op === '*' || op === '/' || op === '%'
-  const intExpected = arithmetic && expected && isIntType(expected) ? expected : undefined
+  const numExpected =
+    arithmetic && expected && (isIntType(expected) || isFloatType(expected)) ? expected : undefined
   let left: ZeeType
   let right: ZeeType
-  if (isIntLiteral(expr.left) && !isIntLiteral(expr.right)) {
-    right = checkExpr(expr.right, env, returnType, intExpected)
-    left = checkExpr(expr.left, env, returnType, isIntType(right) ? right : intExpected)
-  } else if (!isIntLiteral(expr.left) && isIntLiteral(expr.right)) {
-    left = checkExpr(expr.left, env, returnType, intExpected)
-    right = checkExpr(expr.right, env, returnType, isIntType(left) ? left : intExpected)
+  if (isNumericLiteral(expr.left) && !isNumericLiteral(expr.right)) {
+    right = checkExpr(expr.right, env, returnType, numExpected)
+    left = checkExpr(expr.left, env, returnType, literalExpected(expr.left, right, numExpected))
+  } else if (!isNumericLiteral(expr.left) && isNumericLiteral(expr.right)) {
+    left = checkExpr(expr.left, env, returnType, numExpected)
+    right = checkExpr(expr.right, env, returnType, literalExpected(expr.right, left, numExpected))
   } else {
-    left = checkExpr(expr.left, env, returnType, intExpected)
+    left = checkExpr(expr.left, env, returnType, numExpected)
     right = checkExpr(
       expr.right,
       env,
       returnType,
-      isIntLiteral(expr.right) && isIntType(left) ? left : intExpected,
+      isNumericLiteral(expr.right) ? literalExpected(expr.right, left, numExpected) : numExpected,
     )
   }
 
   if (op === '+' && typeEq(left, T_STRING) && typeEq(right, T_STRING)) return T_STRING
   if (
     (op === '+' || op === '-' || op === '*' || op === '/' || op === '%') &&
-    isIntType(left) &&
+    (isIntType(left) || isFloatType(left)) &&
     typeEq(left, right)
   ) {
     return left
@@ -2386,6 +2396,16 @@ function checkBinary(
 
 function isIntLiteral(expr: Expr): boolean {
   return expr.kind === 'int'
+}
+
+function isNumericLiteral(expr: Expr): boolean {
+  return expr.kind === 'int' || expr.kind === 'float'
+}
+
+function literalExpected(expr: Expr, other: ZeeType, fallback?: ZeeType): ZeeType | undefined {
+  if (expr.kind === 'int' && !expr.suffix && isIntType(other)) return other
+  if (expr.kind === 'float' && !expr.suffix && isFloatType(other)) return other
+  return fallback
 }
 
 function checkRangeBounds(start: Expr, end: Expr, env: TypeEnv, returnType: ZeeType): ZeeType {
@@ -2460,10 +2480,20 @@ function checkCall(
         throw error(expr.loc, '`narrow` target must be an integer type')
       }
       const arg = checkExpr(expr.args[0]!, env, returnType)
-      if (!isIntType(arg)) {
-        throw error(expr.args[0]!.loc, '`narrow` expects an integer')
+      if (!isIntType(arg) && !isFloatType(arg)) {
+        throw error(expr.args[0]!.loc, '`narrow` expects an integer or float')
       }
       return { kind: 'option', inner: target }
+    }
+    if (isFloatKind(name)) {
+      if (expr.args.length !== 1) throw error(expr.loc, `\`${name}\` takes one argument`)
+      const target = { kind: name } as ZeeType
+      const from = checkExpr(expr.args[0]!, env, returnType)
+      if (from.kind === 'newtype' && (isIntType(from.inner) || isFloatType(from.inner))) {
+        return target
+      }
+      if (isIntType(from) || isFloatType(from)) return target
+      throw error(expr.args[0]!.loc, `cannot convert ${typeName(from)} to ${name}`)
     }
     if (isIntKind(name)) {
       if (expr.args.length !== 1) throw error(expr.loc, `\`${name}\` takes one argument`)
@@ -2494,7 +2524,7 @@ function checkCall(
     }
     if ((name === 'print' || name === 'println') && expr.args.length === 1) {
       const arg = checkExpr(expr.args[0]!, env, returnType)
-      if (arg.kind !== 'string' && arg.kind !== 'bool' && !isIntType(arg)) {
+      if (arg.kind !== 'string' && arg.kind !== 'bool' && !isIntType(arg) && !isFloatType(arg)) {
         throw error(expr.args[0]!.loc, `\`${name}\` cannot print ${typeName(arg)}`)
       }
       return T_UNIT
@@ -2502,8 +2532,8 @@ function checkCall(
     if (name === 'str') {
       if (expr.args.length !== 1) throw error(expr.loc, '`str` takes one argument')
       const arg = checkExpr(expr.args[0]!, env, returnType)
-      if (!isIntType(arg) && arg.kind !== 'bool') {
-        throw error(expr.args[0]!.loc, '`str` expects an integer or bool')
+      if (!isIntType(arg) && arg.kind !== 'bool' && !isFloatType(arg)) {
+        throw error(expr.args[0]!.loc, '`str` expects an integer, float, or bool')
       }
       return T_STRING
     }

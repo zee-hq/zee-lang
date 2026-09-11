@@ -20,7 +20,7 @@ import type {
 } from './ast.ts'
 import { ZeeError, type Loc } from './error.ts'
 import { tokenize, type Token, type TokenKind } from './lexer.ts'
-import { parseIntLexeme, splitIntLiteral } from './types.ts'
+import { parseFloatLexeme, parseIntLexeme, splitFloatLiteral, splitIntLiteral } from './types.ts'
 
 const ASSIGN_OPS: TokenKind[] = ['=', '??=', '!!=', '&&=', '||=', '+=', '-=', '*=', '/=', '%=']
 const LVALUE_ASSIGN_OPS: TokenKind[] = ['=', '+=', '-=', '*=', '/=', '%=']
@@ -1046,6 +1046,14 @@ class Parser {
     if (this.match('false')) return { kind: 'bool', value: false, loc: this.previous().loc }
     if (this.match('number')) {
       const tok = this.previous()
+      if (tok.lexeme.includes('.')) {
+        const { digits, suffix } = splitFloatLiteral(tok.lexeme)
+        const value = parseFloatLexeme(digits)
+        if (value === undefined) {
+          throw new ZeeError(`invalid float literal \`${tok.lexeme}\``, tok.loc.line, tok.loc.column, this.file)
+        }
+        return { kind: 'float', value, suffix, loc: tok.loc }
+      }
       const { digits, suffix } = splitIntLiteral(tok.lexeme)
       const value = parseIntLexeme(digits)
       if (value === undefined) {

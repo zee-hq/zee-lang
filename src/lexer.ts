@@ -1,5 +1,5 @@
 import { locOf, ZeeError, type Loc } from './error.ts'
-import { isIntKind } from './types.ts'
+import { isFloatKind, isIntKind } from './types.ts'
 
 export type TokenKind =
   | 'eof'
@@ -537,6 +537,13 @@ class Lexer {
       return
     }
     this.consumeDigits(isDigit)
+    if (this.peek() === '.' && isDigit(this.peekNext())) {
+      this.advance()
+      this.consumeDigits(isDigit)
+      this.tryFloatSuffix()
+      this.add('number')
+      return
+    }
     this.tryIntSuffix()
     this.add('number')
   }
@@ -549,6 +556,17 @@ class Lexer {
     while (isIdentPart(this.source[index] ?? '')) index += 1
     const suffix = this.source.slice(this.current, index)
     if (!isIntKind(suffix)) return
+    while (this.current < index) this.advance()
+  }
+
+  private tryFloatSuffix(): void {
+    let index = this.current
+    const start = this.source[index] ?? ''
+    if (!isIdentStart(start)) return
+    index += 1
+    while (isIdentPart(this.source[index] ?? '')) index += 1
+    const suffix = this.source.slice(this.current, index)
+    if (!isFloatKind(suffix)) return
     while (this.current < index) this.advance()
   }
 

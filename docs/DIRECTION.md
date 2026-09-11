@@ -61,7 +61,7 @@ var (body, err) = read(path)
 
 ### Integer widths and `redim` (VB6)
 
-Integers are sized. v0 has the integer set below; `f32` / `f64` wait.
+Integers are sized. v0 has the integer and float set below.
 
 ```
 i8   i16   i32   i64    signed
@@ -1004,7 +1004,7 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 3. Tuples + destructure + Go `(T, Option<E>)`  *(in the interpreter)*  
 4. Lambdas (`it` + omitted param)  *(in the interpreter; trailing `xs.map { }` landed with List)*  
 5. `match`  *(in the interpreter; `enum` / `sealed` arms are item 12)*  
-6. Integer widths + `redim`  *(in the interpreter; `f32`/`f64` wait)*  
+6. Integer widths + `redim`  *(in the interpreter; `f32`/`f64` in the interpreter)*  
 7. `Option` + `?:` / `??=` / `!!=` / `&&=` / `||=` + `<===>`  *(in the interpreter)*  
 8. `while` / `until` + `do-while` / `do-until` + `break`/`continue`  *(in the interpreter)*  
 9. three-clause `for` + `for i in 0..n`  *(in the interpreter)*  
