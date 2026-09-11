@@ -3025,6 +3025,14 @@ function checkBuiltinMethod(
       })
       return targetType
     }
+    if (name === 'sortBy') {
+      if (expr.args.length !== 1) throw error(expr.loc, '`sortBy` takes one function')
+      const keyed = inferFnArg(expr.args[0]!, [targetType.elem], env, returnType)
+      if (!isOrdType(keyed.ret)) {
+        throw error(expr.loc, '`sortBy` requires the key to be `Ord`')
+      }
+      return targetType
+    }
   }
   if (targetType.kind === 'array' && name === 'toList') {
     if (expr.args.length !== 0) throw error(expr.loc, '`toList` takes no arguments')
@@ -3084,6 +3092,9 @@ function checkMapMethod(
   }
   if (name === 'sort') {
     throw error(expr.loc, '`sort` is List; Map uses `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`)')
+  }
+  if (name === 'sortBy') {
+    throw error(expr.loc, '`sortBy` is List; Map uses `sortByKey` / `sortByValue`')
   }
   return undefined
 }

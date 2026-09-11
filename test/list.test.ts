@@ -272,4 +272,45 @@ describe('List<T> (AC-list)', () => {
       /usort|field/,
     )
   })
+
+  it('sorts by a key extractor (ZEE-21)', () => {
+    expect(
+      execute(`
+        struct Row {
+          const name: String
+          const age: i32
+        }
+        const xs = [Row { name: "bo", age: 2 }, Row { name: "ana", age: 30 }]
+        const byAge = xs.sortBy { it.age }
+        const byName = xs.sortBy { it.name }
+        (byAge[0].name, byAge[1].name, byName[0].name, xs[0].name)
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'string', value: 'bo' },
+        { type: 'string', value: 'ana' },
+        { type: 'string', value: 'ana' },
+        { type: 'string', value: 'bo' },
+      ],
+    })
+  })
+
+  it('rejects a non-Ord sortBy key and sortBy on Map (ZEE-21)', () => {
+    expect(() =>
+      execute(`
+        struct Row {
+          const name: String
+        }
+        const xs = [Row { name: "a" }]
+        xs.sortBy { it }
+      `),
+    ).toThrow(/Ord/)
+    expect(() =>
+      execute(`
+        const ages: Map<String, i32> = { "bo": 2 }
+        ages.sortBy { it }
+      `),
+    ).toThrow(/sortByKey|sortByValue|field/)
+  })
 })

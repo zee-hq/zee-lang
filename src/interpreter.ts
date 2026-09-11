@@ -1415,6 +1415,17 @@ function callCollectionMethod(
       }
       return { type: 'list', items, elem: target.elem }
     }
+    if (name === 'sortBy') {
+      if (args.length !== 1) {
+        throw new ZeeError('`sortBy` takes one function', loc.line, loc.column, loc.file)
+      }
+      const decorated = target.items.map((item) => ({
+        item: copyValue(item),
+        key: applyFnValue(args[0]!, [item], io, loc),
+      }))
+      decorated.sort((left, right) => compareOrd(left.key, right.key, loc))
+      return { type: 'list', items: decorated.map((row) => row.item), elem: target.elem }
+    }
   }
   if (target.type === 'array' && name === 'toList') {
     return { type: 'list', items: target.items.map(copyValue), elem: target.elem }
