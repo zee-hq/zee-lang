@@ -3198,6 +3198,9 @@ function checkMapMethod(
   if (name === 'contains') {
     throw error(expr.loc, '`contains` is List; Map uses `containsKey`')
   }
+  if (name === 'flat') {
+    throw error(expr.loc, '`flat` is List / `T[]`')
+  }
   return undefined
 }
 
@@ -3277,6 +3280,19 @@ function checkSeqMethod(
     }
     checkExpr(expr.args[0]!, env, returnType, T_STRING)
     return T_STRING
+  }
+  if (name === 'flat') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`flat` takes no arguments')
+    if (targetType.kind === 'list') {
+      if (targetType.elem.kind !== 'list') {
+        throw error(expr.loc, '`flat` requires `List<List<T>>`')
+      }
+      return { kind: 'list', elem: targetType.elem.elem }
+    }
+    if (targetType.elem.kind !== 'array') {
+      throw error(expr.loc, '`flat` requires `T[][]`')
+    }
+    return { kind: 'array', elem: targetType.elem.elem }
   }
   return undefined
 }

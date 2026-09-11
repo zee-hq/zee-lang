@@ -1693,6 +1693,9 @@ function callMapMethod(
   if (name === 'contains') {
     throw new ZeeError('`contains` is List; Map uses `containsKey`', loc.line, loc.column, loc.file)
   }
+  if (name === 'flat') {
+    throw new ZeeError('`flat` is List / `T[]`', loc.line, loc.column, loc.file)
+  }
   return undefined
 }
 
@@ -1820,6 +1823,35 @@ function callSeqMethod(
       return item.value
     })
     return { type: 'string', value: parts.join(sep.value) }
+  }
+  if (name === 'flat') {
+    if (args.length !== 0) {
+      throw new ZeeError('`flat` takes no arguments', loc.line, loc.column, loc.file)
+    }
+    const nested = target.type === 'list' ? 'list' : 'array'
+    if (target.elem.kind !== nested) {
+      throw new ZeeError(
+        nested === 'list' ? '`flat` requires `List<List<T>>`' : '`flat` requires `T[][]`',
+        loc.line,
+        loc.column,
+        loc.file,
+      )
+    }
+    const items: ZeeValue[] = []
+    for (const inner of target.items) {
+      if (inner.type !== nested) {
+        throw new ZeeError(
+          nested === 'list' ? '`flat` requires `List<List<T>>`' : '`flat` requires `T[][]`',
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      for (const item of inner.items) {
+        items.push(copyValue(item))
+      }
+    }
+    return { type: target.type, items, elem: target.elem.elem }
   }
   return undefined
 }

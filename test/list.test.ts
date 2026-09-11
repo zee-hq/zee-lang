@@ -374,4 +374,38 @@ describe('List<T> (AC-list)', () => {
     ).toThrow(/Eq/)
     expect(() => execute('const xs = [1, 2]\nxs.join(",")')).toThrow(/String/)
   })
+
+  it('flattens List<List<T>> one level (ZEE-30)', () => {
+    expect(
+      execute(`
+        const xs = [[1, 2], [3]]
+        const deep = [[[1]], [[2, 3]]]
+        const empty: List<List<i32>> = []
+        (xs.flat(), xs[0][0], deep.flat().len, empty.flat().len)
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        {
+          type: 'list',
+          elem: { kind: 'i32' },
+          items: [
+            { type: 'i32', value: 1 },
+            { type: 'i32', value: 2 },
+            { type: 'i32', value: 3 },
+          ],
+        },
+        { type: 'i32', value: 1 },
+        { type: 'usize', value: 2n },
+        { type: 'usize', value: 0n },
+      ],
+    })
+  })
+
+  it('rejects flat on List<T> and Map (ZEE-30)', () => {
+    expect(() => execute('const xs = [1, 2]\nxs.flat()')).toThrow(/flat|List<List/)
+    expect(() => execute('var ages: Map<String, i32> = { "a": 1 }\nages.flat()')).toThrow(
+      /flat|field/,
+    )
+  })
 })

@@ -1020,7 +1020,7 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 19. user generics `fn f<T>`  *(in the interpreter; infer from args or `f<i32>(…)`; invariant; unconstrained `T` only — bounds `T: Closeable` / `T: Eq` and `struct Box<T>` wait)*
 20. constructors  *(closed §9a / decision 33 — `Name { fields }` + associated factories; no more syntax; in the interpreter)*
 21. composition  *(closed §9b / decision 34 — `main` wires by hand; `zee generate` writes comments, not a container)*
-22. collection methods (§8f catalog)  *(closed §9c / decision 35 — everyday List / `T[]` / Map query rows in the interpreter; `flat`, `sortByDescending`, and `fold`/`zip` still wait)*
+22. collection methods (§8f catalog)  *(closed §9c / decision 35 — everyday List / `T[]` / Map query rows in the interpreter including `flat`; `sortByDescending` and `fold`/`zip` still wait)*
 23. emptiness / blank / none predicates (§8g)  *(closed §9e / decision 36 — `isEmpty` / `isBlank` / `isNone` / `isNoneOrEmpty` / `isNoneOrBlank` in the interpreter)*
 
 Kernel / OS (`zee-os`) still waits on a freestanding profile.
@@ -1370,7 +1370,7 @@ Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id
 
 `List<T>` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
 
-v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` (`T: Ord` or `(T, T) -> i32`) / `sortBy` / `first` / `last` / `reverse` / `unique` / `join` / `toString` / `slice` / `isEmpty`. `T[]` has `toList`, `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `first` / `last` / `reverse` / `unique` / `join` / `toString` / `slice` / `isEmpty`, and mutating `push` / `pop` / `fill` / `sort` on `var`. `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `mapValues` / `filter` / `containsKey` / `merge` / `find` / `any` / `all` / `forEach` / `isEmpty` / `toString`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
+v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` (`T: Ord` or `(T, T) -> i32`) / `sortBy` / `first` / `last` / `reverse` / `unique` / `flat` (`List<List<T>>` → `List<T>`, one level) / `join` / `toString` / `slice` / `isEmpty`. `T[]` has `toList`, `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `first` / `last` / `reverse` / `unique` / `flat` (`T[][]` → `T[]`, one level) / `join` / `toString` / `slice` / `isEmpty`, and mutating `push` / `pop` / `fill` / `sort` on `var`. `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `mapValues` / `filter` / `containsKey` / `merge` / `find` / `any` / `all` / `forEach` / `isEmpty` / `toString`. This table is in the interpreter. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` and `sortByDescending` still wait.
 
 | Method | Meaning | `List<T>` | `T[]` | `Map<K, V>` |
 |---|---|---|---|---|
@@ -1379,7 +1379,7 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `mapValues` | transform values | no | no | `{ V -> U }` → `Map<K, U>` — **in** |
 | `filter` | keep if true | **in** | **in** | `{ K, V -> bool }` — **in** |
 | `unique` | drop duplicates (`T: Eq`), **first-seen** | **in** | **in** (copy) | keys already unique |
-| `flat` | **one** level | `List<List<T>>` → `List<T>` | `T[][]` → `T[]` | no |
+| `flat` | **one** level | **in** (`List<List<T>>` → `List<T>`) | **in** (`T[][]` → `T[]`) | no |
 | `find` | first match → `Option<T>` | **in** | **in** | `{ K, V -> bool }` → `Option<(K, V)>` — **in** |
 | `any` | any match → `bool` | **in** | **in** | **in** |
 | `all` | every match → `bool` | **in** | **in** | **in** |
@@ -1400,7 +1400,7 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `sortByKey` | `K: Ord`, new Map | no | no | **in** |
 | `sortByValue` | `V: Ord`, new Map | no | no | **in** |
 
-`take(n)` / `drop(n)` are `slice(0, n)` / `slice(n, len)` — not a second API. `shift` / `unshift` wait for a deque. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait until this table is in the interpreter.
+`take(n)` / `drop(n)` are `slice(0, n)` / `slice(n, len)` — not a second API. `shift` / `unshift` wait for a deque. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait (not in this table). `sortByDescending` waits.
 
 **Refused:**
 
@@ -1552,4 +1552,4 @@ Not new grammar. Was a check-order bug:
 
 ## 10. After definition
 
-Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, `flat` / `sortByDescending` / `fold`, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.
+Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, `sortByDescending` / `fold`, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.

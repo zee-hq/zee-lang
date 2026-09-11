@@ -206,4 +206,26 @@ describe('arrays (AC-array)', () => {
     ).toThrow(/Eq/)
     expect(() => execute('var xs: i32[] = [1, 2]\nxs.join(",")')).toThrow(/String/)
   })
+
+  it('flattens T[][] one level (ZEE-30)', () => {
+    expect(
+      execute(`
+        var xs: i32[][] = [[1, 2], [3]]
+        const flat = xs.flat()
+        (flat.len, flat[0], flat[2], xs[0][0])
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'usize', value: 3n },
+        { type: 'i32', value: 1 },
+        { type: 'i32', value: 3 },
+        { type: 'i32', value: 1 },
+      ],
+    })
+  })
+
+  it('rejects flat on T[] (ZEE-30)', () => {
+    expect(() => execute('var xs: i32[] = [1, 2]\nxs.flat()')).toThrow(/flat|T\[\]\[\]/)
+  })
 })
