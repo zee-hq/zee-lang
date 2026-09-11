@@ -3058,31 +3058,8 @@ function checkBuiltinMethod(
       }
       return targetType
     }
-    if (name === 'first' || name === 'last') {
-      if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
-      return { kind: 'option', inner: targetType.elem }
-    }
-    if (name === 'reverse') {
-      if (expr.args.length !== 0) throw error(expr.loc, '`reverse` takes no arguments')
-      return targetType
-    }
-    if (name === 'unique') {
-      if (expr.args.length !== 0) throw error(expr.loc, '`unique` takes no arguments')
-      if (!isEquatable(targetType.elem)) {
-        throw error(expr.loc, '`unique` requires `T: Eq`')
-      }
-      return targetType
-    }
     if (name === 'push' || name === 'pop' || name === 'fill') {
       throw error(expr.loc, `\`${name}\` is \`T[]\`; List is immutable`)
-    }
-    if (name === 'join') {
-      if (expr.args.length !== 1) throw error(expr.loc, '`join` takes a String separator')
-      if (targetType.elem.kind !== 'string') {
-        throw error(expr.loc, '`join` requires `List<String>`')
-      }
-      checkExpr(expr.args[0]!, env, returnType, T_STRING)
-      return T_STRING
     }
   }
   if (targetType.kind === 'array') {
@@ -3277,6 +3254,29 @@ function checkSeqMethod(
     checkExpr(expr.args[0]!, env, returnType, T_USIZE)
     checkExpr(expr.args[1]!, env, returnType, T_USIZE)
     return targetType
+  }
+  if (name === 'first' || name === 'last') {
+    if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
+    return { kind: 'option', inner: targetType.elem }
+  }
+  if (name === 'reverse') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`reverse` takes no arguments')
+    return targetType
+  }
+  if (name === 'unique') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`unique` takes no arguments')
+    if (!isEquatable(targetType.elem)) {
+      throw error(expr.loc, '`unique` requires `T: Eq`')
+    }
+    return targetType
+  }
+  if (name === 'join') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`join` takes a String separator')
+    if (targetType.elem.kind !== 'string') {
+      throw error(expr.loc, '`join` requires `List<String>` or `String[]`')
+    }
+    checkExpr(expr.args[0]!, env, returnType, T_STRING)
+    return T_STRING
   }
   return undefined
 }

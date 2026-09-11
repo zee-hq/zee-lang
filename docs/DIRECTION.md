@@ -1020,7 +1020,7 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 19. user generics `fn f<T>`  *(in the interpreter; infer from args or `f<i32>(…)`; invariant; unconstrained `T` only — bounds `T: Closeable` / `T: Eq` and `struct Box<T>` wait)*
 20. constructors  *(closed §9a / decision 33 — `Name { fields }` + associated factories; no more syntax; in the interpreter)*
 21. composition  *(closed §9b / decision 34 — `main` wires by hand; `zee generate` writes comments, not a container)*
-22. collection methods (§8f catalog)  *(closed §9c / decision 35 — `List` query methods, Map catalog, and `T[]` `map`/`filter`/`forEach`/`push`/`pop`/`fill`/`sort` in the interpreter; `fold`/`zip`/`unique` on arrays still wait)*
+22. collection methods (§8f catalog)  *(closed §9c / decision 35 — everyday List / `T[]` / Map query rows in the interpreter; `flat`, `sortByDescending`, and `fold`/`zip` still wait)*
 23. emptiness / blank / none predicates (§8g)  *(closed §9e / decision 36 — `isEmpty` / `isBlank` / `isNone` / `isNoneOrEmpty` / `isNoneOrBlank` in the interpreter)*
 
 Kernel / OS (`zee-os`) still waits on a freestanding profile.
@@ -1370,7 +1370,7 @@ Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id
 
 `List<T>` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
 
-v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` (`T: Ord` or `(T, T) -> i32`) / `sortBy` / `first` / `last` / `reverse` / `unique` / `join` / `toString` / `slice` / `isEmpty`. `T[]` has `toList`, the same query methods except `sortBy` / `first` / `last` / `unique` / `join` / `reverse`, plus `map` / `filter` / `forEach` / `toString`, and mutating `push` / `pop` / `fill` / `sort` on `var`. `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `mapValues` / `filter` / `containsKey` / `merge` / `find` / `any` / `all` / `forEach` / `isEmpty` / `toString`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
+v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `sort` (`T: Ord` or `(T, T) -> i32`) / `sortBy` / `first` / `last` / `reverse` / `unique` / `join` / `toString` / `slice` / `isEmpty`. `T[]` has `toList`, `map` / `filter` / `forEach` / `contains` / `find` / `any` / `all` / `first` / `last` / `reverse` / `unique` / `join` / `toString` / `slice` / `isEmpty`, and mutating `push` / `pop` / `fill` / `sort` on `var`. `List` has `toArray`. `+` concatenates `List` and `T[]`. `Map` has `keys` / `values` / `sortByKey` / `sortByValue` / `mapValues` / `filter` / `containsKey` / `merge` / `find` / `any` / `all` / `forEach` / `isEmpty` / `toString`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
 
 | Method | Meaning | `List<T>` | `T[]` | `Map<K, V>` |
 |---|---|---|---|---|
@@ -1378,14 +1378,14 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `map` | transform | **in** | **in** | no — use `mapValues` |
 | `mapValues` | transform values | no | no | `{ V -> U }` → `Map<K, U>` — **in** |
 | `filter` | keep if true | **in** | **in** | `{ K, V -> bool }` — **in** |
-| `unique` | drop duplicates (`T: Eq`), **first-seen** | **in** | copy | keys already unique |
+| `unique` | drop duplicates (`T: Eq`), **first-seen** | **in** | **in** (copy) | keys already unique |
 | `flat` | **one** level | `List<List<T>>` → `List<T>` | `T[][]` → `T[]` | no |
 | `find` | first match → `Option<T>` | **in** | **in** | `{ K, V -> bool }` → `Option<(K, V)>` — **in** |
 | `any` | any match → `bool` | **in** | **in** | **in** |
 | `all` | every match → `bool` | **in** | **in** | **in** |
-| `first` / `last` | ends → `Option<T>` | **in** | yes | no (not ordered) |
+| `first` / `last` | ends → `Option<T>` | **in** | **in** | no (not ordered) |
 | `contains` | `T: Eq` → `bool` | **in** | **in** | key (`containsKey`) — **in** |
-| `join` | `List<String>` + sep → `String` | **in** | yes | no |
+| `join` | `List<String>` / `String[]` + sep → `String` | **in** | **in** | no |
 | `toString` | debug dump (not `Eq`, not `str`) | **in** | **in** | **in** |
 | `push` | add at **end** | no (immutable) | **`var`**, grows — **in** | no |
 | `pop` | take last → `Option<T>` | no (immutable) | **`var`**, shrinks — **in** | no |
@@ -1394,7 +1394,7 @@ v0 today: `List` has `map` / `filter` / `forEach` / `contains` / `find` / `any` 
 | `merge` | putAll, **right wins** | no | no | new `Map` — **in** |
 | `keys` / `values` | project | no | no | **in** |
 | `slice` | window `[start, end)` | **in** | **in** | no |
-| `reverse` | reverse order | **in** (new `List`) | `var` or copy | no |
+| `reverse` | reverse order | **in** (new `List`) | **in** (copy) | no |
 | `sort` | `T: Ord`, or `(T, T) -> i32` | **in** (new `List`) | **`var`**, in place — **in** | no — use **`sortByKey` / `sortByValue`** |
 | `sortBy` | `(T) -> K` with `K: Ord` | **in** (new `List`) | no | no — use **`sortByKey` / `sortByValue`** |
 | `sortByKey` | `K: Ord`, new Map | no | no | **in** |
@@ -1552,4 +1552,4 @@ Not new grammar. Was a check-order bug:
 
 ## 10. After definition
 
-Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, remaining §8f methods, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.
+Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, `flat` / `sortByDescending` / `fold`, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.

@@ -160,4 +160,50 @@ describe('arrays (AC-array)', () => {
     expect(() => execute('const xs: i32[] = [3, 1]\nxs.sort()')).toThrow(/const|var/)
     expect(() => execute('const xs = [1]\nxs.push(2)')).toThrow(/push|immutable|field/)
   })
+
+  it('copies first last reverse unique and join on T[] (ZEE-31)', () => {
+    expect(
+      execute(`
+        var xs: i32[] = [1, 2, 1, 3]
+        var names: String[] = ["a", "b", "a"]
+        const empty: i32[] = []
+        const rev = xs.reverse()
+        const uniq = xs.unique()
+        (
+          xs.first() == Some(1),
+          xs.last() == Some(3),
+          empty.first() == None,
+          empty.last() == None,
+          rev[0],
+          xs[0],
+          uniq.len,
+          uniq[2],
+          names.join("-")
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'i32', value: 3 },
+        { type: 'i32', value: 1 },
+        { type: 'usize', value: 3n },
+        { type: 'i32', value: 3 },
+        { type: 'string', value: 'a-b-a' },
+      ],
+    })
+  })
+
+  it('rejects unique without Eq and join on non-String arrays (ZEE-31)', () => {
+    expect(() =>
+      execute(`
+        var xs: f64[] = [1.0, 2.0]
+        xs.unique()
+      `),
+    ).toThrow(/Eq/)
+    expect(() => execute('var xs: i32[] = [1, 2]\nxs.join(",")')).toThrow(/String/)
+  })
 })
