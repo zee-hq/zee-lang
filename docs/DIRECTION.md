@@ -1021,7 +1021,7 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 20. constructors  *(closed §9a / decision 33 — `Name { fields }` + associated factories; no more syntax; in the interpreter)*
 21. composition  *(closed §9b / decision 34 — `main` wires by hand; `zee generate` writes comments, not a container)*
 22. collection methods (§8f catalog)  *(closed §9c / decision 35 — `List` has `map`/`filter`/`forEach`; the rest of the table is defined, not in the interpreter yet)*
-23. emptiness / blank / none predicates (§8g)  *(closed §9e / decision 36 — defined; interpreter still `len == 0` / `== None` until the methods land)*
+23. emptiness / blank / none predicates (§8g)  *(closed §9e / decision 36 — `isEmpty` / `isBlank` / `isNone` / `isNoneOrEmpty` / `isNoneOrBlank` in the interpreter)*
 
 Kernel / OS (`zee-os`) still waits on a freestanding profile.
 
@@ -1422,18 +1422,18 @@ Host IO (not collection methods): `print` / `println` / **`printf` / `sprintf`**
 
 ### 8g. Emptiness, blank, none
 
-v0 today: `isEmpty` / `isNotEmpty` on `String`, `List`, `T[]`, `Map`. Also `xs.len == 0`, `s.len == 0`, `x == None` / `x != None`. No truthiness (`if xs` is illegal). No `null`. `isBlank` / `isNoneOrEmpty` are **defined**; the interpreter may lag.
+v0 today: `isEmpty` / `isNotEmpty` on `String`, `List`, `T[]`, `Map`. `isBlank` / `isNotBlank` on `String`. `isNone` / `isSome` on `Option<T>`. `isNoneOrEmpty` on `Option<String>` / `Option<List<T>>` / `Option<T[]>` / `Option<Map<K, V>>`. `isNoneOrBlank` on `Option<String>`. Also `xs.len == 0`, `s.len == 0`, `x == None` / `x != None`. No truthiness (`if xs` is illegal). No `null`.
 
 | Kotlin | Zee | On |
 |---|---|---|
 | `isEmpty()` | `isEmpty()` | `String`, `List`, `T[]`, `Map` — **in** |
 | `isNotEmpty()` | `isNotEmpty()` | same |
-| `isBlank()` | `isBlank()` | `String` only — empty or only Unicode whitespace `Char`s |
-| `isNotBlank()` | `isNotBlank()` | `String` |
-| `isNullOrEmpty()` | `isNoneOrEmpty()` | `Option<String>` / `Option<List<T>>` / `Option<T[]>` / `Option<Map<K,V>>` only |
-| `isNullOrBlank()` | `isNoneOrBlank()` | `Option<String>` |
-| `== null` | `isNone()` **and** `x == None` | `Option<T>` |
-| `!= null` | `isSome()` **and** `x != None` | `Option<T>` |
+| `isBlank()` | `isBlank()` | `String` only — empty or only Unicode whitespace `Char`s — **in** |
+| `isNotBlank()` | `isNotBlank()` | `String` — **in** |
+| `isNullOrEmpty()` | `isNoneOrEmpty()` | `Option<String>` / `Option<List<T>>` / `Option<T[]>` / `Option<Map<K,V>>` only — **in** |
+| `isNullOrBlank()` | `isNoneOrBlank()` | `Option<String>` — **in** |
+| `== null` | `isNone()` **and** `x == None` | `Option<T>` — **in** |
+| `!= null` | `isSome()` **and** `x != None` | `Option<T>` — **in** |
 
 `Type.empty()` is the associated factory. The predicate is `isEmpty` so the two do not share a name.
 
@@ -1552,4 +1552,4 @@ Not new grammar. Was a check-order bug:
 
 ## 10. After definition
 
-Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, §8f / §8g methods, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.
+Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, remaining §8f methods, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.

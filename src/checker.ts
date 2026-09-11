@@ -2972,6 +2972,44 @@ function checkBuiltinMethod(
       return T_BOOL
     }
   }
+  if (name === 'isBlank' || name === 'isNotBlank') {
+    if (targetType.kind === 'string') {
+      if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
+      return T_BOOL
+    }
+    if (targetType.kind === 'list' || targetType.kind === 'array' || targetType.kind === 'map') {
+      throw error(expr.loc, `\`${name}\` is only on String`)
+    }
+  }
+  if (targetType.kind === 'option') {
+    if (name === 'isNone' || name === 'isSome') {
+      if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
+      return T_BOOL
+    }
+    if (name === 'isNoneOrEmpty') {
+      if (expr.args.length !== 0) throw error(expr.loc, '`isNoneOrEmpty` takes no arguments')
+      const inner = targetType.inner
+      if (
+        inner.kind !== 'string' &&
+        inner.kind !== 'list' &&
+        inner.kind !== 'array' &&
+        inner.kind !== 'map'
+      ) {
+        throw error(
+          expr.loc,
+          '`isNoneOrEmpty` is only on `Option<String>`, `Option<List<T>>`, `Option<T[]>`, or `Option<Map<K, V>>`',
+        )
+      }
+      return T_BOOL
+    }
+    if (name === 'isNoneOrBlank') {
+      if (expr.args.length !== 0) throw error(expr.loc, '`isNoneOrBlank` takes no arguments')
+      if (targetType.inner.kind !== 'string') {
+        throw error(expr.loc, '`isNoneOrBlank` is only on `Option<String>`')
+      }
+      return T_BOOL
+    }
+  }
   if (name === 'toString') {
     if (
       targetType.kind === 'list' ||

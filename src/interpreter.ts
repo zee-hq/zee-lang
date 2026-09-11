@@ -1358,6 +1358,53 @@ function callCollectionMethod(
       return { type: 'bool', value: name === 'isEmpty' ? empty : !empty }
     }
   }
+  if (name === 'isBlank' || name === 'isNotBlank') {
+    if (target.type === 'string') {
+      if (args.length !== 0) {
+        throw new ZeeError(`\`${name}\` takes no arguments`, loc.line, loc.column, loc.file)
+      }
+      const blank = isBlankString(target.value)
+      return { type: 'bool', value: name === 'isBlank' ? blank : !blank }
+    }
+    if (target.type === 'list' || target.type === 'array' || target.type === 'map') {
+      throw new ZeeError(`\`${name}\` is only on String`, loc.line, loc.column, loc.file)
+    }
+  }
+  if (target.type === 'option') {
+    if (name === 'isNone' || name === 'isSome') {
+      if (args.length !== 0) {
+        throw new ZeeError(`\`${name}\` takes no arguments`, loc.line, loc.column, loc.file)
+      }
+      const none = target.tag === 'none'
+      return { type: 'bool', value: name === 'isNone' ? none : !none }
+    }
+    if (name === 'isNoneOrEmpty') {
+      if (args.length !== 0) {
+        throw new ZeeError('`isNoneOrEmpty` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      if (target.tag === 'none') return { type: 'bool', value: true }
+      const empty = collectionEmpty(target.value)
+      if (empty === undefined) {
+        throw new ZeeError(
+          '`isNoneOrEmpty` is only on `Option<String>`, `Option<List<T>>`, `Option<T[]>`, or `Option<Map<K, V>>`',
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      return { type: 'bool', value: empty }
+    }
+    if (name === 'isNoneOrBlank') {
+      if (args.length !== 0) {
+        throw new ZeeError('`isNoneOrBlank` takes no arguments', loc.line, loc.column, loc.file)
+      }
+      if (target.tag === 'none') return { type: 'bool', value: true }
+      if (target.value.type !== 'string') {
+        throw new ZeeError('`isNoneOrBlank` is only on `Option<String>`', loc.line, loc.column, loc.file)
+      }
+      return { type: 'bool', value: isBlankString(target.value.value) }
+    }
+  }
   if (name === 'toString') {
     if (target.type === 'list' || target.type === 'array' || target.type === 'map') {
       if (args.length !== 0) {
@@ -1504,6 +1551,16 @@ function collectionEmpty(target: ZeeValue): boolean | undefined {
   if (target.type === 'map') return target.entries.size === 0
   if (target.type === 'string') return new TextEncoder().encode(target.value).length === 0
   return undefined
+}
+
+/** Kotlin `Char.isWhitespace`: Unicode category Z, plus HT/LF/VT/FF/CR and FS–US. Not NEL. */
+function isCharWhitespace(ch: string): boolean {
+  return /\p{Z}/u.test(ch) || /[\t\n\v\f\r\u001C-\u001F]/.test(ch)
+}
+
+function isBlankString(s: string): boolean {
+  const chars = [...s]
+  return chars.length === 0 || chars.every(isCharWhitespace)
 }
 
 function callMapMethod(
