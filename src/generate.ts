@@ -52,7 +52,7 @@ export interface GenerateFlags {
   invokable?: boolean
 }
 
-/** DI graph stub until §9b. AC-generate-module. */
+/** Layer map comment. Composition root is main — no language DI. AC-generate-module. */
 export function generateModule(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'module', moduleSource)
 }
@@ -83,7 +83,7 @@ export function generateRepository(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'repository', (_importPath, name) => `// ${name}.repository\n`)
 }
 
-/** DB shape. DI §9b. AC-generate-layers. */
+/** DB shape. Wired in main. AC-generate-layers. */
 export function generateModel(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'model', (_importPath, name) => `// ${name}.model\n`)
 }

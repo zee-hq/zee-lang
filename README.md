@@ -26,7 +26,7 @@ fn main() {
 | Editor (VS Code / Cursor / JetBrains) | `zee lsp` + `zee fmt` + rename + interpreter debugger |
 | Bytecode / LLVM / native | later — not this drop |
 
-The grammar will change. Syntax that is decided but **not** in v0 yet (`open`, `abstract`, bounds `T: Closeable`, `struct Box<T>`, concurrency) lives in [`docs/DIRECTION.md`](docs/DIRECTION.md). Constructors beyond `Name { fields }` and DI are **radar** there (§9) — not closed.
+The grammar will change. Syntax that is decided but **not** in v0 yet (`open`, `abstract`, bounds `T: Closeable`, `struct Box<T>`, concurrency) lives in [`docs/DIRECTION.md`](docs/DIRECTION.md). Construction is `Name { fields }` + associated factories; `main` wires dependencies — radar §9 is **closed**.
 
 Jira (not a Z-Group product; same instance): project **ZEE**, board [quadro ZEE](https://rr-it-solutions.atlassian.net/jira/software/c/projects/ZEE/boards/244), epic [ZEE-1](https://rr-it-solutions.atlassian.net/browse/ZEE-1).
 

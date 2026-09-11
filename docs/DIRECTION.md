@@ -27,10 +27,10 @@ v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `T
 | Bits / wrap | C | `& \| ^ ~ << >>`; wrap is `wrap.add`, not `+` |
 | Concurrency | coroutines + CSP | **Zee scheduler:** `task cpu { }`, `on io { }`, `yield`, `Chan<T>`, `select`. Dispatch is named. No `async`/`await`, no `go` |
 | Unsafe / FFI | C / Go | `unsafe`, `*T` / `*var T`, `repr(C)`, `extern "C"` / `"host"` |
-| Constructors | C# / Kotlin | **radar §9a** — v0 is `Name { fields }` + associated factories (`Type.empty()`). No `new` |
-| DI | Nest | **radar §9b** — explicit module graph. No `@Inject`, no scan |
-| Collection methods | Kotlin | **radar §9c** — catalog; `List` already has `map`/`filter`/`forEach` |
-| Emptiness / blank | Kotlin | **radar §9e** — `isEmpty` / `isBlank` / `isNoneOrEmpty`; no `null` |
+| Constructors | C# / Kotlin | **`Name { fields }`** + associated factories (`Type.empty()`). No `new`, no `Type(x)` as a class constructor |
+| DI | Nest | **`main` wires by hand.** No `@Inject`, no scan, no language container. Hexagonal is the course, not a keyword |
+| Collection methods | Kotlin | **`forEach` / `map` / `filter` / `any` / `all`…** — catalog in §8f. `List` already has `map`/`filter`/`forEach` |
+| Emptiness / blank | Kotlin | **`isEmpty` / `isBlank` / `isNoneOrEmpty`** — catalog in §8g. No `null` |
 
 Non-goals: implicit casts, `null`, PHP/JS falsy (`0`, `""`, `[]`), language-level **zero values**, `Result<T, E>` as the **standard** error convention, `try` / `catch` / `throw` / `recover`, `async`/`await`, macros, operator overloading, `++`/`--`.
 
@@ -312,7 +312,7 @@ const frozen: Map<String, i32> = { "ana": 30 }
 - Lookup `ages[k]` returns `Option<V>` (missing is `None`, not `null`, not `0`).
 - `K` must be `Eq + Hash` (not float, not plain `class`, not `T[]`).
 - `for (k, v) in ages` uses the tuple you already want.
-- **Collection methods** (`each`, `map`, `filter`, `unique`, `flat`, `find`, `some`/`all`, `first`/`last`, `push`/`pop`, …): radar §9c. `List` already has `map`/`filter`/`forEach`. `for` stays.
+- **Collection methods** (`forEach`, `map`, `filter`, `any`/`all`, `unique`, `flat`, `find`, `first`/`last`, `push`/`pop`, …): §8f. `List` already has `map`/`filter`/`forEach`. `for` stays.
 
 ### Types of type — `readonly`, `data`, `sealed`
 
@@ -396,7 +396,7 @@ pub fn empty() -> self {
 }
 ```
 
-That is the same as `-> CompanyService` / `CompanyService { … }`. `self` as a type outside a type body is an error. No `static` keyword. Named constructors beyond that, and wiring a controller to a service, are **radar** (§9) — not a second construction syntax in v0.
+That is the same as `-> CompanyService` / `CompanyService { … }`. `self` as a type outside a type body is an error. No `static` keyword. Named constructors are associated factories (`Type.empty()`, `Type.of(name)`). Wiring a controller to a service is `main` (§9b closed). No second construction syntax.
 
 ### Nested types and associated constants
 
@@ -1018,10 +1018,10 @@ User interfaces do not replace `Eq` / `Hash` / `Ord`. No operator overloading.
 17. `panic` / `Never` + `defer`  *(in the interpreter; hosted abort is `PanicError`; `panic(\`…{x}…\`)` interpolates)*
 18. associated names + nested types  *(in the interpreter; `Type.origin()` / `Type.CONST` / `Outer.Inner`; no Java inner; associated names are not constructor fields)*
 19. user generics `fn f<T>`  *(in the interpreter; infer from args or `f<i32>(…)`; invariant; unconstrained `T` only — bounds `T: Closeable` / `T: Eq` and `struct Box<T>` wait)*
-20. constructors beyond `Name { fields }`  *(radar §9a — not in the interpreter; associated factories are the v0 stand-in)*
-21. DI / module wiring  *(radar §9b — `zee generate` files exist; the language does not wire them)*
-22. collection methods (§9c catalog)  *(radar — `List` has `map`/`filter`/`forEach`; Map/array and the rest wait)*
-23. emptiness / blank / none predicates  *(radar §9e — Kotlin `isEmpty`/`isBlank`/`isNullOrEmpty`; Zee has no `null`)*
+20. constructors  *(closed §9a / decision 33 — `Name { fields }` + associated factories; no more syntax; in the interpreter)*
+21. composition  *(closed §9b / decision 34 — `main` wires by hand; `zee generate` writes comments, not a container)*
+22. collection methods (§8f catalog)  *(closed §9c / decision 35 — `List` has `map`/`filter`/`forEach`; the rest of the table is defined, not in the interpreter yet)*
+23. emptiness / blank / none predicates (§8g)  *(closed §9e / decision 36 — defined; interpreter still `len == 0` / `== None` until the methods land)*
 
 Kernel / OS (`zee-os`) still waits on a freestanding profile.
 
@@ -1056,7 +1056,7 @@ The compiler does not require these suffixes. They are the **tooling convention*
 ```
 Request → controller → action → service ─┬─→ resource  → response
                                          ├─→ repository → api
-                                         └─→ model      → db   (DI, §9b)
+                                         └─→ model      → db   (wired in `main`)
 ```
 
 | Layer | File | Does |
@@ -1067,8 +1067,8 @@ Request → controller → action → service ─┬─→ resource  → respons
 | resource | `users.resource.zee` | Maps domain → HTTP body (Laravel Resource). **Not** “generate the whole stack”. |
 | repository | `users.repository.zee` | Persistence port. Talks to `api` or `model`. |
 | api | `users.api.zee` | Outbound HTTP client. |
-| model | `users.model.zee` | DB shape. Wired by DI (§9b), not constructed in the controller. |
-| module | `users.module.zee` | Graph stub until §9b. |
+| model | `users.model.zee` | DB shape. Wired in `main`, not constructed in the controller. |
+| module | `users.module.zee` | Directory comment. Composition root is `main`. |
 
 Tests: **`.test.zee` only** (`users.service.test.zee`). No `foo_test.zee`. No `.spec.zee`. `fn testFoo()`. **`describe("title") { }`** is a **closure**: the block runs at load and **injects** that env into inner `fn` (tests/hooks/helpers). `var` / `const` in the block are visible to those fns. Nested `describe` nests both the label and the env. Sequential `describe("title")` still labels following file-level `fn test*`. Lifecycle is **`fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`** (file or describe). Lambdas still cannot capture `var` — use `fn`. Tooling (`zee test`) runs official lib **ZeeTest** (`import ZeeTest` / `ZeeTest.run()`). Assertions are Vitest-shaped **`expect(x).toBe(y)`** / **`toEqual`** / **`.not`** (panic on mismatch; Eq values only). No `test` keyword. No `it()` — Zee `it` is the lambda parameter. Works on `src/lib.zee` packages. Host builtins `testCases` / `testCall` / `expect` / `describe`. *(in the interpreter)*
 
@@ -1084,7 +1084,7 @@ zee generate resource user               # HTTP mapper
 zee generate repository user
 zee generate model user
 zee generate api user
-zee generate module user                 # DI stub
+zee generate module user                 # directory comment; main wires
 zee generate feature user --api        # the whole slice
 ```
 
@@ -1107,7 +1107,7 @@ src/users/users.module.zee
 - `zee generate feature` writes every layer file. `zee generate resource` writes **only** `*.resource.zee`.
 - Aliases: `co`, `act`, `s`, `re`, `repo`, `mod`, `api`, `feat`. `mo` is the module stub.
 - `zee new` stays **package**. Generate is **inside** a package. Path is relative to `src/`.
-- Wiring is not generated — `*.module.zee` is a comment until DI (§9b).
+- Wiring is not generated — `*.module.zee` is a comment. `main` is the composition root.
 
 ### Import (Kotlin-shaped)
 
@@ -1223,14 +1223,18 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 30. **No macros.** Codegen is `zee generate`. No preprocessor.
 31. **Packages** — `zee.toml` `[package]` + `[deps]`; `libs.toml` overlay + `catalog.json` index; `zee get` (honors lock) + `zee update` (re-resolve within constraint) + `.zee/` + `zee.lock`; SemVer via registry (`docs/REGISTRY.md`) + `zee publish`. One app manifest. No `package.json` as Zee config. Official libs: `libs/env` (`import env`) and `libs/ZeeTest` (`import ZeeTest`; `zee test` injects it). Host builtins `getenv` / `envProfile` / `testCases` / `testCall` / `expect` / `describe` (no Zee `null`).
 32. **`<===>`** — three-way compare (PHP `<=>`), spelled so it cannot be `<=` / `=>` / `===`. `Ord` only; result is `i32` (`-1` / `0` / `1`). `||=` stays on `var bool` with `&&=` (short-circuit).
+33. **Construction** — `Name { fields }` is the only literal. Public construction of types with private fields is an associated factory (`Type.empty()`, `Type.of(…)`). No `new`. No `Type(x)` as a class/struct constructor (`T(x)` is conversion). No `init`. No overloads. `var self` on a `const` field is illegal — the field is `var` if you mutate it.
+34. **Composition** — `main` wires by hand. Not a language container, not a stdlib `App.get`, not `zee generate` filling a graph. `*.module.zee` stays a comment. Bind by the name you pass. `main` chooses the impl of an interface. Instance cycles are errors. Hexagonal architecture is the course (module 08), not a keyword.
+35. **Collection methods** — catalog in §8f. `forEach` (not `each`). `any` (not `some`). `map` on `Map` is `mapValues`. `push`/`pop` only on `var T[]`. Debug dump is `toString`, not `str`. Interpreter may lag (same as `task`).
+36. **Emptiness** — catalog in §8g. Predicates are `is*` (`Type.empty()` stays the factory). Unicode whitespace on `Char`. `== None` stays; `isNone`/`isSome` are sugar. No `null`.
 
 ---
 
-## 8. Language closed (except radar)
+## 8. Language closed
 
-§8a–8d are **defined**, even if a backend implements them later or refuses them as a capability. They are not open questions.
+§8a–8g are **defined**, even if a backend implements them later or refuses them as a capability. They are not open questions.
 
-**Radar** (§9) is the remaining language hole: constructors, DI, collection methods, and emptiness/blank predicates. Do not invent a spelling in the interpreter until it is decided here.
+**Radar** (§9) is closed (ZEE-13). Do not invent a spelling in the interpreter that is not in this file.
 
 ### 8a. Concurrency (explicit coroutines, Zee scheduler)
 
@@ -1332,6 +1336,8 @@ unsafe { asm("nop") }
 | `in` / `out` variance | invariant generics |
 | `import x.*` | named imports |
 | `null` / exceptions / `recover` | already refused |
+| `new` | `Name { fields }` / `Type.empty()` |
+| `@Inject` / scan / service locator | `main` wires |
 
 ### 8e. Host `NULL` and SQL (defined)
 
@@ -1358,171 +1364,77 @@ Three-valued SQL (`NULL = 1` is unknown) stays **in SQL**. After the row is type
 
 A driver that hands Zee a host null as if it were `String` is a **bug in the driver**, not a reason to grow `null`.
 
-## 9. Radar (not closed)
+### 8f. Collection methods
 
-Work that the class-style Nest CRUD made unavoidable. **Not defined.** Associated factories and hand-passed fields are the v0 stand-in. Syntax here is illustrative of the *need*, not a grammar to parse.
+Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id, company) -> { … }`. `for x in xs` / `for (k, v) in m` stay.
 
-### 9a. Constructors
+`List<T>` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
 
-v0 today:
-
-```zee
-const u = User { name: "ana", age: 1 }     // all fields, visibility applies
-const p = Point.origin()                    // associated factory — the public constructor
-const svc = CompanyService.empty()         // same: hide private `rows` from other modules
-```
-
-That is enough for value types. It is awkward for services:
-
-- A `pub class` with **private** fields cannot be built from another module (`field rows is private`). The defining module must expose an associated factory.
-- There is no `init` that runs after fields are filled (invariants, derived slots).
-- `T(x)` is already **conversion** (`i64(n)`, `UserId(n)`). A positional `User("ana")` would look like conversion. That clash is why this is not closed.
-- No `new`. That refusal stays.
-
-**Likely shape (not decided):** keep `Name { fields }` as the only *literal*. Public construction is associated (`Type.empty()`, `Type.of(name)`), maybe plus a later **primary constructor** that is still named fields, not `new`:
-
-```zee
-// possible later — Kotlin-shaped, still no `new`
-pub class UsersController(const service: UserService) {
-  pub fn index(self) { … }
-}
-
-const users = UsersController(usersService)   // or still UsersController { service: usersService }?
-```
-
-**Open:**
-
-1. Is associated `Type.of(…)` / `Type.empty()` **enough**, forever? Then §9a is “document the pattern”, not new syntax.
-2. If a primary constructor exists: call is `UsersController(svc)` or still `UsersController { service: svc }`? The first collides with `T(x)` conversion.
-3. `init` after fields: yes/no. If yes, it cannot fail with exceptions (`err` tuple or `panic` only).
-4. Overloads: **no** (Zee has no overloading). Named associated fns (`empty`, `of`, `withCap`) instead.
-5. `var self` methods on a **`const` field** of `class`: v0 requires `var service = self.service` then `service.add(…)`. Constructor/DI should not paper over this — either calling `var self` on an identity field is allowed, or the field is `var`.
-
-### 9b. Dependency injection
-
-v0 today: pass the dependency as a field, or a module-level `pub var usersService` (process-wide mutable state — already discouraged).
-
-`zee generate` creates **layer file names** (controller → action → service → resource | repository → api | model). It does **not** create a container. `*.module.zee` is a comment. `main` wires by hand:
-
-```zee
-const users = users.UsersController { service: users.usersService }
-const companies = companies.CompaniesController {
-  service: companies.CompanyService.empty()
-}
-```
-
-That is honest. It does not scale past a handful of modules.
-
-**Wanted:** a checkable graph so a controller does not construct its service, and `main` does not list every field. Nest-shaped: module lists what it **provides** and what it **needs**. Cross-module (`companies` reads `users.UserService`) is the interesting case — import cycles stay illegal.
-
-**Refused (will not grow later “for a minute”):**
-
-| Refused | Why |
-|---|---|
-| `@Inject` / attributes / annotations | no macros, no hidden wiring |
-| classpath / folder scan | modules are directories you `import`, not a scan |
-| reflection container at runtime | Zee is checked; the graph should fail at **check** |
-| PHP/Laravel facades / service locator | pass the object, or a generated `App` value |
-| Spring XML / YAML as the graph | wiring is Zee source, or `zee generate` files |
-
-**Likely shape (not decided):** constructor injection as the *only* injection. The module file becomes the graph (provides / imports), compiled, not a service locator you `get(UserService)` from anywhere. Scope is at least **one instance per process** for services (today’s `pub var`); per-request wait until there is HTTP.
-
-**Open:**
-
-1. Language feature vs **stdlib** `App` vs **`zee generate`** writing the wiring in `main` / `*.module.zee`?
-2. Does `*.module.zee` grow real declarations (`provides UserService`, `import users`), or stay a convention and `main` stays the composition root?
-3. Bind by **type** (`UserService`) or by **name** (`usersService`)? Type-only is Nest/Spring; Zee already has module-qualified names.
-4. Interface + impl (`UserRepo` implemented by `MapUserRepo`): who chooses the impl — the module, or `main`?
-5. Cycles in the **instance** graph (A needs B, B needs A) — import cycles are already errors; instance cycles need a rule (`lazy`, forbid, or two-phase init).
-6. Mutating a injected `const` service field (`var self` on the dependency) — same as §9a Q5.
-
-### 9c. Collection methods
-
-v0 today: **`List<T>`** has `map` / `filter` / `forEach`. `T[]` has `toList`. `List` has `toArray`. `Map` and `T[]` walk only with `for`.
-
-Lambda spelling is already **Kotlin** (`{ a, b -> … }`, trailing). Not JS `(id, company) -> { … }`.
-
-`for x in xs` / `for (k, v) in m` stay.
-
-**Catalog (wanted).** `List` never mutates in place — those rows return a new `List`. Mutating rows need `var` `T[]` / `var` `Map`.
+v0 today: `List` has `map` / `filter` / `forEach`. `T[]` has `toList`. `List` has `toArray`. `Map` and `T[]` walk with `for`. The rest of this table is **defined** and not yet in the interpreter (same lag as `task`).
 
 | Method | Meaning | `List<T>` | `T[]` | `Map<K, V>` |
 |---|---|---|---|---|
-| `each` | walk, `Unit` | alias/`forEach` already | yes | `{ K, V -> }` |
-| `map` | transform | **in** | yes | `{ K, V -> U }` → `List<U>`? |
+| `forEach` | walk, `Unit` | **in** | yes | `{ K, V -> }` |
+| `map` | transform | **in** | yes | no — use `mapValues` |
+| `mapValues` | transform values | no | no | `{ V -> U }` → `Map<K, U>` |
 | `filter` | keep if true | **in** | yes | `{ K, V -> bool }` |
-| `unique` | drop duplicates (`T: Eq`) | new `List` | copy or in-place? | keys already unique |
-| `flat` | one level flatten | `List<List<T>>` → `List<T>` | `T[][]` → `T[]` | no |
+| `unique` | drop duplicates (`T: Eq`), **first-seen** | new `List` | copy | keys already unique |
+| `flat` | **one** level | `List<List<T>>` → `List<T>` | `T[][]` → `T[]` | no |
 | `find` | first match → `Option<T>` | yes | yes | `{ K, V -> bool }` → `Option<(K, V)>` |
-| `some` | any match → `bool` | yes | yes | yes |
+| `any` | any match → `bool` | yes | yes | yes |
 | `all` | every match → `bool` | yes | yes | yes |
 | `first` / `last` | ends → `Option<T>` | yes | yes | no (not ordered) |
-| `contains` | `T: Eq` → `bool` | yes | yes | key? or value? |
+| `contains` | `T: Eq` → `bool` | yes | yes | key (`containsKey`) |
 | `join` | `List<String>` → `String` | yes | yes | no |
-| `toString` | debug dump | yes | yes | yes |
-| `push` | add at **end** | new `List` or no | **`var`**, grows | no |
-| `pop` | take last → `Option<T>` | new `List` + value, or no | **`var`**, shrinks | no |
-| `fill` | write every slot | no (immutable) | **`var`** | no |
-| `merge` | concat / putAll | `+` or `merge` → new `List` | `var` grow or new | `var` putAll (right wins) |
+| `toString` | debug dump (not `Eq`, not `str`) | yes | yes | yes |
+| `push` | add at **end** | no (immutable) | **`var`**, grows | no |
+| `pop` | take last → `Option<T>` | no (immutable) | **`var`**, shrinks | no |
+| `fill` | write every slot | no | **`var`** | no |
+| `+` | concat | new `List` | new `T[]` | no |
+| `merge` | putAll, **right wins** | no | no | `var` or new `Map` |
 | `keys` / `values` | project | no | no | `List<K>` / `List<V>` |
-| `slice` / `take` / `drop` | window | new `List` | copy | no |
+| `slice` | window `[start, end)` | new `List` | copy | no |
 | `reverse` | reverse order | new `List` | `var` or copy | no |
 | `sort` | `T: Ord` | new `List` | `var` or copy | no |
 
-**`push` is the opposite of `pop`** (add vs remove at the end). `shift` / `unshift` (front) are **not** in this catalog unless we need a deque later.
+`take(n)` / `drop(n)` are `slice(0, n)` / `slice(n, len)` — not a second API. `shift` / `unshift` wait for a deque. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait until this table is in the interpreter.
 
 **Refused:**
 
 | Refused | Why |
 |---|---|
+| `each` next to `forEach` | one name: **`forEach`** |
+| `some` next to `any` | one name: **`any`** (pair is `all`) |
 | `(x) -> { }` as a second lambda | `{ a, b -> … }` (§1) |
 | PHP `foreach` / JS `for…of` keywords | `for in` exists |
 | LINQ query syntax | methods + lambdas |
-| mutating `each` that resizes under the callback | iterator is not the owner |
+| mutating `forEach` that resizes under the callback | iterator is not the owner |
 | `pop`/`push`/`fill` on `List` in place | `List` is immutable |
-| `some` as a second name next to `any` | pick **one** (JS `some` vs Kotlin `any`) |
+| `map` overloaded on `Map` | `mapValues` + `values.map` |
+| `str()` as collection dump | `str` stays integer/`bool`; dump is `toString` |
 
-**Open:**
+### 8g. Emptiness, blank, none
 
-1. `each` vs `forEach` (already on `List`) — one name.
-2. `some` vs `any` — same method, JS vs Kotlin. Pair is `all`.
-3. `map` on `Map`: `List<U>` vs `mapValues` → `Map<K, U>` (no overloading → two names if both).
-4. `toString` vs extending `str()` (today `str` is integer/`bool` only). Debug dump should not pretend to be `Eq`.
-5. `unique` order: first-seen vs sorted. Needs `Eq`; `Hash` would be faster.
-6. `flat` depth: one level only (no recursive `flat(n)`).
-7. `merge` name vs `+` on `List` / `T[]`. Map right-hand wins on duplicate keys.
-8. `pop` return: `Option<T>` (empty is `None`) — no panic, no dummy.
-9. `slice` vs `take`/`drop` — one window API, not both styles.
-10. `find` / `any` / `all` / `fold` extras (`count`, `zip`, `groupBy`, `flatMap`, `min`/`max`) wait until this table is in the interpreter.
-
-### 9d. Checker holes the demo hit — **in the interpreter** (ZEE-7)
-
-Not new grammar. Was a check-order bug:
-
-- Imported types work in signatures and fields (`import users.UserService` + `const service: UserService`).
-- `import users.usersService` resolves a `pub var` (module graph: exporter binds, then importer).
-- Methods are names **on the type**, not the module: `UserService.create` and `UsersController.create` coexist. Call is `svc.create()`, not a free `create`.
-
-### 9e. Emptiness, blank, none (Kotlin predicates)
-
-v0 today: `xs.len == 0`, `s.len == 0`, `x == None` / `x != None`. No truthiness (`if xs` is illegal). No `null`.
-
-Kotlin’s set, mapped onto Zee:
+v0 today: `xs.len == 0`, `s.len == 0`, `x == None` / `x != None`. No truthiness (`if xs` is illegal). No `null`. The methods below are **defined**; the interpreter may lag.
 
 | Kotlin | Zee | On |
 |---|---|---|
 | `isEmpty()` | `isEmpty()` | `String`, `List`, `T[]`, `Map` |
 | `isNotEmpty()` | `isNotEmpty()` | same |
-| `isBlank()` | `isBlank()` | `String` only — empty or only whitespace `Char`s |
+| `isBlank()` | `isBlank()` | `String` only — empty or only Unicode whitespace `Char`s |
 | `isNotBlank()` | `isNotBlank()` | `String` |
-| `isNullOrEmpty()` | `isNoneOrEmpty()` | `Option<String>` / `Option<List<T>>` / `Option<T[]>` / `Option<Map<K,V>>` |
+| `isNullOrEmpty()` | `isNoneOrEmpty()` | `Option<String>` / `Option<List<T>>` / `Option<T[]>` / `Option<Map<K,V>>` only |
 | `isNullOrBlank()` | `isNoneOrBlank()` | `Option<String>` |
-| `== null` | `isNone()` or `x == None` | `Option<T>` |
-| `!= null` | `isSome()` or `x != None` | `Option<T>` |
+| `== null` | `isNone()` **and** `x == None` | `Option<T>` |
+| `!= null` | `isSome()` **and** `x != None` | `Option<T>` |
 
-Negated versions are **named methods**, not `!` only — same as Kotlin (`isNotEmpty`, not only `!isEmpty`). `!` still works on the `bool` they return.
+`Type.empty()` is the associated factory. The predicate is `isEmpty` so the two do not share a name.
 
-**Why not `empty()`:** `Type.empty()` is already the associated factory (`CompanyService.empty()`). Predicate is `isEmpty` so the two do not share a name. `null` is not a method and not a value.
+`String.isEmpty` is **byte-empty** (`len == 0`). A well-formed UTF-8 empty string is empty; there is no second “scalar empty”.
+
+Whitespace for `isBlank` is Unicode `Char` whitespace (same as Kotlin), not ASCII-only.
+
+`isNoneOrEmpty` / `isNoneOrBlank` do **not** exist on other `Option<T>`. Those use `== None`.
 
 ```zee
 if name.isBlank() { return }
@@ -1538,18 +1450,97 @@ if err != None { return ("", err) } // Go slot stays; isSome() is sugar
 | `if xs` / PHP empty() truthiness | `cond` is `bool` |
 | `isBlank` on `List` / `Map` | blank is a **string** idea |
 | treating `Some("  ")` as `None` | `isNoneOrBlank` is explicit; `?:` does not trim |
+| `empty()` as a predicate | collides with `Type.empty()` |
 
-**Open:**
+## 9. Radar (closed)
 
-1. `isEmpty` vs `empty` as the user spelled it — factory collision decides **`is*`**.
-2. Whitespace: Unicode `Char` whitespace (Kotlin) vs ASCII only (` `, `\t`, `\n`, `\r`).
-3. `isNone`/`isSome` vs only `== None` — sugar or skip?
-4. `isNoneOrEmpty` on `Option<T>` when `T` is not a collection/`String` — only the four types above, or a bound later?
-5. Byte-empty `String` (`len == 0`) vs scalar-empty — same for UTF-8 well-formed empty.
+Closed in ZEE-13. The Nest CRUD demo made these holes visible. **No new grammar.** Associated factories and hand-wired `main` are the language, not a stand-in waiting to be replaced. Collection and emptiness catalogs live in §8f / §8g (stdlib; interpreter may lag).
 
----
+### 9a. Constructors — associated factories are enough
+
+```zee
+const u = User { name: "ana", age: 1 }     // all fields, visibility applies
+const p = Point.origin()                    // associated factory — the public constructor
+const svc = CompanyService.empty()         // hide private `rows` from other modules
+```
+
+**Answers:**
+
+1. Associated `Type.of(…)` / `Type.empty()` is **enough**. Document the pattern. No primary-constructor syntax.
+2. Call is always `UsersController { service: svc }`. Never `UsersController(svc)` — that is `T(x)` conversion.
+3. No `init`. Invariants live in the factory: `(T, err)` or `panic`.
+4. Overloads: **no**. Named associated fns (`empty`, `of`, `withCap`).
+5. `var self` on a **`const` field** of `class`: **illegal**. The field is `var` if you mutate it. Construction does not paper over this.
+
+No `new`. That refusal stays. A `pub class` with private fields is built only from its defining module via an associated factory.
+
+### 9b. Dependency injection — `main` is the composition root
+
+v0 today: pass the dependency as a field. `zee generate` creates **layer file names**. It does **not** create a container. `*.module.zee` is a comment. `main` wires by hand:
+
+```zee
+const users = users.UsersController { service: users.usersService }
+const companies = companies.CompaniesController {
+  service: companies.CompanyService.empty()
+}
+```
+
+That is the language. It does not scale past a handful of modules, and that is accepted for v0. Scaling later is **more `main` / generated Zee source**, not a container.
+
+**Refused (will not grow later “for a minute”):**
+
+| Refused | Why |
+|---|---|
+| `@Inject` / attributes / annotations | no macros, no hidden wiring |
+| classpath / folder scan | modules are directories you `import`, not a scan |
+| reflection container at runtime | Zee is checked; a hidden graph is a second language |
+| PHP/Laravel facades / service locator | pass the object |
+| Spring XML / YAML as the graph | wiring is Zee source |
+| `provides` / `import` declarations in `*.module.zee` | stays a comment |
+| language-level DI | hexagonal stays in the **course** (module 08), not a keyword |
+
+**Answers:**
+
+1. Not a language feature, not a stdlib `App`, not generated wiring in v0. **`main`.**
+2. `*.module.zee` stays a convention (directory comment).
+3. Bind by **name** you pass (`usersService`), not by type scan.
+4. Interface + impl: **`main` chooses** the impl.
+5. Instance cycles: **forbid** (same as import cycles). No `lazy`, no two-phase init.
+6. Same as §9a answer 5.
+
+### 9c. Collection methods — catalog in §8f
+
+**Answers:**
+
+1. `forEach` only. No `each`.
+2. `any`, not `some`. Pair is `all`.
+3. `map` on `Map` is **`mapValues`** → `Map<K, U>`. `List<U>` is `m.values.map { }`.
+4. Debug dump is **`toString`**. `str` stays integer/`bool`.
+5. `unique` is **first-seen**. Needs `Eq`.
+6. `flat` is **one level**.
+7. **`+`** concatenates `List` / `T[]`. Map uses **`merge`** (right wins).
+8. `pop` returns `Option<T>` (empty is `None`). Only on **`var T[]`**. Not on `List`.
+9. One window API: **`slice(start, end)`**. `take`/`drop` are that slice, not a second name.
+10. `fold` / `count` / `zip` / `groupBy` / `flatMap` / `min` / `max` wait until §8f is in the interpreter.
+
+### 9d. Checker holes the demo hit — **in the interpreter** (ZEE-7)
+
+Not new grammar. Was a check-order bug:
+
+- Imported types work in signatures and fields (`import users.UserService` + `const service: UserService`).
+- `import users.usersService` resolves a `pub var` (module graph: exporter binds, then importer).
+- Methods are names **on the type**, not the module: `UserService.create` and `UsersController.create` coexist. Call is `svc.create()`, not a free `create`.
+
+### 9e. Emptiness, blank, none — catalog in §8g
+
+**Answers:**
+
+1. Predicates are **`is*`**. Factory stays `Type.empty()`.
+2. Whitespace: **Unicode `Char`** (Kotlin), not ASCII-only.
+3. `== None` / `!= None` stay. `isNone` / `isSome` are sugar on `Option`.
+4. `isNoneOrEmpty` / `isNoneOrBlank` only on the four types in §8g.
+5. `String.isEmpty` is **`len == 0`** (bytes). Well-formed UTF-8 empty is empty.
 
 ## 10. After definition
 
-Next work is **implementation** (§6 order), not more syntax — except §9, which must be **decided in this file** before anyone parses it. A backend may lag (`asm` on Node, `task` before a scheduler). It may not invent a second grammar.
-
+Next work is **implementation** of what §8 already defined and the interpreter still lacks (`task`, `unsafe`, §8f / §8g methods, bounds `T: Closeable`, `struct Box<T>`). It is not more syntax. A backend may lag. It may not invent a second grammar.

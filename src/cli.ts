@@ -457,7 +457,7 @@ function generateUsage(): string {
   zee generate repository <name>
   zee generate model <name>
   zee generate api <name>
-  zee generate module <name>               DI stub until §9b
+  zee generate module <name>               directory comment; main wires
 
 Examples:
   zee generate feature user --api
