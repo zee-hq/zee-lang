@@ -457,4 +457,81 @@ describe('List<T> (AC-list)', () => {
       /flat|field/,
     )
   })
+
+  it('folds counts zips groups flatMaps and mins (ZEE-26)', () => {
+    expect(
+      execute(`
+        const xs = [1, 2, 3, 4]
+        const empty: List<i32> = []
+        const g = xs.groupBy { it % 2 }
+        const z = xs.zip([10, 20])
+        (
+          xs.fold(0) { acc, x -> acc + x },
+          empty.fold(9) { acc, x -> acc + x },
+          xs.count { it > 2 },
+          z.len,
+          z[0],
+          g.len,
+          g[0] == Some([2, 4]),
+          g[1] == Some([1, 3]),
+          xs.flatMap { [it, it * 10] },
+          xs.min() == Some(1),
+          xs.max() == Some(4),
+          empty.min() == None
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'i32', value: 10 },
+        { type: 'i32', value: 9 },
+        { type: 'usize', value: 2n },
+        { type: 'usize', value: 2n },
+        {
+          type: 'tuple',
+          items: [
+            { type: 'i32', value: 1 },
+            { type: 'i32', value: 10 },
+          ],
+        },
+        { type: 'usize', value: 2n },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        {
+          type: 'list',
+          elem: { kind: 'i32' },
+          items: [
+            { type: 'i32', value: 1 },
+            { type: 'i32', value: 10 },
+            { type: 'i32', value: 2 },
+            { type: 'i32', value: 20 },
+            { type: 'i32', value: 3 },
+            { type: 'i32', value: 30 },
+            { type: 'i32', value: 4 },
+            { type: 'i32', value: 40 },
+          ],
+        },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+      ],
+    })
+  })
+
+  it('rejects min without Ord, Map fold, and take (ZEE-26)', () => {
+    expect(() =>
+      execute(`
+        struct Row {
+          const name: String
+        }
+        const xs = [Row { name: "a" }]
+        xs.min()
+      `),
+    ).toThrow(/Ord/)
+    expect(() => execute('var ages: Map<String, i32> = { "a": 1 }\nages.fold(0) { acc, x -> acc }')).toThrow(
+      /fold|field/,
+    )
+    expect(() => execute('const xs = [1, 2]\nxs.take(1)')).toThrow(/take|slice|field/)
+    expect(() => execute('const xs = [1, 2]\nxs.drop(1)')).toThrow(/drop|slice|field/)
+  })
 })

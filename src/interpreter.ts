@@ -1700,6 +1700,17 @@ function callMapMethod(
   if (name === 'flat') {
     throw new ZeeError('`flat` is List / `T[]`', loc.line, loc.column, loc.file)
   }
+  if (
+    name === 'fold' ||
+    name === 'count' ||
+    name === 'zip' ||
+    name === 'groupBy' ||
+    name === 'flatMap' ||
+    name === 'min' ||
+    name === 'max'
+  ) {
+    throw new ZeeError(`\`${name}\` is List / \`T[]\``, loc.line, loc.column, loc.file)
+  }
   return undefined
 }
 
@@ -1856,6 +1867,122 @@ function callSeqMethod(
       }
     }
     return { type: target.type, items, elem: target.elem.elem }
+  }
+  if (name === 'fold') {
+    if (args.length !== 2) {
+      throw new ZeeError(
+        '`fold` takes an initial value and `(Acc, T) -> Acc`',
+        loc.line,
+        loc.column,
+        loc.file,
+      )
+    }
+    let acc = copyValue(args[0]!)
+    for (const item of target.items) {
+      acc = applyFnValue(args[1]!, [acc, item], io, loc)
+    }
+    return acc
+  }
+  if (name === 'count') {
+    if (args.length !== 1) {
+      throw new ZeeError('`count` takes a `(T) -> bool` predicate', loc.line, loc.column, loc.file)
+    }
+    let n = 0n
+    for (const item of target.items) {
+      const keep = applyFnValue(args[0]!, [item], io, loc)
+      if (keep.type !== 'bool') {
+        throw new ZeeError('`count` expects `(T) -> bool`', loc.line, loc.column, loc.file)
+      }
+      if (keep.value) n += 1n
+    }
+    return { type: 'usize', value: n }
+  }
+  if (name === 'zip') {
+    const other = args[0]
+    if (args.length !== 1 || !other || other.type !== target.type) {
+      throw new ZeeError('`zip` requires two Lists or two arrays', loc.line, loc.column, loc.file)
+    }
+    const n = Math.min(target.items.length, other.items.length)
+    const items: ZeeValue[] = []
+    for (let i = 0; i < n; i += 1) {
+      items.push({
+        type: 'tuple',
+        items: [copyValue(target.items[i]!), copyValue(other.items[i]!)],
+      })
+    }
+    return {
+      type: target.type,
+      items,
+      elem: { kind: 'tuple', parts: [target.elem, other.elem] },
+    }
+  }
+  if (name === 'groupBy') {
+    if (args.length !== 1) {
+      throw new ZeeError('`groupBy` takes one function', loc.line, loc.column, loc.file)
+    }
+    const groups = new Map<string, { key: ZeeValue; items: ZeeValue[] }>()
+    let keyType: ZeeType | undefined
+    for (const item of target.items) {
+      const key = applyFnValue(args[0]!, [item], io, loc)
+      if (!keyType) keyType = typeOfValue(key)
+      const hash = mapHashKey(key, loc)
+      let group = groups.get(hash)
+      if (!group) {
+        group = { key: copyValue(key), items: [] }
+        groups.set(hash, group)
+      }
+      group.items.push(copyValue(item))
+    }
+    const entries = new Map<string, { key: ZeeValue; value: ZeeValue }>()
+    for (const [hash, group] of groups) {
+      entries.set(hash, {
+        key: group.key,
+        value: { type: target.type, items: group.items, elem: target.elem },
+      })
+    }
+    return {
+      type: 'map',
+      entries,
+      key: keyType ?? target.elem,
+      value: { kind: target.type, elem: target.elem },
+    }
+  }
+  if (name === 'flatMap') {
+    if (args.length !== 1) {
+      throw new ZeeError('`flatMap` takes one function', loc.line, loc.column, loc.file)
+    }
+    const nested = target.type
+    const items: ZeeValue[] = []
+    let elem = target.elem
+    for (const item of target.items) {
+      const inner = applyFnValue(args[0]!, [item], io, loc)
+      if (inner.type !== nested) {
+        throw new ZeeError(
+          nested === 'list' ? '`flatMap` requires `(T) -> List<U>`' : '`flatMap` requires `(T) -> U[]`',
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      elem = inner.elem
+      for (const value of inner.items) {
+        items.push(copyValue(value))
+      }
+    }
+    return { type: target.type, items, elem }
+  }
+  if (name === 'min' || name === 'max') {
+    if (args.length !== 0) {
+      throw new ZeeError(`\`${name}\` takes no arguments`, loc.line, loc.column, loc.file)
+    }
+    if (target.items.length === 0) return { type: 'option', tag: 'none' }
+    let best = target.items[0]!
+    for (let i = 1; i < target.items.length; i += 1) {
+      const item = target.items[i]!
+      const cmp = compareOrd(item, best, loc)
+      if (name === 'min' ? cmp < 0 : cmp > 0) best = item
+    }
+    return { type: 'option', tag: 'some', value: copyValue(best) }
   }
   return undefined
 }

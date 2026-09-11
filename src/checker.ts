@@ -3201,6 +3201,17 @@ function checkMapMethod(
   if (name === 'flat') {
     throw error(expr.loc, '`flat` is List / `T[]`')
   }
+  if (
+    name === 'fold' ||
+    name === 'count' ||
+    name === 'zip' ||
+    name === 'groupBy' ||
+    name === 'flatMap' ||
+    name === 'min' ||
+    name === 'max'
+  ) {
+    throw error(expr.loc, `\`${name}\` is List / \`T[]\``)
+  }
   return undefined
 }
 
@@ -3293,6 +3304,63 @@ function checkSeqMethod(
       throw error(expr.loc, '`flat` requires `T[][]`')
     }
     return { kind: 'array', elem: targetType.elem.elem }
+  }
+  if (name === 'fold') {
+    if (expr.args.length !== 2) {
+      throw error(expr.loc, '`fold` takes an initial value and `(Acc, T) -> Acc`')
+    }
+    const acc = checkExpr(expr.args[0]!, env, returnType)
+    const folded = inferFnArg(expr.args[1]!, [acc, targetType.elem], env, returnType)
+    if (!isAssignable(folded.ret, acc)) {
+      throw error(expr.loc, `\`fold\` accumulator must stay ${typeName(acc)}`)
+    }
+    return acc
+  }
+  if (name === 'count') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`count` takes a `(T) -> bool` predicate')
+    checkExpr(expr.args[0]!, env, returnType, {
+      kind: 'fn',
+      params: [targetType.elem],
+      ret: T_BOOL,
+    })
+    return T_USIZE
+  }
+  if (name === 'zip') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`zip` takes one collection')
+    const other = checkExpr(expr.args[0]!, env, returnType)
+    if (other.kind !== targetType.kind) {
+      throw error(expr.loc, '`zip` requires two Lists or two arrays')
+    }
+    return { kind: targetType.kind, elem: { kind: 'tuple', parts: [targetType.elem, other.elem] } }
+  }
+  if (name === 'groupBy') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`groupBy` takes one function')
+    const keyed = inferFnArg(expr.args[0]!, [targetType.elem], env, returnType)
+    if (!isHashable(keyed.ret)) {
+      throw error(expr.loc, '`groupBy` requires `K: Eq + Hash`')
+    }
+    return { kind: 'map', key: keyed.ret, value: targetType }
+  }
+  if (name === 'flatMap') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`flatMap` takes one function')
+    const mapped = inferFnArg(expr.args[0]!, [targetType.elem], env, returnType)
+    if (targetType.kind === 'list') {
+      if (mapped.ret.kind !== 'list') {
+        throw error(expr.loc, '`flatMap` requires `(T) -> List<U>`')
+      }
+      return { kind: 'list', elem: mapped.ret.elem }
+    }
+    if (mapped.ret.kind !== 'array') {
+      throw error(expr.loc, '`flatMap` requires `(T) -> U[]`')
+    }
+    return { kind: 'array', elem: mapped.ret.elem }
+  }
+  if (name === 'min' || name === 'max') {
+    if (expr.args.length !== 0) throw error(expr.loc, `\`${name}\` takes no arguments`)
+    if (!isOrdType(targetType.elem)) {
+      throw error(expr.loc, `\`${name}\` requires \`T: Ord\``)
+    }
+    return { kind: 'option', inner: targetType.elem }
   }
   return undefined
 }

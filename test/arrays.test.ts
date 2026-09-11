@@ -228,4 +228,39 @@ describe('arrays (AC-array)', () => {
   it('rejects flat on T[] (ZEE-30)', () => {
     expect(() => execute('var xs: i32[] = [1, 2]\nxs.flat()')).toThrow(/flat|T\[\]\[\]/)
   })
+
+  it('folds counts zips groups flatMaps and mins on T[] (ZEE-26)', () => {
+    expect(
+      execute(`
+        var xs: i32[] = [1, 2, 3, 4]
+        var empty: i32[] = []
+        const z = xs.zip(xs)
+        (
+          xs.fold(0) { acc, x -> acc + x },
+          empty.fold(9) { acc, x -> acc + x },
+          xs.count { it > 2 },
+          z.len,
+          xs.groupBy { it % 2 }.len,
+          xs.flatMap {
+            var inner: i32[] = [it, it * 10]
+            inner
+          }.len,
+          xs.min() == Some(1),
+          empty.max() == None
+        )
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'i32', value: 10 },
+        { type: 'i32', value: 9 },
+        { type: 'usize', value: 2n },
+        { type: 'usize', value: 4n },
+        { type: 'usize', value: 2n },
+        { type: 'usize', value: 8n },
+        { type: 'bool', value: true },
+        { type: 'bool', value: true },
+      ],
+    })
+  })
 })
