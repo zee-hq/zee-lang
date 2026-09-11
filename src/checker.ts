@@ -3009,10 +3009,20 @@ function checkBuiltinMethod(
       return T_UNIT
     }
     if (name === 'sort') {
-      if (expr.args.length !== 0) throw error(expr.loc, '`sort` takes no arguments')
-      if (!isOrdType(targetType.elem)) {
-        throw error(expr.loc, '`sort` requires `T: Ord`')
+      if (expr.args.length === 0) {
+        if (!isOrdType(targetType.elem)) {
+          throw error(expr.loc, '`sort` requires `T: Ord`')
+        }
+        return targetType
       }
+      if (expr.args.length !== 1) {
+        throw error(expr.loc, '`sort` takes no arguments or a `(T, T) -> i32` comparator')
+      }
+      checkExpr(expr.args[0]!, env, returnType, {
+        kind: 'fn',
+        params: [targetType.elem, targetType.elem],
+        ret: T_I32,
+      })
       return targetType
     }
   }

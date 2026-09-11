@@ -228,4 +228,48 @@ describe('List<T> (AC-list)', () => {
       `),
     ).toThrow(/Ord/)
   })
+
+  it('sorts with a (T, T) -> i32 comparator (ZEE-20)', () => {
+    expect(
+      execute(`
+        struct Row {
+          const name: String
+          const age: i32
+        }
+        const xs = [Row { name: "bo", age: 2 }, Row { name: "ana", age: 30 }]
+        const byAge = xs.sort { a, b -> a.age <===> b.age }
+        const nums = [1, 3, 2]
+        const desc = nums.sort { a, b -> b <===> a }
+        (byAge[0].name, byAge[1].name, xs[0].name, desc)
+      `).value,
+    ).toEqual({
+      type: 'tuple',
+      items: [
+        { type: 'string', value: 'bo' },
+        { type: 'string', value: 'ana' },
+        { type: 'string', value: 'bo' },
+        {
+          type: 'list',
+          elem: { kind: 'i32' },
+          items: [
+            { type: 'i32', value: 3 },
+            { type: 'i32', value: 2 },
+            { type: 'i32', value: 1 },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('rejects a bool comparator and PHP usort (ZEE-20)', () => {
+    expect(() =>
+      execute(`
+        const xs = [3, 1, 2]
+        xs.sort { a, b -> a < b }
+      `),
+    ).toThrow(/i32/)
+    expect(() => execute('const xs = [3, 1]\nxs.usort { a, b -> a <===> b }')).toThrow(
+      /usort|field/,
+    )
+  })
 })

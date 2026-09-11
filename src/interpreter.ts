@@ -1393,11 +1393,26 @@ function callCollectionMethod(
       return UNIT
     }
     if (name === 'sort') {
-      if (args.length !== 0) {
-        throw new ZeeError('`sort` takes no arguments', loc.line, loc.column, loc.file)
+      if (args.length !== 0 && args.length !== 1) {
+        throw new ZeeError(
+          '`sort` takes no arguments or a `(T, T) -> i32` comparator',
+          loc.line,
+          loc.column,
+          loc.file,
+        )
       }
       const items = target.items.map(copyValue)
-      items.sort((left, right) => compareOrd(left, right, loc))
+      if (args.length === 0) {
+        items.sort((left, right) => compareOrd(left, right, loc))
+      } else {
+        items.sort((left, right) => {
+          const out = applyFnValue(args[0]!, [left, right], io, loc)
+          if (out.type !== 'i32') {
+            throw new ZeeError('`sort` comparator must return `i32`', loc.line, loc.column, loc.file)
+          }
+          return Number(out.value)
+        })
+      }
       return { type: 'list', items, elem: target.elem }
     }
   }
