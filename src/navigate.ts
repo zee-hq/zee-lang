@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import type { Program, Stmt } from './ast.ts'
-import type { Loc } from './error.ts'
+import { ZeeError, type Loc } from './error.ts'
 import { tokenize, type Token } from './lexer.ts'
 import { parse } from './parser.ts'
 import { findProjectRoot, listPackageSources } from './project.ts'
@@ -24,6 +24,62 @@ export function formatGoto(hit: LocationHit): string {
     name: hit.name,
     kind: hit.kind,
   })
+}
+
+export interface TextReplacement {
+  line: number
+  column: number
+  length: number
+  text: string
+}
+
+export interface FileEdits {
+  file: string
+  replacements: TextReplacement[]
+}
+
+export function renameSymbol(args: {
+  source: string
+  file: string
+  line: number
+  column: number
+  newName: string
+}): FileEdits[] {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(args.newName)) {
+    throw new ZeeError(`invalid name \`${args.newName}\``, args.line, args.column, args.file)
+  }
+  const def = findDefinition(args)
+  if (!def) return []
+  const project = loadProject(resolve(args.file), args.source)
+  const out: FileEdits[] = []
+  for (const unit of project) {
+    const replacements: TextReplacement[] = []
+    for (const tok of tokenize(unit.source, unit.file)) {
+      if (tok.kind !== 'ident' || tok.lexeme !== def.name) continue
+      const hit = findDefinition({
+        source: unit.source,
+        file: unit.file,
+        line: tok.loc.line,
+        column: tok.loc.column,
+      })
+      if (!hit) continue
+      if (
+        resolve(hit.file) === resolve(def.file) &&
+        hit.line === def.line &&
+        hit.column === def.column &&
+        hit.name === def.name
+      ) {
+        replacements.push({
+          line: tok.loc.line,
+          column: tok.loc.column,
+          length: tok.lexeme.length,
+          text: args.newName,
+        })
+      }
+    }
+    if (replacements.length > 0) out.push({ file: unit.file, replacements })
+  }
+  return out
 }
 
 export function findDefinition(args: {

@@ -183,6 +183,27 @@ describe('editor grammar', () => {
     expect(extension).toContain('textDocument/semanticTokens/full')
     expect(languageConfig.wordPattern).toBeDefined()
   })
+
+  it('registers format, rename, and the interpreter debugger (ZEE-3)', () => {
+    const extension = readFileSync(join(editorRoot, 'extension.js'), 'utf8')
+    expect(extension).toContain('registerDocumentFormattingEditProvider')
+    expect(extension).toContain('registerRenameProvider')
+    expect(extension).toContain("registerDebugAdapterDescriptorFactory('zee'")
+    expect(extension).toContain("resolveZeeCli('debug'")
+    expect(extensionManifest.contributes.breakpoints).toEqual([{ language: 'zee' }])
+    expect(extensionManifest.contributes.debuggers?.[0]?.type).toBe('zee')
+  })
+
+  it('packages the same folder editor:link installs (ZEE-3)', () => {
+    expect(existsSync(join(editorRoot, '.vscodeignore'))).toBe(true)
+    expect(existsSync(join(editorRoot, 'LICENSE'))).toBe(true)
+    const workflow = readFileSync(join(import.meta.dirname, '../.github/workflows/publish-editor.yml'), 'utf8')
+    expect(workflow).toContain('@vscode/vsce')
+    expect(workflow).toContain('ovsx')
+    expect(workflow).toContain('publishPlugin')
+    const gradle = readFileSync(join(import.meta.dirname, '../editor/jetbrains/build.gradle.kts'), 'utf8')
+    expect(gradle).toContain('JETBRAINS_MARKETPLACE_TOKEN')
+  })
 })
 
 describe('JetBrains plugin (ZEE-2)', () => {

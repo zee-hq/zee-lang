@@ -147,6 +147,74 @@ function activate(context) {
         )
       },
     }),
+    vscode.languages.registerDocumentFormattingEditProvider('zee', {
+      async provideDocumentFormattingEdits(document) {
+        try {
+          const edits = await lsp.request('textDocument/formatting', {
+            textDocument: { uri: document.uri.toString() },
+            options: { tabSize: 2, insertSpaces: true },
+          })
+          return (edits ?? []).map(
+            (edit) =>
+              new vscode.TextEdit(
+                new vscode.Range(
+                  edit.range.start.line,
+                  edit.range.start.character,
+                  edit.range.end.line,
+                  edit.range.end.character,
+                ),
+                edit.newText,
+              ),
+          )
+        } catch {
+          return []
+        }
+      },
+    }),
+    vscode.languages.registerRenameProvider('zee', {
+      async prepareRename(document, position) {
+        const result = await lsp.request('textDocument/prepareRename', positionParams(document, position))
+        if (!result?.range) throw new Error('No symbol to rename')
+        return new vscode.Range(
+          result.range.start.line,
+          result.range.start.character,
+          result.range.end.line,
+          result.range.end.character,
+        )
+      },
+      async provideRenameEdits(document, position, newName) {
+        try {
+          const result = await lsp.request('textDocument/rename', {
+            ...positionParams(document, position),
+            newName,
+          })
+          const edit = new vscode.WorkspaceEdit()
+          for (const [uri, changes] of Object.entries(result?.changes ?? {})) {
+            for (const change of changes) {
+              edit.replace(
+                vscode.Uri.parse(uri),
+                new vscode.Range(
+                  change.range.start.line,
+                  change.range.start.character,
+                  change.range.end.line,
+                  change.range.end.character,
+                ),
+                change.newText,
+              )
+            }
+          }
+          return edit
+        } catch {
+          return new vscode.WorkspaceEdit()
+        }
+      },
+    }),
+    vscode.debug.registerDebugAdapterDescriptorFactory('zee', {
+      createDebugAdapterDescriptor() {
+        const resolved = resolveZeeCli('debug', undefined, workspaceRoot)
+        return new vscode.DebugAdapterExecutable(resolved.command, resolved.args, { cwd: resolved.cwd })
+      },
+    }),
     vscode.languages.registerDocumentSemanticTokensProvider(
       'zee',
       {

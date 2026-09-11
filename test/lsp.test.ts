@@ -130,7 +130,10 @@ fn main() { inc(1) }
     const reply = session.dispatch(parsed!.message)
     const result = Array.isArray(reply) ? undefined : reply?.result
     expect(result).toMatchObject({ capabilities: { hoverProvider: true, definitionProvider: true } })
-    expect((result as { capabilities?: { renameProvider?: boolean } } | undefined)?.capabilities?.renameProvider).toBeUndefined()
+    expect((result as { capabilities?: { renameProvider?: unknown; documentFormattingProvider?: boolean } } | undefined)?.capabilities?.renameProvider).toEqual({
+      prepareProvider: true,
+    })
+    expect((result as { capabilities?: { documentFormattingProvider?: boolean } } | undefined)?.capabilities?.documentFormattingProvider).toBe(true)
   })
 
   it('publishes checker diagnostics on didOpen', () => {
@@ -162,5 +165,41 @@ fn main() { inc(1) }
     const parsed = tryReadLspMessage(Buffer.concat(chunks))
     expect(parsed?.message.id).toBe(1)
     expect(parsed?.message.result).toMatchObject({ capabilities: { hoverProvider: true } })
+  })
+
+  it('formats a messy document (ZEE-3)', () => {
+    const session = new LspSession()
+    session.open('/tmp/messy.zee', 'fn main(){println("hello, zee")}')
+    const reply = session.dispatch({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'textDocument/formatting',
+      params: {
+        textDocument: { uri: 'file:///tmp/messy.zee' },
+        options: { tabSize: 2, insertSpaces: true },
+      },
+    })
+    const result = Array.isArray(reply) ? undefined : reply?.result
+    const edits = result as { newText: string }[] | undefined
+    expect(edits?.[0]?.newText).toBe(`fn main() {
+  println("hello, zee")
+}
+`)
+  })
+
+  it('renames a pub fn across the import (ZEE-3)', () => {
+    const root = scratch()
+    const http = join(root, 'src/http.zee')
+    writeFileSync(http, 'pub fn get() -> String { "ok" }\n')
+    const file = join(root, 'src/main.zee')
+    const source = 'import http.get\nfn main() {\n  println(get())\n}\n'
+    writeFileSync(file, source)
+    const session = new LspSession()
+    session.open(file, source)
+    const pos = at(source, 'get', 1)
+    const edits = session.rename(file, pos.line, pos.character, 'fetch')
+    const files = new Map(edits.map((item) => [resolve(item.file), item.replacements]))
+    expect(files.get(resolve(http))?.some((item) => item.text === 'fetch')).toBe(true)
+    expect(files.get(resolve(file))?.filter((item) => item.text === 'fetch').length).toBeGreaterThanOrEqual(2)
   })
 })

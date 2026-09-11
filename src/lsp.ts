@@ -7,9 +7,11 @@ import { KEYWORDS, tokenize, type Token } from './lexer.ts'
 import {
   collectSymbols,
   findDefinition,
+  renameSymbol,
   tokenAt,
   type LocationHit,
 } from './navigate.ts'
+import { formatZee } from './format.ts'
 import { parse } from './parser.ts'
 import { findProjectRoot, listPackageSources } from './project.ts'
 import { loadProgramFromPath } from './zee.ts'
@@ -206,6 +208,33 @@ export class LspSession {
     }
   }
 
+  format(uri: string): string {
+    const file = fileFromUri(uri)
+    try {
+      return formatZee(this.sourceOf(file), file)
+    } catch {
+      return this.sourceOf(file)
+    }
+  }
+
+  rename(uri: string, line: number, character: number, newName: string) {
+    const file = fileFromUri(uri)
+    return renameSymbol({
+      source: this.sourceOf(file),
+      file,
+      line: line + 1,
+      column: character + 1,
+      newName,
+    })
+  }
+
+  prepareRename(uri: string, line: number, character: number): { line: number; column: number; length: number } | undefined {
+    const file = fileFromUri(uri)
+    const tok = tokenAt(tokenize(this.sourceOf(file), file), line + 1, character + 1)
+    if (!tok || tok.kind !== 'ident') return undefined
+    return { line: tok.loc.line, column: tok.loc.column, length: tok.lexeme.length }
+  }
+
   signatureHelp(uri: string, line: number, character: number): LspSignature | undefined {
     const file = fileFromUri(uri)
     const source = this.sourceOf(file)
@@ -278,6 +307,8 @@ export class LspSession {
             referencesProvider: true,
             signatureHelpProvider: { triggerCharacters: ['('] },
             inlayHintProvider: true,
+            documentFormattingProvider: true,
+            renameProvider: { prepareProvider: true },
             semanticTokensProvider: {
               legend: { tokenTypes: [...SEMANTIC_TOKEN_TYPES], tokenModifiers: [] },
               full: true,
@@ -343,6 +374,63 @@ export class LspSession {
           position: { line: hint.line - 1, character: hint.column - 1 },
           label: hint.label,
         })),
+      }
+    }
+    if (message.method === 'textDocument/formatting') {
+      const formatted = this.format(uri)
+      const source = this.sourceOf(fileFromUri(uri))
+      const lines = source.split('\n')
+      return {
+        jsonrpc: '2.0',
+        id: message.id,
+        result: [
+          {
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: Math.max(lines.length - 1, 0), character: lines.at(-1)?.length ?? 0 },
+            },
+            newText: formatted,
+          },
+        ],
+      }
+    }
+    if (message.method === 'textDocument/prepareRename') {
+      const prep = this.prepareRename(uri, line, character)
+      return {
+        jsonrpc: '2.0',
+        id: message.id,
+        result: prep
+          ? {
+              range: {
+                start: { line: prep.line - 1, character: prep.column - 1 },
+                end: { line: prep.line - 1, character: prep.column - 1 + prep.length },
+              },
+            }
+          : null,
+      }
+    }
+    if (message.method === 'textDocument/rename') {
+      try {
+        const newName = String((params.newName as string | undefined) ?? '')
+        const edits = this.rename(uri, line, character, newName)
+        const changes: Record<string, { range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[]> = {}
+        for (const file of edits) {
+          const uriKey = `file://${file.file}`
+          changes[uriKey] = file.replacements.map((item) => ({
+            range: {
+              start: { line: item.line - 1, character: item.column - 1 },
+              end: { line: item.line - 1, character: item.column - 1 + item.length },
+            },
+            newText: item.text,
+          }))
+        }
+        return { jsonrpc: '2.0', id: message.id, result: { changes } }
+      } catch (error) {
+        return {
+          jsonrpc: '2.0',
+          id: message.id,
+          error: { code: -32602, message: error instanceof Error ? error.message : String(error) },
+        }
       }
     }
     if (message.method === 'textDocument/signatureHelp') {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { cwd, stdin, stdout } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { ZeeError, PanicError, VERSION } from './error.ts'
@@ -17,9 +17,11 @@ import {
   type GeneratedFile,
 } from './generate.ts'
 import { findDefinition, formatGoto } from './navigate.ts'
+import { formatZee } from './format.ts'
 import { serveLsp } from './lsp.ts'
+import { runDebuggee, serveDap } from './dap.ts'
 import { getPackages, updatePackages } from './pkg.ts'
-import { createProject, defaultInitName, findProjectRoot, resolveEntry } from './project.ts'
+import { createProject, defaultInitName, findProjectRoot, listPackageSources, resolveEntry } from './project.ts'
 import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
 import { listenRegistry } from './registry-http.ts'
 import { checkPath, executeFile, runPackageTests, ZeeSession } from './zee.ts'
@@ -41,6 +43,8 @@ Usage:
   zee registry                   Serve the HTTP registry (file-backed)
   zee run [file]                 Run a .zee file, or src/main.zee in a project
   zee check [file]               Type-check a file, or the project entry
+  zee fmt [file]                 Format a .zee file, or every file in the package
+  zee debug                      Debug adapter (stdio DAP) for editors
   zee test                       Run fn test* in *.test.zee under src/
   zee goto <file> <line> <column>
                                  Print the definition at a 1-based position
@@ -149,6 +153,25 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
 
+  if (command === 'fmt') {
+    const root = findProjectRoot(cwd())
+    const files = argv[1]
+      ? [resolveEntry(cwd(), argv[1])]
+      : root
+        ? listPackageSources(root).map((item) => item.file)
+        : []
+    if (files.length === 0) {
+      stderr('usage: zee fmt [file]')
+      return 1
+    }
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8')
+      writeFileSync(file, formatZee(source, file))
+      stdout.write(`fmt: ${file}\n`)
+    }
+    return 0
+  }
+
   if (command === 'test') {
     const root = findProjectRoot(cwd())
     if (!root) {
@@ -181,6 +204,20 @@ async function main(argv: string[]): Promise<number> {
   if (command === 'lsp') {
     await serveLsp(stdin, stdout)
     return 0
+  }
+
+  if (command === 'debug') {
+    await serveDap(stdin, stdout)
+    return 0
+  }
+
+  if (command === 'debuggee') {
+    const file = argv[1]
+    if (!file) {
+      stderr('usage: zee debuggee <file>')
+      return 1
+    }
+    process.exit(runDebuggee(file))
   }
 
   if (command.endsWith('.zee')) {

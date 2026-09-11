@@ -3,9 +3,10 @@
 IntelliJ / CLion / Android Studio client for `.zee` files. Syntax is the same
 TextMate grammar as VS Code. Semantics come from **`zee lsp`** via
 [LSP4IJ](https://plugins.jetbrains.com/plugin/23229-lsp4ij) — not a second
-Kotlin frontend.
+Kotlin frontend. Format and rename are the same LSP methods as VS Code.
 
-Marketplace upload is out of scope (ZEE-3). This folder is the source.
+Interpreter stepping is DAP (`zee debug`) in VS Code / Cursor, not a second
+JetBrains debugger.
 
 ## Install (development)
 
@@ -16,9 +17,12 @@ Marketplace upload is out of scope (ZEE-3). This folder is the source.
    **Settings → Editor → TextMate Bundles**.
 
 Open a `zee.toml` project and a `.zee` file. Hover, complete, go to definition,
-and checker diagnostics should match VS Code.
+format, rename, and checker diagnostics should match VS Code.
 
-## Layout
+## Marketplace
+
+`JETBRAINS_MARKETPLACE_TOKEN` on the GitHub `publish-editor` workflow runs
+`gradle publishPlugin`. Without the token, the job builds the plugin zip only.
 
 ```
 src/main/kotlin/dev/zee/lang/ZeeLanguageServerFactory.kt

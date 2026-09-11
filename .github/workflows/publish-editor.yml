@@ -1,0 +1,61 @@
+name: publish-editor
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run editor:package
+      - name: Publish VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT unset; skip Marketplace publish"
+            exit 0
+          fi
+          npx --yes @vscode/vsce publish --packagePath "$(ls editor/vscode/*.vsix)"
+      - name: Publish Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "OVSX_PAT unset; skip Open VSX publish"
+            exit 0
+          fi
+          npx --yes ovsx publish "$(ls editor/vscode/*.vsix)" -p "$OVSX_PAT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zee-vscode
+          path: editor/vscode/*.vsix
+
+  jetbrains:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.12.1"
+      - name: Publish JetBrains Marketplace
+        working-directory: editor/jetbrains
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+        run: |
+          if [ -z "$JETBRAINS_MARKETPLACE_TOKEN" ]; then
+            echo "JETBRAINS_MARKETPLACE_TOKEN unset; build only"
+            gradle buildPlugin
+          else
+            gradle publishPlugin
+          fi

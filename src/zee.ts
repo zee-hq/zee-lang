@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Program } from './ast.ts'
 import { check } from './checker.ts'
+import { DebugController } from './debug.ts'
 import { ZeeError } from './error.ts'
 import { display, interpret, type RunResult, type RuntimeIo, type TestReport, type ZeeValue } from './interpreter.ts'
 import { parse } from './parser.ts'
@@ -27,6 +28,7 @@ export interface ExecuteOptions {
   root?: string
   processEnv?: NodeJS.Dict<string>
   readText?: (path: string) => string | undefined
+  debug?: DebugController
 }
 
 export interface ExecuteResult extends RunResult {
@@ -43,7 +45,7 @@ export function execute(source: string, options: ExecuteOptions = {}): ExecuteRe
   check(program)
   const result = interpret(
     program,
-    { print, root: options.root, processEnv: options.processEnv, readText: options.readText },
+    { print, root: options.root, processEnv: options.processEnv, readText: options.readText, debug: options.debug },
     { callMain: options.callMain },
   )
   return { ...result, stdout }
@@ -117,7 +119,7 @@ export function executePath(path: string, options: Omit<ExecuteOptions, 'file'> 
   const root = options.root ?? findProjectRoot(dirname(path))
   const result = interpret(
     program,
-    { print, root, processEnv: options.processEnv, readText: options.readText },
+    { print, root, processEnv: options.processEnv, readText: options.readText, debug: options.debug },
     { callMain: options.callMain },
   )
   return { ...result, stdout }

@@ -35,4 +35,7 @@ intellijPlatform {
             sinceBuild = "243"
         }
     }
+    publishing {
+        token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+    }
 }

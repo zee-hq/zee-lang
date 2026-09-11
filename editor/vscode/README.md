@@ -1,18 +1,20 @@
 # Zee editor (VS Code / Cursor)
 
-Language support for `.zee` files: syntax, the Zee file icon, **`zee lsp`** (hover, complete, go to definition, find references, inlay hints, semantic tokens, checker diagnostics), snippets, and **Zee: Run File**. Rename is out of scope (ZEE-3).
+Language support for `.zee` files: syntax, the Zee file icon, **`zee lsp`** (hover, complete, go to definition, find references, inlay hints, semantic tokens, **format**, **rename**, checker diagnostics), snippets, interpreter **debugger**, and **Zee: Run File**.
 
 The mark and file icons come from [`brand/`](../../brand/BRAND.md).
 
-## Install (development)
+## Install
 
-From the `zee-lang` repo:
+**Development** — from the `zee-lang` repo:
 
 ```bash
 npm run editor:link
 ```
 
 That symlinks this folder into `~/.cursor/extensions/zee-hq.zee-0.1.0` and `~/.vscode/extensions/zee-hq.zee-0.1.0`. Reload the window, then open `examples/hello.zee`.
+
+**Marketplace** — same folder as `editor:link`. Package with `npm run editor:package` from the repo root. Publish (VS Code Marketplace + Open VSX) is the `publish-editor` GitHub workflow (`workflow_dispatch`). Needs `VSCE_PAT` and `OVSX_PAT` on the repo. Until those secrets exist, install the `.vsix` or keep using `editor:link`.
 
 To see role-colored Z marks in the explorer, set **File Icon Theme → Zee**. Zee files are a colored **Z**; tests are a flask + Z. Empty folders and other languages use [Catppuccin Icons](https://github.com/catppuccin/vscode-icons) (Mocha). A `.zee/` folder is that Catppuccin folder with the signal Z. The older page-and-glyph set is in `file-icons/page/`.
 
@@ -47,7 +49,10 @@ Regenerate SVGs: `npm run editor:icons` (from repo root). See [`brand/BRAND.md`]
 |---|---|
 | Zee: Run File | ⌘⇧R / Ctrl+Shift+R |
 | Zee: Check File | Command Palette |
+| Format Document | editor format (`zee fmt` / LSP) |
+| Rename Symbol | F2 — updates the definition, call sites, and `import`s |
+| Zee: Debug File | breakpoint + step on the TypeScript interpreter |
 
 Save or edit a `.zee` file to type-check it through `zee lsp`. `zee.checkOnSave` is kept for compatibility.
 
-The language server uses this repository’s `src/cli.ts` when the workspace is `zee-lang`. In a package created with `zee new`, it uses `zee lsp` on your `PATH` (`npm link` in the repo root).
+The language server uses this repository’s `src/cli.ts` when the workspace is `zee-lang`. In a package created with `zee new`, it uses `zee lsp` / `zee debug` on your `PATH` (`npm link` in the repo root).

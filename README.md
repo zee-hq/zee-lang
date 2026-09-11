@@ -23,7 +23,7 @@ fn main() {
 | Lexer / parser | done |
 | Type checker (strong, local inference) | done |
 | Interpreter + REPL + project CLI | done |
-| Editor (VS Code / Cursor / JetBrains) | `zee lsp` — hover, complete, go to definition, diagnostics |
+| Editor (VS Code / Cursor / JetBrains) | `zee lsp` + `zee fmt` + rename + interpreter debugger |
 | Bytecode / LLVM / native | later — not this drop |
 
 The grammar will change. Syntax that is decided but **not** in v0 yet (`open`, `abstract`, bounds `T: Closeable`, `struct Box<T>`, concurrency) lives in [`docs/DIRECTION.md`](docs/DIRECTION.md). Constructors beyond `Name { fields }` and DI are **radar** there (§9) — not closed.
@@ -255,7 +255,7 @@ See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `facto
 
 ## Editor
 
-The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It starts **`zee lsp`** for hover, complete, go to definition, find references, inlay hints, semantic tokens, and checker diagnostics. TextMate highlighting stays as fallback. JetBrains sources live in [`editor/jetbrains`](editor/jetbrains) (same grammar + LSP4IJ client). Rename is [ZEE-3](https://rr-it-solutions.atlassian.net/browse/ZEE-3).
+The VS Code / Cursor extension is in [`editor/vscode`](editor/vscode). It starts **`zee lsp`** for hover, complete, go to definition, find references, inlay hints, semantic tokens, **format**, **rename**, and checker diagnostics. Breakpoints step the TypeScript interpreter via `zee debug` (DAP). TextMate highlighting stays as fallback. JetBrains sources live in [`editor/jetbrains`](editor/jetbrains) (same grammar + LSP4IJ client; format and rename come from the server). Marketplace / Open VSX packaging is `npm run editor:package` and [publish-editor](.github/workflows/publish-editor.yml) (`workflow_dispatch`, needs `VSCE_PAT` / `OVSX_PAT` / `JETBRAINS_MARKETPLACE_TOKEN`).
 
 ```bash
 npm run editor:link
@@ -279,7 +279,7 @@ src/            lexer, parser, checker, interpreter, CLI
 test/           vitest — language behavior, not snapshots of implementation
 examples/       programs the interpreter must keep running
 catalog.json    official library index (`zee get ZeeTest` / `zee get env`)
-editor/vscode   TextMate grammar + `zee lsp` client + Run File
+editor/vscode   TextMate grammar + `zee lsp` client + format/rename + DAP debugger
 editor/jetbrains TextMate grammar + LSP4IJ (`zee lsp`)
 ```
 
@@ -301,6 +301,8 @@ editor/jetbrains TextMate grammar + LSP4IJ (`zee lsp`)
 | `zee registry` | serve the HTTP registry from a file root (`--root`, `--token`, `--port`) |
 | `zee run [file]` | interpret a program (or the project entry) |
 | `zee check [file]` | type-check only |
+| `zee fmt [file]` | format a file, or every `.zee` in the package |
+| `zee debug` | Debug Adapter Protocol (stdio) for editors |
 | `zee test` | inject ZeeTest and run `ZeeTest.run()` (`fn test*` in `*.test.zee`) |
 | `zee lsp` | language server (stdio JSON-RPC) for editors |
 | `zee` | REPL |

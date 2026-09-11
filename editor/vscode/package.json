@@ -1,7 +1,7 @@
 {
   "name": "zee",
   "displayName": "Zee",
-  "description": "Zee language — syntax, file icons, zee lsp (hover, complete, go to definition), Run File.",
+  "description": "Zee language — syntax, file icons, zee lsp (hover, complete, go to definition, format, rename), interpreter debugger, Run File.",
   "version": "0.1.0",
   "publisher": "zee-hq",
   "license": "MIT",
@@ -13,9 +13,9 @@
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Programming Languages", "Themes"],
+  "categories": ["Programming Languages", "Debuggers", "Themes"],
   "main": "./extension.js",
-  "activationEvents": ["onLanguage:zee"],
+  "activationEvents": ["onLanguage:zee", "onDebugResolve:zee"],
   "contributes": {
     "configuration": {
       "title": "Zee",
@@ -106,6 +106,38 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "zee"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "zee",
+        "label": "Zee",
+        "languages": ["zee"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "default": "${file}",
+                "description": "Path to the .zee file or project entry. Breakpoints step the TypeScript interpreter (zee run), not native/bytecode."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "zee",
+            "request": "launch",
+            "name": "Zee: Debug File",
+            "program": "${file}"
+          }
+        ]
+      }
+    ]
   }
 }

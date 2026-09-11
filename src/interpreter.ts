@@ -3,6 +3,7 @@ import type { AssignOp, Block, Expr, MatchPattern, Program, Stmt, TypeAst, Visib
 import { PanicError, ZeeError } from './error.ts'
 import { hostEnvFor, lookupEnv } from './host-env.ts'
 import { isZeeTestFile } from './project.ts'
+import type { DebugStop } from './debug.ts'
 import {
   INT_KINDS,
   canWidenInt,
@@ -121,6 +122,7 @@ export interface RuntimeIo {
   root?: string
   processEnv?: NodeJS.Dict<string>
   readText?: (path: string) => string | undefined
+  debug?: { atStmt(event: DebugStop): void }
   /** Filled by the interpreter for the `test` library (`testCases` / `testCall`). */
   test?: { reports: TestReport[] }
 }
@@ -167,6 +169,7 @@ class Env {
   module: string
   moduleHome: Env
   defers: Array<() => ZeeValue> | undefined
+  frameName: string | undefined
   private modules: Map<string, Env> | undefined
   private readonly structMap = new Map<string, StructInfo>()
   private readonly methodMap = new Map<string, Map<string, Extract<ZeeValue, { type: 'fn' }>>>()
@@ -259,8 +262,30 @@ class Env {
     return env
   }
 
-  markFunctionFrame(): void {
+  markFunctionFrame(name: string): void {
     this.defers = []
+    this.frameName = name
+  }
+
+  debugStack(loc: { file: string; line: number; column: number }): DebugStop['stack'] {
+    const frames: DebugStop['stack'] = []
+    let env: Env | undefined = this
+    while (env) {
+      if (env.frameName !== undefined) {
+        frames.push({
+          name: env.frameName,
+          file: loc.file,
+          line: loc.line,
+          column: loc.column,
+          variables: [...env.slots.entries()].map(([name, slot]) => ({
+            name,
+            value: display(slot.value),
+          })),
+        })
+      }
+      env = env.parent
+    }
+    return frames
   }
 
   functionFrame(): Env | undefined {
@@ -653,6 +678,12 @@ function maybeGet(env: Env, name: string): ZeeValue | undefined {
 }
 
 function execStmt(stmt: Stmt, env: Env, io: RuntimeIo): ZeeValue {
+  io.debug?.atStmt({
+    file: stmt.loc.file,
+    line: stmt.loc.line,
+    column: stmt.loc.column,
+    stack: env.debugStack(stmt.loc),
+  })
   switch (stmt.kind) {
     case 'bind': {
       const value = copyValue(evalExpr(stmt.init, env, io))
@@ -2022,7 +2053,7 @@ function callFn(
     )
   }
   const local = fn.env.child()
-  local.markFunctionFrame()
+  local.markFunctionFrame(fn.name)
   fn.params.forEach((name, index) => {
     const arg = args[index]!
     const shareSelf = fn.mutatingReceiver && index === 0
@@ -2046,7 +2077,7 @@ function callClosure(
     )
   }
   const local = fn.env.child()
-  local.markFunctionFrame()
+  local.markFunctionFrame('<lambda>')
   fn.params.forEach((name, index) => {
     if (name === '_') return
     local.define(name, copyValue(args[index]!))

@@ -5,9 +5,9 @@
   <description><![CDATA[
     Zee language: TextMate syntax for <code>.zee</code> files and the same
     <code>zee lsp</code> contract as VS Code / Cursor (hover, complete, go to
-    definition, diagnostics, semantic tokens). Requires
+    definition, format, rename, diagnostics, semantic tokens). Requires
     <a href="https://plugins.jetbrains.com/plugin/23229-lsp4ij">LSP4IJ</a>
-    and the Zee CLI on PATH.
+    and the Zee CLI on PATH. Interpreter debugging is DAP in VS Code / Cursor.
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
   <depends>com.redhat.devtools.lsp4ij</depends>
