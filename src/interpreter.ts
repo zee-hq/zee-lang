@@ -169,6 +169,7 @@ type TestHost = {
 }
 
 const testHosts = new WeakMap<RuntimeIo, TestHost>()
+const httpDispatchRequests = new WeakMap<RuntimeIo, ZeeValue>()
 const jsonTypeSubst: Map<string, JsonTarget>[] = []
 
 const UNIT: ZeeValue = { type: 'unit' }
@@ -383,6 +384,7 @@ export function interpret(
   builtins.define('httpI32Param', { type: 'builtin', name: 'httpI32Param' })
   builtins.define('httpRouterController', { type: 'builtin', name: 'httpRouterController' })
   builtins.define('httpApp', { type: 'builtin', name: 'httpApp' })
+  builtins.define('httpFail', { type: 'builtin', name: 'httpFail' })
   builtins.define('Some', { type: 'builtin', name: 'Some' })
   builtins.define('None', { type: 'option', tag: 'none' })
   builtins.defineStruct('Fail', {
@@ -2601,6 +2603,13 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
       }
       return () => buildHttpApp(env, io, expr.loc)
     }
+    if (name === 'httpFail') {
+      if (expr.args.length !== 1) {
+        throw new ZeeError('`httpFail` takes one argument', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const err = evalExpr(expr.args[0]!, env, io)
+      return () => runHttpFail(err, env, io, expr.loc)
+    }
     if (name === 'httpListen') {
       if (expr.args.length !== 2) {
         throw new ZeeError('`httpListen` takes two arguments', expr.loc.line, expr.loc.column, expr.loc.file)
@@ -3958,6 +3967,29 @@ function runHttpDispatch(
   loc: { file: string; line: number; column: number },
 ): ZeeValue {
   const incoming = readHttpRequest(req)
+  const requestBag = httpRequestValue(
+    incoming.method,
+    incoming.path,
+    incoming.text,
+    {},
+    incoming.headers,
+  )
+  httpDispatchRequests.set(io, requestBag)
+  try {
+    return dispatchHttp(router, incoming, requestBag, env, io, loc)
+  } finally {
+    httpDispatchRequests.delete(io)
+  }
+}
+
+function dispatchHttp(
+  router: ZeeValue,
+  incoming: ReturnType<typeof readHttpRequest>,
+  requestBag: ZeeValue,
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
   const cors = httpCorsConfig(env, io, loc)
   const origin = headerGet(incoming.headers, 'Origin')
   if (cors && incoming.method.toUpperCase() === 'OPTIONS') {
@@ -3977,6 +4009,7 @@ function runHttpDispatch(
       matched.params,
       incoming.headers,
     )
+    httpDispatchRequests.set(io, request)
     const method = lookupRuntimeMethod(matched.controller, matched.verb, env)
     if (!method) {
       throw new ZeeError(
@@ -3999,6 +4032,7 @@ function runHttpDispatch(
     decorated.params,
     incoming.headers,
   )
+  httpDispatchRequests.set(io, request)
   const method = lookupRuntimeMethod(decorated.controller, decorated.name, env)
   if (!method) {
     throw new ZeeError(`http controller is missing \`${decorated.name}\``, loc.line, loc.column, loc.file)
@@ -4006,6 +4040,82 @@ function runHttpDispatch(
   const bound = bindHttpHandlerArgs(method, decorated.controller, request, loc)
   if (bound.kind === 'bad') return withCors(bound.response, origin, cors)
   return withCors(callFn(method, bound.args, io, loc), origin, cors)
+}
+
+function runHttpFail(
+  err: ZeeValue,
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  const request = httpDispatchRequests.get(io) ?? httpRequestValue('GET', '/', '', {})
+  const handle = findErrorHandler(env, loc)
+  if (handle) return callFn(handle, [err, request], io, loc)
+  const status = httpErrorStatus(err, env, io, loc)
+  if (status !== undefined) {
+    const text = err.type === 'struct' && err.fields.text?.type === 'string' ? err.fields.text.value : ''
+    return httpResponseValue(status, text)
+  }
+  return httpResponseValue(500, errorMessage(err, env, io, loc))
+}
+
+function findErrorHandler(
+  env: Env,
+  loc: { file: string; line: number; column: number },
+): Extract<ZeeValue, { type: 'fn' }> | undefined {
+  let found: Extract<ZeeValue, { type: 'fn' }> | undefined
+  for (const home of env.listModules()) {
+    for (const info of home.ownStructs()) {
+      if (info.attributes?.some((attr) => attr.name === 'Controller')) continue
+      if (!info.attributes?.some((attr) => attr.name === 'ErrorHandler')) continue
+      const ns = home.own(info.name)?.value
+      if (!ns || ns.type !== 'typeNs') {
+        throw new ZeeError('`@ErrorHandler` needs associated `handle`', loc.line, loc.column, loc.file)
+      }
+      const handle = ns.members.handle
+      if (!handle || handle.type !== 'fn') {
+        throw new ZeeError('`@ErrorHandler` needs associated `handle`', loc.line, loc.column, loc.file)
+      }
+      if (found) {
+        throw new ZeeError('conflicting `@ErrorHandler`', loc.line, loc.column, loc.file)
+      }
+      found = handle
+    }
+  }
+  return found
+}
+
+function httpErrorStatus(
+  err: ZeeValue,
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): number | undefined {
+  if (err.type !== 'struct' || err.name !== 'HttpError' || err.module !== 'http') return undefined
+  const code = err.fields.code
+  if (!code) return undefined
+  const fn = lookupRuntimeMethod(code, 'code', env)
+  if (!fn) return undefined
+  const status = callFn(fn, [code], io, loc)
+  return status.type === 'i32' ? status.value : undefined
+}
+
+function errorMessage(
+  err: ZeeValue,
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): string {
+  if (err.type === 'error') return err.message
+  if (err.type === 'struct' && err.name === 'Fail' && err.fields.text?.type === 'string') {
+    return err.fields.text.value
+  }
+  const method = lookupRuntimeMethod(err, 'message', env)
+  if (method) {
+    const text = callFn(method, [err], io, loc)
+    if (text.type === 'string') return text.value
+  }
+  return 'error'
 }
 
 function httpCorsConfig(

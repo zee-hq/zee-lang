@@ -36,7 +36,7 @@ Usage:
                                  Create a package in ./<name> (default --kind bin)
   zee init [name] [--kind …]     Scaffold a package in the current directory
   zee generate feature <path>        HTTP slice (controller → action → service → …)
-  zee generate controller <path>      HTTP in; --api or -i like Laravel
+  zee generate controller <path>      HTTP in; --api or -i
   zee generate resource <path>        HTTP response mapper (not the whole stack)
   zee g feat <path>                   Alias (also: zee g co / act / s / re / repo / mod / api / mo)
   zee get [alias...]             Add catalog aliases and fetch [deps] into .zee/ (honors zee.lock)

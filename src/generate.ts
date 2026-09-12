@@ -57,7 +57,7 @@ export function generateModule(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'module', moduleSource)
 }
 
-/** HTTP in. Laravel --api / --invokable. AC-generate-controller. */
+/** HTTP in. `--api` / `--invokable`. AC-generate-controller. */
 export function generateController(options: GenerateControllerOptions): GeneratedFile {
   const kind = options.kind ?? 'empty'
   return writeRole(options, 'controller', (importPath, name) => controllerSource(name, kind, importPath))
@@ -73,7 +73,7 @@ export function generateService(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'service', (_importPath, name) => `// ${name}.service\n`)
 }
 
-/** HTTP response mapper (Laravel Resource). AC-generate-resource. */
+/** HTTP response mapper. AC-generate-resource. */
 export function generateResource(options: GenerateOptions): GeneratedFile {
   return writeRole(options, 'resource', (_importPath, name) => `// ${name}.resource\n`)
 }

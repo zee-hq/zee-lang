@@ -21,16 +21,10 @@ export function matchHttpRoute(router: ZeeValue, method: string, path: string): 
       }
     }
   }
-  const mounts = router.fields.mounts
-  if (mounts?.type !== 'list') return { kind: 'none' }
-  for (const item of mounts.items) {
-    if (item.type !== 'struct') continue
-    const prefix = stringField(item, 'prefix')
-    const resource = item.fields.resource
-    if (prefix === undefined || !resource) continue
-    const hit = matchResource(verb, pathname, prefix, resource)
-    if (hit) return hit
-  }
+  const web = matchMountedResources(router.fields.mounts, verb, pathname, true)
+  if (web) return web
+  const api = matchMountedResources(router.fields.apiMounts, verb, pathname, false)
+  if (api) return api
   return { kind: 'none' }
 }
 
@@ -266,11 +260,30 @@ function stringMapFromValue(value: ZeeValue | undefined): Record<string, string>
   return out
 }
 
+function matchMountedResources(
+  mounts: ZeeValue | undefined,
+  method: string,
+  pathname: string,
+  views: boolean,
+): HttpMatch | undefined {
+  if (mounts?.type !== 'list') return undefined
+  for (const item of mounts.items) {
+    if (item.type !== 'struct') continue
+    const prefix = stringField(item, 'prefix')
+    const resource = item.fields.resource
+    if (prefix === undefined || !resource) continue
+    const hit = matchResource(method, pathname, prefix, resource, views)
+    if (hit) return hit
+  }
+  return undefined
+}
+
 function matchResource(
   method: string,
   pathname: string,
   prefix: string,
   controller: ZeeValue,
+  views: boolean,
 ): HttpMatch | undefined {
   const base = normalizePath(prefix)
   if (pathname === base) {
@@ -280,6 +293,19 @@ function matchResource(
   }
   if (!pathname.startsWith(`${base}/`)) return undefined
   const rest = pathname.slice(base.length + 1)
+  if (views) {
+    if (rest === 'create') {
+      if (method === 'GET') return { kind: 'resource', verb: 'create', controller, params: {} }
+      return undefined
+    }
+    if (rest.endsWith('/edit')) {
+      const id = rest.slice(0, -'/edit'.length)
+      if (id.length > 0 && !id.includes('/')) {
+        if (method === 'GET') return { kind: 'resource', verb: 'edit', controller, params: { id } }
+        return undefined
+      }
+    }
+  }
   if (rest.length === 0 || rest.includes('/')) return undefined
   const params = { id: rest }
   if (method === 'GET') return { kind: 'resource', verb: 'show', controller, params }

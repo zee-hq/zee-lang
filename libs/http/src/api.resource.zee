@@ -1,0 +1,9 @@
+//! Resource verbs without `create` / `edit` form routes.
+
+pub interface ApiResource {
+  fn index(self, req: Request) -> Response
+  fn store(var self, req: Request) -> Response
+  fn show(self, req: Request) -> Response
+  fn update(var self, req: Request) -> Response
+  fn destroy(var self, req: Request) -> Response
+}

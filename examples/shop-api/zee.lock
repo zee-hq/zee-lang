@@ -6,7 +6,7 @@ name = "http"
 version = "0.1.0"
 source = "path"
 path = ".zee/http"
-hash = "sha256:b5ebc22e698d0574618869fc404d33661e0b19de2de15e59c6a2bbda2974baa7"
+hash = "sha256:9c41c0d448cf95deac22aa0fd4a20f8701e312503786ea663ae1f0ab994249f3"
 
 [[pkg]]
 name = "json"

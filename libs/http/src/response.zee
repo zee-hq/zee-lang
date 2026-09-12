@@ -1,0 +1,257 @@
+//! HTTP responses. Named helpers wrap `response(code, text)`.
+//! `continue` is a keyword — 100 is `response(HttpCode.Continue, text)`.
+
+pub data struct Response {
+  pub const status: i32
+  pub const text: String
+  pub const headers: Map<String, String>
+}
+
+pub fn response(code: HttpCode, text: String) -> Response {
+  const headers: Map<String, String> = {}
+  Response { status: code.code(), text: text, headers: headers }
+}
+
+pub fn switchingProtocols(text: String) -> Response {
+  response(HttpCode.SwitchingProtocols, text)
+}
+
+pub fn processing(text: String) -> Response {
+  response(HttpCode.Processing, text)
+}
+
+pub fn earlyHints(text: String) -> Response {
+  response(HttpCode.EarlyHints, text)
+}
+
+pub fn ok(text: String) -> Response {
+  response(HttpCode.Ok, text)
+}
+
+pub fn created(text: String) -> Response {
+  response(HttpCode.Created, text)
+}
+
+pub fn accepted(text: String) -> Response {
+  response(HttpCode.Accepted, text)
+}
+
+pub fn nonAuthoritativeInformation(text: String) -> Response {
+  response(HttpCode.NonAuthoritativeInformation, text)
+}
+
+pub fn noContent(text: String) -> Response {
+  response(HttpCode.NoContent, text)
+}
+
+pub fn resetContent(text: String) -> Response {
+  response(HttpCode.ResetContent, text)
+}
+
+pub fn partialContent(text: String) -> Response {
+  response(HttpCode.PartialContent, text)
+}
+
+pub fn multiStatus(text: String) -> Response {
+  response(HttpCode.MultiStatus, text)
+}
+
+pub fn alreadyReported(text: String) -> Response {
+  response(HttpCode.AlreadyReported, text)
+}
+
+pub fn imUsed(text: String) -> Response {
+  response(HttpCode.ImUsed, text)
+}
+
+pub fn multipleChoices(text: String) -> Response {
+  response(HttpCode.MultipleChoices, text)
+}
+
+pub fn movedPermanently(text: String) -> Response {
+  response(HttpCode.MovedPermanently, text)
+}
+
+pub fn found(text: String) -> Response {
+  response(HttpCode.Found, text)
+}
+
+pub fn seeOther(text: String) -> Response {
+  response(HttpCode.SeeOther, text)
+}
+
+pub fn notModified(text: String) -> Response {
+  response(HttpCode.NotModified, text)
+}
+
+pub fn useProxy(text: String) -> Response {
+  response(HttpCode.UseProxy, text)
+}
+
+pub fn temporaryRedirect(text: String) -> Response {
+  response(HttpCode.TemporaryRedirect, text)
+}
+
+pub fn permanentRedirect(text: String) -> Response {
+  response(HttpCode.PermanentRedirect, text)
+}
+
+pub fn badRequest(text: String) -> Response {
+  response(HttpCode.BadRequest, text)
+}
+
+pub fn unauthorized(text: String) -> Response {
+  response(HttpCode.Unauthorized, text)
+}
+
+pub fn paymentRequired(text: String) -> Response {
+  response(HttpCode.PaymentRequired, text)
+}
+
+pub fn forbidden(text: String) -> Response {
+  response(HttpCode.Forbidden, text)
+}
+
+pub fn notFound(text: String) -> Response {
+  response(HttpCode.NotFound, text)
+}
+
+pub fn methodNotAllowed(text: String) -> Response {
+  response(HttpCode.MethodNotAllowed, text)
+}
+
+pub fn notAcceptable(text: String) -> Response {
+  response(HttpCode.NotAcceptable, text)
+}
+
+pub fn proxyAuthenticationRequired(text: String) -> Response {
+  response(HttpCode.ProxyAuthenticationRequired, text)
+}
+
+pub fn requestTimeout(text: String) -> Response {
+  response(HttpCode.RequestTimeout, text)
+}
+
+pub fn conflict(text: String) -> Response {
+  response(HttpCode.Conflict, text)
+}
+
+pub fn gone(text: String) -> Response {
+  response(HttpCode.Gone, text)
+}
+
+pub fn lengthRequired(text: String) -> Response {
+  response(HttpCode.LengthRequired, text)
+}
+
+pub fn preconditionFailed(text: String) -> Response {
+  response(HttpCode.PreconditionFailed, text)
+}
+
+pub fn payloadTooLarge(text: String) -> Response {
+  response(HttpCode.PayloadTooLarge, text)
+}
+
+pub fn uriTooLong(text: String) -> Response {
+  response(HttpCode.UriTooLong, text)
+}
+
+pub fn unsupportedMediaType(text: String) -> Response {
+  response(HttpCode.UnsupportedMediaType, text)
+}
+
+pub fn rangeNotSatisfiable(text: String) -> Response {
+  response(HttpCode.RangeNotSatisfiable, text)
+}
+
+pub fn expectationFailed(text: String) -> Response {
+  response(HttpCode.ExpectationFailed, text)
+}
+
+pub fn imATeapot(text: String) -> Response {
+  response(HttpCode.ImATeapot, text)
+}
+
+pub fn misdirectedRequest(text: String) -> Response {
+  response(HttpCode.MisdirectedRequest, text)
+}
+
+pub fn unprocessableEntity(text: String) -> Response {
+  response(HttpCode.UnprocessableEntity, text)
+}
+
+pub fn locked(text: String) -> Response {
+  response(HttpCode.Locked, text)
+}
+
+pub fn failedDependency(text: String) -> Response {
+  response(HttpCode.FailedDependency, text)
+}
+
+pub fn tooEarly(text: String) -> Response {
+  response(HttpCode.TooEarly, text)
+}
+
+pub fn upgradeRequired(text: String) -> Response {
+  response(HttpCode.UpgradeRequired, text)
+}
+
+pub fn preconditionRequired(text: String) -> Response {
+  response(HttpCode.PreconditionRequired, text)
+}
+
+pub fn tooManyRequests(text: String) -> Response {
+  response(HttpCode.TooManyRequests, text)
+}
+
+pub fn requestHeaderFieldsTooLarge(text: String) -> Response {
+  response(HttpCode.RequestHeaderFieldsTooLarge, text)
+}
+
+pub fn unavailableForLegalReasons(text: String) -> Response {
+  response(HttpCode.UnavailableForLegalReasons, text)
+}
+
+pub fn internalServerError(text: String) -> Response {
+  response(HttpCode.InternalServerError, text)
+}
+
+pub fn notImplemented(text: String) -> Response {
+  response(HttpCode.NotImplemented, text)
+}
+
+pub fn badGateway(text: String) -> Response {
+  response(HttpCode.BadGateway, text)
+}
+
+pub fn serviceUnavailable(text: String) -> Response {
+  response(HttpCode.ServiceUnavailable, text)
+}
+
+pub fn gatewayTimeout(text: String) -> Response {
+  response(HttpCode.GatewayTimeout, text)
+}
+
+pub fn httpVersionNotSupported(text: String) -> Response {
+  response(HttpCode.HttpVersionNotSupported, text)
+}
+
+pub fn variantAlsoNegotiates(text: String) -> Response {
+  response(HttpCode.VariantAlsoNegotiates, text)
+}
+
+pub fn insufficientStorage(text: String) -> Response {
+  response(HttpCode.InsufficientStorage, text)
+}
+
+pub fn loopDetected(text: String) -> Response {
+  response(HttpCode.LoopDetected, text)
+}
+
+pub fn notExtended(text: String) -> Response {
+  response(HttpCode.NotExtended, text)
+}
+
+pub fn networkAuthenticationRequired(text: String) -> Response {
+  response(HttpCode.NetworkAuthenticationRequired, text)
+}

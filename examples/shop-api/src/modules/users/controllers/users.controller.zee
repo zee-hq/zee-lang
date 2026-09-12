@@ -2,7 +2,7 @@
 
 import http
 import http.Response
-import users.{StoreUser, UserRow, UsersService, toJson, toJsonList}
+import users.{StoreUser, UsersService}
 
 @Controller("/users")
 pub class UsersController {
@@ -14,57 +14,26 @@ pub class UsersController {
 
   @Get("/")
   pub fn index(self) -> Response {
-    http.ok(toJsonList(self.service.list()))
+    self.service.list()
   }
 
   @Post("/")
   pub fn store(var self, @Body body: StoreUser) -> Response {
-    const (next, row, err) = self.service.create(body.name)
-    self.service = next
-    failOrCreated(row, err)
+    self.service.create(body.name)
   }
 
   @Get("/:id")
   pub fn show(self, @Param("id") id: i32) -> Response {
-    const found = self.service.get(id)
-    if found.isNone() {
-      return http.notFound("not found")
-    }
-    http.ok(toJson(found ?: UserRow { id: 0, name: "", active: false }))
+    self.service.get(id)
   }
 
   @Put("/:id")
   pub fn update(var self, @Param("id") id: i32, @Body body: StoreUser) -> Response {
-    const (next, row, err) = self.service.update(id, body.name)
-    self.service = next
-    failOrOk(row, err)
+    self.service.update(id, body.name)
   }
 
   @Delete("/:id")
   pub fn destroy(var self, @Param("id") id: i32) -> Response {
-    const (next, err) = self.service.remove(id)
-    self.service = next
-    if err != None {
-      return http.notFound((err ?: panic("err")).message())
-    }
-    http.ok("ok")
+    self.service.remove(id)
   }
-}
-
-fn failOrCreated(row: UserRow, err: Option<Error>) -> Response {
-  if err != None {
-    return http.badRequest((err ?: panic("err")).message())
-  }
-  http.created(toJson(row))
-}
-
-fn failOrOk(row: UserRow, err: Option<Error>) -> Response {
-  if err != None {
-    const message = (err ?: panic("err")).message()
-    if message == "not found" {
-      return http.notFound(message)
-    }
-    return http.badRequest(message)
-  }
-  http.ok(toJson(row))
 }

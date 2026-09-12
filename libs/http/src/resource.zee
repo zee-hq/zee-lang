@@ -1,0 +1,11 @@
+//! Resource verbs including `create` / `edit`. `@Get` / `@Post` live on `@Controller` methods.
+
+pub interface Resource {
+  fn index(self, req: Request) -> Response
+  fn create(self, req: Request) -> Response
+  fn store(var self, req: Request) -> Response
+  fn show(self, req: Request) -> Response
+  fn edit(self, req: Request) -> Response
+  fn update(var self, req: Request) -> Response
+  fn destroy(var self, req: Request) -> Response
+}

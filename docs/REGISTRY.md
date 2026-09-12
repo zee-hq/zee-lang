@@ -13,7 +13,7 @@ Alias match is case-insensitive (`zee get zeetest` writes `ZeeTest`). The centra
 
 ## SemVer
 
-Constraint precision is Gradle-shaped, not npm caret:
+Constraint precision is by how many SemVer slots you write, not a caret range:
 
 | Constraint | Means |
 |---|---|
@@ -21,7 +21,7 @@ Constraint precision is Gradle-shaped, not npm caret:
 | `1.2` | latest `1.2.x` (`>=1.2.0 <1.3.0`) |
 | `1` | latest `1.x.x` (`>=1.0.0 <2.0.0`) |
 
-`zee get` writes the **resolved** version into `zee.lock` and **honors** that pin on later gets. `zee update` [name...] re-resolves within the current constraint (Gradle precision: `1.2` can move to a newer `1.2.x`, `1.2.3` stays exact) and rewrites the lock. Reproducing a build uses the lock, not a floating range. `zee update` does not edit `libs.toml`.
+`zee get` writes the **resolved** version into `zee.lock` and **honors** that pin on later gets. `zee update` [name...] re-resolves within the current constraint (`1.2` can move to a newer `1.2.x`, `1.2.3` stays exact) and rewrites the lock. Reproducing a build uses the lock, not a floating range. `zee update` does not edit `libs.toml`.
 
 ## Where the registry lives
 

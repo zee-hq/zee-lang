@@ -2,7 +2,7 @@
 name = "http"
 version = "0.1.0"
 entry = "src/lib.zee"
-description = "HTTP listen, dispatch, and Laravel resource routes. No Get/Post attributes."
+description = "HTTP listen, dispatch, controllers, and resource routes."
 author = "Marcio Theodoro Rodrigues"
 company = "Zee HQ"
 contact = "https://github.com/zee-hq/http"

@@ -1,0 +1,22 @@
+//! App-wide `Error` → `Response`. `http.abort` / `http.fail` call `handle`.
+//! Not a bean — overlay calls associated `handle`, no `empty()` / `of`.
+
+import http
+import http.{HttpError, Request, Response}
+
+@ErrorHandler
+pub class Handler {
+  pub fn handle(err: Error, _req: Request) -> Response {
+    if err is HttpError {
+      return http.response(err.code, err.text)
+    }
+    const message = err.message()
+    if message == "not found" {
+      return http.notFound(message)
+    }
+    if message == "name is blank" {
+      return http.badRequest(message)
+    }
+    http.internalServerError(message)
+  }
+}

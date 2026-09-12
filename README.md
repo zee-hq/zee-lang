@@ -52,7 +52,7 @@ cd hello
 zee run
 ```
 
-`zee new hello` creates `zee.toml` + `src/main.zee` (`--kind bin`). `zee new shop --kind api` uses `src/bootstrap/main.zee` plus the HTTP slice (`src/modules/users/`); `--kind web` adds `src/ui/` (UI runtime is a gap); `--kind monolith` is both in **one** package; `--kind service` is an API slice labeled as a process. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee test` injects the official [`ZeeTest`](https://github.com/zee-hq/ZeeTest) package and calls `ZeeTest.run()` — `fn test*` in `*.test.zee` under `src/` or `test/` (`test/` mirrors `src/`; `users.service.test.zee`, not `foo_test.zee` or `.spec.zee`), including library packages with `src/lib.zee`. Group with `describe("title") { const row = …; fn testFoo() { } }` — the block is a closure; inner `fn` get that env. Lifecycle hooks are `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. You can also `import ZeeTest` yourself. Assertions are Vitest-shaped: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch). `it()` is not a test helper — Zee `it` is the lambda parameter. Failure is also `panic` or a visible `err`. `zee init` scaffolds the current directory.
+`zee new hello` creates `zee.toml` + `src/main.zee` (`--kind bin`). `zee new shop --kind api` uses `src/bootstrap/main.zee` plus the HTTP slice (`src/modules/users/`); `--kind web` adds `src/ui/` (UI runtime is a gap); `--kind monolith` is both in **one** package; `--kind service` is an API slice labeled as a process. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee test` injects the official [`ZeeTest`](https://github.com/zee-hq/ZeeTest) package and calls `ZeeTest.run()` — `fn test*` in `*.test.zee` under `src/` or `test/` (`test/` mirrors `src/`; `users.service.test.zee`, not `foo_test.zee` or `.spec.zee`), including library packages with `src/lib.zee`. Group with `describe("title") { const row = …; fn testFoo() { } }` — the block is a closure; inner `fn` get that env. Lifecycle hooks are `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. You can also `import ZeeTest` yourself. Assertions are `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch). `it()` is not a test helper — Zee `it` is the lambda parameter. Failure is also `panic` or a visible `err`. `zee init` scaffolds the current directory.
 
 Dependencies are Gradle-style aliases. `zee get ZeeTest` looks up the name in a workspace `libs.toml` if you have one, otherwise in the official [`catalog.json`](catalog.json) (Maven-style index: where the package lives). You can point `ZEE_CATALOG` at a JSON URL or file — later that URL will be the landing-page central. `zee get` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed and **honors `zee.lock`**. `zee update` (or `zee update env`) re-resolves within the current constraint and rewrites the lock — `1.2` can pick a newer `1.2.x`, `1.2.3` stays exact. It does not edit `libs.toml`. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` is SemVer precision (`1.2` → latest `1.2.x`). Registry order: `ZEE_REGISTRY`, `[registry] url`, then `~/.zee/registry`. `zee publish` refuses overwrite. Contract: [`docs/REGISTRY.md`](docs/REGISTRY.md).
 
@@ -131,7 +131,7 @@ fn main() {
 }
 ```
 
-Generators follow the HTTP slice. `zee generate resource` is the Laravel-style mapper; `zee generate feature` writes the whole stack:
+Generators follow the HTTP slice. `zee generate resource` writes the HTTP mapper; `zee generate feature` writes the whole stack:
 
 ```bash
 zee generate feature user --api
@@ -181,7 +181,7 @@ zee> add(x, 2)
 
 **Interfaces:** nominative `implements`. Methods only — no fields, no default bodies. A coincidental method is not enough. Methods that satisfy the interface live on the type or as UFCS `fn name(self: Type)` in the same module. `fn f(x: Closeable)` is an existential; call `x.close()`. `sealed interface` can be implemented in this module only; `match` is exhaustive on that set. `if x is File` narrows in the then-branch (not `as`). `open` / `abstract` / bounds `T: Closeable` wait. Unconstrained `fn f<T>` is in.
 
-**Modules:** a package is `zee.toml`. A module is a directory under `src/` (`src/` is the root module; `src/http/` is `http`). Unmarked names are file-private. `internal` is visible in the same folder without `import`. `pub` is importable from another module or package. Imports are Kotlin-shaped: `import http`, `import http.Client`, `import http.{A, B as C}`. A `[deps]` name is the same: `import json.Value`. No glob, no `public`/`protected`. Cycles and file-vs-folder clashes are compile errors.
+**Modules:** a package is `zee.toml`. A module is a directory under `src/` (`src/` is the root module; `src/http/` is `http`). Unmarked names are file-private. `internal` is visible in the same folder without `import`. `pub` is importable from another module or package. Imports: `import http`, `import http.Client`, `import http.{A, B as C}`. A `[deps]` name is the same: `import json.Value`. No glob, no `public`/`protected`. Cycles and file-vs-folder clashes are compile errors.
 
 **Docs:** `///` is a Markdown doc on the next declaration (`fn`, type, field, method); consecutive lines merge. `//!` is inner docs for the file (top of the file). `{` in docs is not interpolation. `//` and `/* */` are not docs. A `///` with no following declaration is an error.
 
@@ -298,7 +298,7 @@ editor/jetbrains TextMate grammar + LSP4IJ (`zee lsp`)
 | `zee new <name> [--kind bin\|api\|web\|monolith\|service]` | create a package (default `bin`) |
 | `zee init [name]` | scaffold the current directory |
 | `zee generate feature <name> [--api\|-i]` | HTTP slice (`user` → `src/modules/users/users.*.zee`) |
-| `zee generate controller <name> [--api\|-i]` | HTTP in; Laravel `--api` or invokable `-i` |
+| `zee generate controller <name> [--api\|-i]` | HTTP in; `--api` or invokable `-i` |
 | `zee generate resource <name>` | HTTP mapper (`users.resource.zee`) |
 | `zee generate action\|service\|repository\|model\|api\|module <name>` | one layer file |
 | `zee get [alias...]` | resolve alias from `libs.toml` or `catalog.json`, fetch into `.zee/` |

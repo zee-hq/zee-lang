@@ -1230,6 +1230,12 @@ function defineBuiltins(env: TypeEnv): void {
     ret: { kind: 'typeParam', name: 'R' },
     typeParams: ['R'],
   })
+  env.define('httpFail', {
+    kind: 'fn',
+    params: [T_ERROR],
+    ret: { kind: 'typeParam', name: 'R' },
+    typeParams: ['R'],
+  })
   env.define('testCases', {
     kind: 'fn',
     params: [],

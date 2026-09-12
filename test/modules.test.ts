@@ -165,7 +165,7 @@ fn main() {
     expect(() => executePath(join(root, 'src/main.zee'))).toThrow(/file vs folder clash/)
   })
 
-  it('picks two pub names from a module that exports more (JS-shaped subset)', () => {
+  it('picks two pub names from a module that exports more', () => {
     const root = project()
     write(
       root,

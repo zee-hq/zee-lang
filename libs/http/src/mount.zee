@@ -1,0 +1,6 @@
+//! `Resource` mounted at a path prefix (`create` / `edit` included).
+
+pub data struct Mount {
+  pub const prefix: String
+  pub const resource: Resource
+}

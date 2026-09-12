@@ -1,0 +1,6 @@
+//! One static GET body registered on `Router.get`.
+
+pub data struct StaticGet {
+  pub const path: String
+  pub const body: String
+}

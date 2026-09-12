@@ -1,0 +1,6 @@
+//! `ApiResource` mounted at a path prefix.
+
+pub data struct ApiMount {
+  pub const prefix: String
+  pub const resource: ApiResource
+}

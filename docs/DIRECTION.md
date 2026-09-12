@@ -28,7 +28,7 @@ v0 today: `fn` + UFCS methods (`self` / `var self`), associated `Type.fn()` / `T
 | Concurrency | coroutines + CSP | **Zee scheduler:** `task cpu { }`, `on io { }`, `yield`, `Chan<T>`, `select`. Dispatch is named. No `async`/`await`, no `go` |
 | Unsafe / FFI | C / Go | `unsafe`, `*T` / `*var T`, `repr(C)`, `extern "C"` / `"host"` |
 | Constructors | C# / Kotlin | **`Name { fields }`** + associated factories (`Type.empty()`). No `new`, no `Type(x)` as a class constructor |
-| DI | Quarkus | **HTTP:** `http.app()` indexes loaded `@Controller` and builds via `of` / `empty`. No `@Inject`. No `src/` walk. `main` still chooses listen. Hexagonal is the course, not a keyword |
+| DI | — | **HTTP:** `http.app()` indexes loaded `@Controller` and builds via `of` / `empty`. No `@Inject`. No `src/` walk. `main` still chooses listen. Hexagonal is the course, not a keyword |
 | Collection methods | Kotlin | **`forEach` / `map` / `filter` / `any` / `all` / `contains` / `find` / `sort` / `sortBy` / `sortByKey` / `sortByValue` / `slice`** — catalog in §8f |
 | Emptiness / blank | Kotlin | **`isEmpty` / `isBlank` / `isNoneOrEmpty`** — catalog in §8g. No `null` |
 
@@ -1048,7 +1048,7 @@ hello/
 - Nested: `src/http/tls/` is `http.tls`. `src/modules/admin/users/` is `admin.users`. `src/shared/config/` is `shared.config`.
 - You cannot have both `src/http.zee` and `src/http/` (file vs folder clash). Same for `src/modules.zee` vs `src/modules/`.
 - `zee.toml` `entry` for a **bin** is `src/main.zee`. `main` is not imported; it is the program start.
-- HTTP apps (`--kind api|service|monolith`) use a Quarkus-shaped tree: `src/bootstrap/` (composition root, not a bounded context), `src/modules/` (feature slices), `src/shared/` (cross-cutting). `src/bootstrap/main.zee` is module `bootstrap`. `entry = "src/bootstrap/main.zee"`.
+- HTTP apps (`--kind api|service|monolith`) use `src/bootstrap/` (composition root, not a bounded context), `src/modules/` (feature slices), `src/shared/` (cross-cutting). `src/bootstrap/main.zee` is module `bootstrap`. `entry = "src/bootstrap/main.zee"`.
 - Tests live in `test/` next to `src/` (a **container** that mirrors `src/`). `test/modules/users/users.service.test.zee` is still module `users`. No `.zee` files directly in `test/`. Colocated `*.test.zee` under `src/` still runs.
 - `src/ui/` stays outside `modules/` (adapter, not a domain slice). `bootstrap` / `shared` / `ui` are not generate feature slices (`zee generate module shared` → `src/shared/`).
 - Import cycles are a compile error.
@@ -1068,13 +1068,13 @@ Request → controller → action → service ─┬─→ resource  → respons
 | controller | `users.controller.zee` | HTTP in. Maps the request onto an action. |
 | action | `users.action.zee` | One use-case (or a small set). Calls the service. |
 | service | `users.service.zee` | Domain rules. No HTTP, no SQL. |
-| resource | `users.resource.zee` | Maps domain → HTTP body (Laravel Resource). **Not** “generate the whole stack”. |
+| resource | `users.resource.zee` | Maps domain → HTTP body. **Not** “generate the whole stack”. |
 | repository | `users.repository.zee` | Persistence port. Talks to `api` or `model`. |
 | api | `users.api.zee` | Outbound HTTP client. |
 | model | `users.model.zee` | DB shape. Wired in `main`, not constructed in the controller. |
 | module | `users.module.zee` | Directory comment. Composition root is `main`. |
 
-Tests: **`.test.zee` only** (`users.service.test.zee`). Prefer `test/` next to `src/` (`test/modules/users/…`). Colocated next to production still runs. No `foo_test.zee`. No `.spec.zee`. `fn testFoo()`. **`describe("title") { }`** is a **closure**: the block runs at load and **injects** that env into inner `fn` (tests/hooks/helpers). `var` / `const` in the block are visible to those fns. Nested `describe` nests both the label and the env. Sequential `describe("title")` still labels following file-level `fn test*`. Lifecycle is **`fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`** (file or describe). Lambdas still cannot capture `var` — use `fn`. Tooling (`zee test`) runs official lib **ZeeTest** (`import ZeeTest` / `ZeeTest.run()`). Assertions are Vitest-shaped **`expect(x).toBe(y)`** / **`toEqual`** / **`.not`** (panic on mismatch; Eq values only). No `test` keyword. No `it()` — Zee `it` is the lambda parameter. Works on `src/lib.zee` packages. Host builtins `testCases` / `testCall` / `expect` / `describe`. *(in the interpreter)*
+Tests: **`.test.zee` only** (`users.service.test.zee`). Prefer `test/` next to `src/` (`test/modules/users/…`). Colocated next to production still runs. No `foo_test.zee`. No `.spec.zee`. `fn testFoo()`. **`describe("title") { }`** is a **closure**: the block runs at load and **injects** that env into inner `fn` (tests/hooks/helpers). `var` / `const` in the block are visible to those fns. Nested `describe` nests both the label and the env. Sequential `describe("title")` still labels following file-level `fn test*`. Lifecycle is **`fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`** (file or describe). Lambdas still cannot capture `var` — use `fn`. Tooling (`zee test`) runs official lib **ZeeTest** (`import ZeeTest` / `ZeeTest.run()`). Assertions are **`expect(x).toBe(y)`** / **`toEqual`** / **`.not`** (panic on mismatch; Eq values only). No `test` keyword. No `it()` — Zee `it` is the lambda parameter. Works on `src/lib.zee` packages. Host builtins `testCases` / `testCall` / `expect` / `describe`. *(in the interpreter)*
 
 App entry for a **bin** stays `src/main.zee`. An HTTP app uses `src/bootstrap/main.zee`. A published library uses `src/lib.zee` (no `main`).
 
@@ -1103,11 +1103,11 @@ src/modules/users/users.model.zee
 src/modules/users/users.module.zee
 ```
 
-- `user` inflects to `users` (Laravel). Uncountable names stay (`http`, `tls`, `math`, `auth`).
+- `user` inflects to `users`. Uncountable names stay (`http`, `tls`, `math`, `auth`).
 - Only the **last** path segment inflects: `admin/user` → `src/modules/admin/users/`.
 - Path is relative to `src/modules/` (`zee generate module user`, not `modules/user`). `src/bootstrap/`, `src/shared/`, and `src/ui/` are not generate feature slices.
-- `--api` on a **controller** or **feature** is Laravel API verbs: `index`, `store`, `show`, `update`, `destroy` (no `create`/`edit` views).
-- `-i` / `--invokable` is a single `invoke` (Laravel `__invoke`).
+- `--api` on a **controller** or **feature** is the API verbs: `index`, `store`, `show`, `update`, `destroy` (no `create`/`edit` views).
+- `-i` / `--invokable` is a single `invoke`.
 - `--api` and `-i` cannot be combined.
 - `zee generate feature` writes every layer file. `zee generate resource` writes **only** `*.resource.zee`.
 - Aliases: `co`, `act`, `s`, `re`, `repo`, `mod`, `api`, `feat`. `mo` is the module stub.
@@ -1117,11 +1117,11 @@ src/modules/users/users.module.zee
   - **api** — `src/bootstrap/main.zee` + HTTP slice via `zee generate feature user --api` (`src/modules/users/…`). Cross-cutting in `src/shared/`. No `ui` module. Runtime HTTP is official lib `http` (`http.listen` in `main`).
   - **service** — same slice as **api**; `description` marks a process. Not a mesh. Another service is another `zee new`.
   - **web** — `src/ui/` adapter (`ui.module.zee` + `ui.view.zee`). UI runtime is a gap. No HTTP slice.
-  - **monolith** — **api** slice **and** `src/ui/` in the **same** package. `src/bootstrap/main.zee` is the composition root. Not two packages, not Next+Nest.
+  - **monolith** — **api** slice **and** `src/ui/` in the **same** package. `src/bootstrap/main.zee` is the composition root. Not two packages.
 - Kinds do **not** invent a container, HTTP **keyword**, or UI. The HTTP **server** is `import http`. `http.app()` indexes `@Controller`.
 - Wiring is not generated — `*.module.zee` is a comment. `http.app()` builds HTTP beans.
 
-### Import (Kotlin-shaped)
+### Import
 
 ```
 import http                     // bind the module: http.get(...)
@@ -1131,10 +1131,10 @@ import http.Client as HttpClient
 ```
 
 - No star import (`import http.*`) — dependencies stay explicit.
-- Paths are identifiers (`http.Client`), not Go strings (`import "net/http"`).
+- Paths are identifiers (`http.Client`), not string paths.
 - External packages: `import json.Value` where `json` is a `[deps]` name in `zee.toml`. Same syntax.
 - **Pick a subset of `pub` names** with `{A, B}`. A module may export four `pub` types; the importer lists the two it uses. Unmarked / `internal` names never appear in an import. The other `pub` names stay on the module; they are not in this file’s scope unless listed (or you `import http` and write `http.C`).
-- The **directory** is the module, not the file. Four `pub` in `src/modules/users/shop.zee` and two in `src/modules/users/clock.zee` are all `users`. `import users.{Shop, Clock}` is the JS-shaped “take two exports”. There is no `from "./shop.zee"` and no `import users.shop.Shop` unless `src/modules/users/shop/` is a nested **folder** (`users.shop`).
+- The **directory** is the module, not the file. Four `pub` in `src/modules/users/shop.zee` and two in `src/modules/users/clock.zee` are all `users`. `import users.{Shop, Clock}` picks two exports. There is no `from "./shop.zee"` and no `import users.shop.Shop` unless `src/modules/users/shop/` is a nested **folder** (`users.shop`).
 
 ### Visibility (three levels)
 
@@ -1200,7 +1200,7 @@ Hard rules:
 - **Do not treat “languages on the JVM” (Kotlin, Scala, Groovy) as the model.** Those are JVM languages. Zee using the JVM as a CPU is the C/x86 model: the ISA is not the language.
 - **Concurrency is Zee’s scheduler**, not the host’s. No compiling `task` to goroutines, `Promise`, Java threads, or `pthread`. A backend *implements* Zee tasks on the machine the way LLVM implements `+` on x86.
 
-Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
+Company jar is a *deployment* of Zee, not a reason to look like the host.
 
 ---
 
@@ -1214,9 +1214,9 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 6. **Bindings** — `const` / `var`, not `let`.
 7. **`redim`** — VB6-style retype of a `var`: widen `i8` → `i32` (preserve value); later, array length.
 8. **Collections** — `T[]` growable buffer, `List<T>` immutable, `Map<K,V>` typed; no PHP mixed array.
-9. **Types** — OOP à la C#: `struct` (value object) and `class` (identity object), both with methods. Default closed. `data`, `sealed`, `readonly` in; `open` opt-in. Not C mute structs, not Java everything-is-class.
+9. **Types** — `struct` (value object) and `class` (identity object), both with methods. Default closed. `data`, `sealed`, `readonly` in; `open` opt-in. Not mute structs, not everything-is-class.
 10. **Modules** — package = `zee.toml`; module = directory; root = `src/`. Same folder, no import.
-11. **Import** — `import http`, `import http.Client`, `import http.{A, B}`, `as` rename. No glob. `{A, B}` is the subset of `pub` names (JS-shaped pick; the file is not a module).
+11. **Import** — `import http`, `import http.Client`, `import http.{A, B}`, `as` rename. No glob. `{A, B}` is the subset of `pub` names (the file is not a module).
 12. **Visibility** — default file-private; `internal` = module; `pub` = export. Fields opt-in. No `protected`, no Go capitals.
 13. **Runtimes** — Zee is *the* language. Backends (Node bootstrap, JVM, LLVM, WASM, kernel) are machines. No Java/Kotlin dialect, no host stdlib as Zee stdlib. JVM is optional hosted codegen, not identity.
 14. **Generics** — `Foo<T>`, `fn f<T>(…)`, `name<T>(…)`. Infer locally. Invariant. No wildcards, no raw types, no erasure. Bounds: built-in `Eq`/`Hash`/`Ord` plus user `T: Closeable`.
@@ -1239,13 +1239,13 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 31. **Packages** — `zee.toml` `[package]` + `[deps]`; `libs.toml` overlay + `catalog.json` index; `zee get` (honors lock) + `zee update` (re-resolve within constraint) + `.zee/` + `zee.lock`; SemVer via registry (`docs/REGISTRY.md`) + `zee publish`. One app manifest. No `package.json` as Zee config. Official libs: `libs/env` (`import env`), `libs/ZeeTest` (`import ZeeTest`; `zee test` injects it), `libs/json` (`import json`; `json.encode` / `json.decode<T>`), and `libs/http` (`import http`; `http.listen` / `http.dispatch` / `http.app()`). Host builtins `getenv` / `envProfile` / `testCases` / `testCall` / `expect` / `describe` / `jsonEncode` / `jsonDecode` / `httpDispatch` / `httpListen` / `httpI32Param` / `httpRouterController` / `httpApp` (no Zee `null`).
 32. **`<===>`** — three-way compare (PHP `<=>`), spelled so it cannot be `<=` / `=>` / `===`. `Ord` only; result is `i32` (`-1` / `0` / `1`). `||=` stays on `var bool` with `&&=` (short-circuit).
 33. **Construction** — `Name { fields }` is the only literal. Public construction of types with private fields is an associated factory (`Type.empty()`, `Type.of(…)`). No `new`. No `Type(x)` as a class/struct constructor (`T(x)` is conversion). No `init`. No overloads. `var self` on a `const` field is illegal — the field is `var` if you mutate it.
-34. **Composition** — HTTP apps are Quarkus-shaped: `http.app()` indexes `@Controller` types **already loaded** with the package (Jandex, not a `src/` walk) and constructs a singleton per type via associated `of(…)` / `empty()`. `main` calls `http.listen(addr, http.app())`. No `@Inject`. `*.module.zee` stays a comment. `.controller(instance)` remains for tests that mount one object. Instance cycles are errors. Hexagonal architecture is the course (module 08), not a keyword.
+34. **Composition** — `http.app()` indexes `@Controller` types **already loaded** with the package (not a `src/` walk) and constructs a singleton per type via associated `of(…)` / `empty()`. `main` calls `http.listen(addr, http.app())`. No `@Inject`. `*.module.zee` stays a comment. `.controller(instance)` remains for tests that mount one object. Instance cycles are errors. Hexagonal architecture is the course (module 08), not a keyword.
 35. **Collection methods** — catalog in §8f. `forEach` (not `each`). `any` (not `some`). `map` on `Map` is `mapValues`. Map order is `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`). List `sort()` is `T: Ord`; `sort { a, b -> }` is `(T, T) -> i32` (not PHP `usort`); `sortBy { it.age }` extracts an `Ord` key. `push`/`pop` only on `var T[]`. Debug dump is `toString`, not `str`. Interpreter may lag (same as `task`).
 36. **Emptiness** — catalog in §8g. Predicates are `is*` (`Type.empty()` stays the factory). Unicode whitespace on `Char`. `== None` stays; `isNone`/`isSome` are sugar. No `null`.
 37. **Project kinds** — `zee new --kind bin|api|web|monolith|service`. One package. Monolith = HTTP slice + `ui` module. Microservice = another `zee new --kind service`. Not a workspace of three packages. Not a language UI/HTTP runtime.
 38. **JSON** — official lib `json` (`import json`). `json.encode(value) -> String`; `json.decode<T>(text) -> (T, Option<Error>)`. Host overlay `jsonEncode` / `jsonDecode`. JSON `null` ↔ `None` (§8e). Invalid JSON / missing fields are `err` (dummy `T`), not panic. Encode `data` / `struct` by field names. Not a JSON DOM. Not `null`.
-39. **HTTP** — official lib `http` (`import http`). The compiler does not know Get/Post. The package reads `@Get` / `@Post` / `@Put` / `@Patch` / `@Delete` / `@Controller` from method/class metadata, and `@Param("id")` / `@Params` / `@Query("q")` / `@Query` / `@Body` / `@Request` from **parameters**. `@Param` is one path key; `@Params` is the path `Map`. `@Query("q")` is one query key; `@Query` with no args is the query `Map`. Query string is parsed from `?k=v` (`+` and `%20`). `@Request` is the whole bag (`method` / `path` / `text` / `params` / `query` / `headers`). `@Body` is `json.decode` into the parameter type. Bind failures are `400`. `http.app()` indexes loaded `@Controller` types (Quarkus/Jandex-shaped) and constructs them via `of` / `empty` (one instance per type). `@PathPrefix("/api")` on a loaded `pub` type (Spring `addPathPrefix`) prepends that path to `@Controller` types whose file is under `src/modules/` (Zee’s `package.startsWith("….modules")`). It is metadata, not a bean — no `empty()` / `of`. Controllers in `src/bootstrap/` / `src/shared/` / root `src/` stay unprefixed. `@Cors` on a loaded `pub` type is a JAX-RS-shaped response filter. Associated `properties() -> CorsProperties` holds `allowedOrigins` and `allowedOriginPatterns` (the Spring `CorsProperties` getters). Localhost (`localhost` / `127.0.0.1` / `0.0.0.0` / `*.localhost`) is always allowed — that was `static` regex in Java, not properties. Extra origins are exact list matches; patterns are `*`/`?` (host overlay, no Zee regex). Sets `Allow-Origin` / `Allow-Credentials` / `Allow-Methods` / `Allow-Headers` / `Expose-Headers`. `OPTIONS` is `200` when allowed (preflight). Not a `ContainerResponseFilter` interface. Not `@Inject`. Missing `properties()` is empty lists. `.controller(instance)` / `.get(...)` stay for explicit mounts. `http.dispatch` is the engine (tests); `listen` is the host overlay. `Request` / `Response` are `data struct`. `resource()` remains Laravel `--api` verbs without attributes. Not a `src/` walk. Not `@Inject`. Not a RouteServiceProvider the runtime boots. Client `http.fetch` is a later cut.
-40. **Attributes** — `@Name` / `@Name("…")` on `class`, `fn`, and **parameters** is **metadata**. The language parses and stores. The package that implements the name decides the action (`http` reads `Get` / `Param` / `Query` / `PathPrefix` / `Cors`; another lib may read `Trace`). String-literal args only in v0. Not a macro. Not `@Inject`. `http.app()` is not a folder scan.
+39. **HTTP** — official lib `http` (`import http`). The compiler does not know Get/Post. The package reads `@Get` / `@Post` / `@Put` / `@Patch` / `@Delete` / `@Controller` from method/class metadata, and `@Param("id")` / `@Params` / `@Query("q")` / `@Query` / `@Body` / `@Request` from **parameters**. `@Param` is one path key; `@Params` is the path `Map`. `@Query("q")` is one query key; `@Query` with no args is the query `Map`. Query string is parsed from `?k=v` (`+` and `%20`). `@Request` is the whole bag (`method` / `path` / `text` / `params` / `query` / `headers`). `@Body` is `json.decode` into the parameter type. Bind failures are `400`. `http.app()` indexes loaded `@Controller` types and constructs them via `of` / `empty` (one instance per type). `@PathPrefix("/api")` on a loaded `pub` type prepends that path to `@Controller` types whose file is under `src/modules/` (Zee’s `package.startsWith("….modules")`). It is metadata, not a bean — no `empty()` / `of`. Controllers in `src/bootstrap/` / `src/shared/` / root `src/` stay unprefixed. `@Cors` on a loaded `pub` type is a response filter. Associated `properties() -> CorsProperties` holds `allowedOrigins` and `allowedOriginPatterns`. Localhost (`localhost` / `127.0.0.1` / `0.0.0.0` / `*.localhost`) is always allowed. Extra origins are exact list matches; patterns are `*`/`?` (host overlay, no Zee regex). Sets `Allow-Origin` / `Allow-Credentials` / `Allow-Methods` / `Allow-Headers` / `Expose-Headers`. `OPTIONS` is `200` when allowed (preflight). Not `@Inject`. Missing `properties()` is empty lists. `.controller(instance)` / `.get(...)` stay for explicit mounts. `http.dispatch` is the engine (tests); `listen` is the host overlay. `Request` / `Response` are `data struct`. `HttpCode` is the HTTP status catalog (`HttpCode.NotFound.code()` is `404`; no payload on the enum). `http.response(code, text)` is the generic constructor; named helpers (`ok`, `created`, `notFound`, …) wrap it. `http.abort(code, text)` returns that response (no `throw` — Zee has no exceptions). `http.fail(err)` maps any `Error` to a `Response`. `@ErrorHandler` on a loaded `pub` type is associated `handle(err: Error, req: Request) -> Response`; `abort` / `fail` call it. Missing handler: `HttpError` keeps its status, other `Error` is `500`. `continue` is a keyword — 100 is only `response(HttpCode.Continue, text)`. `resource()` maps resource verbs (`index` / `create` / `store` / `show` / `edit` / `update` / `destroy`) without attributes. `apiResource()` maps `--api` verbs on `ApiResource` (`index` / `store` / `show` / `update` / `destroy`). Not a `src/` walk. Not `@Inject`. Client `http.fetch` is a later cut.
+40. **Attributes** — `@Name` / `@Name("…")` on `class`, `fn`, and **parameters** is **metadata**. The language parses and stores. The package that implements the name decides the action (`http` reads `Get` / `Param` / `Query` / `PathPrefix` / `Cors` / `ErrorHandler`; another lib may read `Trace`). String-literal args only in v0. Not a macro. Not `@Inject`. `http.app()` is not a folder scan.
 
 ---
 
@@ -1338,7 +1338,7 @@ unsafe { asm("nop") }
 - **No macros**, no `#define`, no compile-time AST plugins. `zee generate` is files on disk. `@Name` is metadata (decision 40), not a macro: the language stores it on `class`, `fn`, and parameters; the implementing package acts.
 - **`zee.toml`**: `[package]` + `[deps]`. `[package]` identity: required `name`; `version` (default `0.1.0`); `entry`; optional `description`, `author`, `company`, `contact`, `license`, `homepage`, `repository` (quoted strings). `zee get <alias>` resolves the alias from workspace `libs.toml` (overlay) or the official [`catalog.json`](../catalog.json) (Maven-style index; override with `ZEE_CATALOG`). Path/git inline still work. SemVer `json = "1.2"` is precision-based (`1.2` → latest `1.2.x`, `1.2.3` exact) via `ZEE_REGISTRY`, `[registry] url`, or `~/.zee/registry` — see [`docs/REGISTRY.md`](REGISTRY.md). Git catalog tags use the same precision (`version.ref = "1.0"` → latest `1.0.x` tag). `zee get` honors `zee.lock`; `zee update` [name...] re-resolves within the constraint and rewrites the lock (does not edit `libs.toml`). `zee publish` refuses overwrite. HTTP: `zee registry` serves `GET`/`PUT /api/v1/packages/…` (PUT needs `ZEE_REGISTRY_TOKEN`). Materialize in `.zee/`. `zee.lock` pins hashes.
 - **Official libs** are GitHub packages under `zee-hq`, versioned by Git tags matching `zee.toml`, listed in [`catalog.json`](../catalog.json). First: [`zee-hq/env`](https://github.com/zee-hq/env) (`import env`; `zee get env`). Profile `ZEE_PROFILE` then `ZEE_ENV` then `.env` then `dev`; files `.env`, `.env.local`, `.env.{profile}`, `.env.{profile}.local`; process env wins. Dotenv parsing is a host overlay until Zee has string split. No `$VAR` expansion in v0. In-tree `libs/env` is the language-test fixture. Second: [`zee-hq/ZeeTest`](https://github.com/zee-hq/ZeeTest) (`import ZeeTest`; `zee test` injects it and calls `ZeeTest.run()`). In-tree `libs/ZeeTest` is the language-test fixture. Third: [`zee-hq/json`](https://github.com/zee-hq/json) (`import json`; `json.encode` / `json.decode<T>`). JSON `null` is `None`. Encode/decode is a host overlay (`jsonEncode` / `jsonDecode`) until a native parser exists. In-tree `libs/json` is the language-test fixture. Fourth: **http** (`import http`; `http.listen` / `http.dispatch` / `http.router().controller`). The compiler does not know Get/Post. The package reads `@Get` / `@Controller` / `@Param` / `@Query` / `@Body` / `@Request` from metadata (decision 40). In-tree `libs/http` is the language-test fixture. The landing-page Maven central replaces this JSON index later (`ZEE_CATALOG` already points at a URL).
-- **Tests:** `.test.zee` (`users.service.test.zee`) + `fn testFoo()`. `describe("title") { }` is a closure: the block runs at load and injects that env into inner `fn` (`var`/`const` live there). Nested `describe` nests label + env. Sequential `describe("title")` labels following file-level cases. Lifecycle: `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. Lambdas still cannot capture `var`. Official lib **ZeeTest** (`libs/ZeeTest`), not a `test` keyword. `expect(x).toBe(y)` / `toEqual` / `.not` (panic; Eq only). `zee test` injects the lib on app and `src/lib.zee` packages. No `foo_test.zee`, no `.spec.zee`. No Vitest `it()` (`it` is the lambda param). Host builtins `testCases` / `testCall` / `expect` / `describe`. *(in the interpreter)*
+- **Tests:** `.test.zee` (`users.service.test.zee`) + `fn testFoo()`. `describe("title") { }` is a closure: the block runs at load and injects that env into inner `fn` (`var`/`const` live there). Nested `describe` nests label + env. Sequential `describe("title")` labels following file-level cases. Lifecycle: `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. Lambdas still cannot capture `var`. Official lib **ZeeTest** (`libs/ZeeTest`), not a `test` keyword. `expect(x).toBe(y)` / `toEqual` / `.not` (panic; Eq only). `zee test` injects the lib on app and `src/lib.zee` packages. No `foo_test.zee`, no `.spec.zee`. No `it()` test helper (`it` is the lambda param). Host builtins `testCases` / `testCall` / `expect` / `describe`. *(in the interpreter)*
 - **Self-host, LLVM, WASM, JVM:** machines (§6c). Not dialects. Not open language questions.
 
 ### 8d. Explicit refusals (will not grow later “for a minute”)
@@ -1488,7 +1488,7 @@ if err != None { return ("", err) } // Go slot stays; isSome() is sugar
 
 ## 9. Radar (closed)
 
-Closed in ZEE-13. The Nest CRUD demo made these holes visible. **No new grammar.** Associated factories and `http.app()` are the language, not a stand-in waiting to be replaced. Collection and emptiness catalogs live in §8f / §8g (stdlib; interpreter may lag).
+Closed in ZEE-13. The CRUD demo made these holes visible. **No new grammar.** Associated factories and `http.app()` are the language, not a stand-in waiting to be replaced. Collection and emptiness catalogs live in §8f / §8g (stdlib; interpreter may lag).
 
 ### 9a. Constructors — associated factories are enough
 
@@ -1508,9 +1508,9 @@ const svc = CompanyService.empty()         // hide private `rows` from other mod
 
 No `new`. That refusal stays. A `pub class` with private fields is built only from its defining module via an associated factory.
 
-### 9b. Dependency injection — HTTP is Quarkus-shaped
+### 9b. Dependency injection — HTTP beans
 
-v0 today: `@Controller` types in the loaded package are beans. `http.app()` indexes them (like Jandex: units already parsed, not `readdir` of `src/`). Each type is a singleton built with associated `of(…)` (parameters are other beans) or `empty()`. `main` listens:
+v0 today: `@Controller` types in the loaded package are beans. `http.app()` indexes them (units already parsed, not `readdir` of `src/`). Each type is a singleton built with associated `of(…)` (parameters are other beans) or `empty()`. `main` listens:
 
 ```zee
 fn main() {
@@ -1529,8 +1529,8 @@ No `@Inject`. `zee generate` still does not create a container. `*.module.zee` i
 | `@Inject` / field injection | `@Name` is metadata (decision 40); the graph is `of` / `empty` |
 | classpath / `src/` walk | modules are directories you `import`; the package is already loaded |
 | reflection container at runtime | Zee is checked; `http.app()` is the http overlay, not a second language |
-| PHP/Laravel facades / service locator | pass the object into `of` |
-| Spring XML / YAML as the graph | wiring is Zee `of` / `empty` |
+| facades / service locator | pass the object into `of` |
+| XML / YAML as the graph | wiring is Zee `of` / `empty` |
 | `provides` / `import` declarations in `*.module.zee` | stays a comment |
 | language-level DI | hexagonal stays in the **course** (module 08), not a keyword |
 
@@ -1538,7 +1538,7 @@ No `@Inject`. `zee generate` still does not create a container. `*.module.zee` i
 
 1. Not a language keyword, not a stdlib `App.get`. **`http.app()`** for HTTP. `main` still starts the process.
 2. `*.module.zee` stays a convention (directory comment).
-3. Bind by **type** of `of` parameters (Quarkus constructor injection without the annotation).
+3. Bind by **type** of `of` parameters.
 4. Interface + impl: **one** `empty`/`of` that `http.app()` can call; `main` still chooses if you keep an explicit `.controller`.
 5. Instance cycles: **forbid** (same as import cycles). No `lazy`, no two-phase init.
 6. Same as §9a answer 5.

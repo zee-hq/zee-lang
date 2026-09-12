@@ -1,0 +1,21 @@
+//! Incoming HTTP bag. `request()` is the empty-maps factory; `i32Param` is the host overlay.
+
+pub data struct Request {
+  pub const method: String
+  pub const path: String
+  pub const text: String
+  pub const params: Map<String, String>
+  pub const query: Map<String, String>
+  pub const headers: Map<String, String>
+}
+
+pub fn request(method: String, path: String, text: String) -> Request {
+  const params: Map<String, String> = {}
+  const query: Map<String, String> = {}
+  const headers: Map<String, String> = {}
+  Request { method: method, path: path, text: text, params: params, query: query, headers: headers }
+}
+
+pub fn i32Param(req: Request, name: String) -> (i32, Option<Error>) {
+  httpI32Param(req, name)
+}

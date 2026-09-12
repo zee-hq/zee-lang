@@ -1,0 +1,134 @@
+//! HTTP status codes. Zee `enum` has no payload, so the number is `code()`.
+//! Declaration order follows the numeric code (Ord). 306 is unused and omitted.
+
+pub enum HttpCode {
+  Continue
+  SwitchingProtocols
+  Processing
+  EarlyHints
+  Ok
+  Created
+  Accepted
+  NonAuthoritativeInformation
+  NoContent
+  ResetContent
+  PartialContent
+  MultiStatus
+  AlreadyReported
+  ImUsed
+  MultipleChoices
+  MovedPermanently
+  Found
+  SeeOther
+  NotModified
+  UseProxy
+  TemporaryRedirect
+  PermanentRedirect
+  BadRequest
+  Unauthorized
+  PaymentRequired
+  Forbidden
+  NotFound
+  MethodNotAllowed
+  NotAcceptable
+  ProxyAuthenticationRequired
+  RequestTimeout
+  Conflict
+  Gone
+  LengthRequired
+  PreconditionFailed
+  PayloadTooLarge
+  UriTooLong
+  UnsupportedMediaType
+  RangeNotSatisfiable
+  ExpectationFailed
+  ImATeapot
+  MisdirectedRequest
+  UnprocessableEntity
+  Locked
+  FailedDependency
+  TooEarly
+  UpgradeRequired
+  PreconditionRequired
+  TooManyRequests
+  RequestHeaderFieldsTooLarge
+  UnavailableForLegalReasons
+  InternalServerError
+  NotImplemented
+  BadGateway
+  ServiceUnavailable
+  GatewayTimeout
+  HttpVersionNotSupported
+  VariantAlsoNegotiates
+  InsufficientStorage
+  LoopDetected
+  NotExtended
+  NetworkAuthenticationRequired
+}
+
+pub fn code(self: HttpCode) -> i32 {
+  match self {
+    HttpCode.Continue => 100
+    HttpCode.SwitchingProtocols => 101
+    HttpCode.Processing => 102
+    HttpCode.EarlyHints => 103
+    HttpCode.Ok => 200
+    HttpCode.Created => 201
+    HttpCode.Accepted => 202
+    HttpCode.NonAuthoritativeInformation => 203
+    HttpCode.NoContent => 204
+    HttpCode.ResetContent => 205
+    HttpCode.PartialContent => 206
+    HttpCode.MultiStatus => 207
+    HttpCode.AlreadyReported => 208
+    HttpCode.ImUsed => 226
+    HttpCode.MultipleChoices => 300
+    HttpCode.MovedPermanently => 301
+    HttpCode.Found => 302
+    HttpCode.SeeOther => 303
+    HttpCode.NotModified => 304
+    HttpCode.UseProxy => 305
+    HttpCode.TemporaryRedirect => 307
+    HttpCode.PermanentRedirect => 308
+    HttpCode.BadRequest => 400
+    HttpCode.Unauthorized => 401
+    HttpCode.PaymentRequired => 402
+    HttpCode.Forbidden => 403
+    HttpCode.NotFound => 404
+    HttpCode.MethodNotAllowed => 405
+    HttpCode.NotAcceptable => 406
+    HttpCode.ProxyAuthenticationRequired => 407
+    HttpCode.RequestTimeout => 408
+    HttpCode.Conflict => 409
+    HttpCode.Gone => 410
+    HttpCode.LengthRequired => 411
+    HttpCode.PreconditionFailed => 412
+    HttpCode.PayloadTooLarge => 413
+    HttpCode.UriTooLong => 414
+    HttpCode.UnsupportedMediaType => 415
+    HttpCode.RangeNotSatisfiable => 416
+    HttpCode.ExpectationFailed => 417
+    HttpCode.ImATeapot => 418
+    HttpCode.MisdirectedRequest => 421
+    HttpCode.UnprocessableEntity => 422
+    HttpCode.Locked => 423
+    HttpCode.FailedDependency => 424
+    HttpCode.TooEarly => 425
+    HttpCode.UpgradeRequired => 426
+    HttpCode.PreconditionRequired => 428
+    HttpCode.TooManyRequests => 429
+    HttpCode.RequestHeaderFieldsTooLarge => 431
+    HttpCode.UnavailableForLegalReasons => 451
+    HttpCode.InternalServerError => 500
+    HttpCode.NotImplemented => 501
+    HttpCode.BadGateway => 502
+    HttpCode.ServiceUnavailable => 503
+    HttpCode.GatewayTimeout => 504
+    HttpCode.HttpVersionNotSupported => 505
+    HttpCode.VariantAlsoNegotiates => 506
+    HttpCode.InsufficientStorage => 507
+    HttpCode.LoopDetected => 508
+    HttpCode.NotExtended => 510
+    HttpCode.NetworkAuthenticationRequired => 511
+  }
+}

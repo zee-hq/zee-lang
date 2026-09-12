@@ -1,4 +1,4 @@
-//! Domain → HTTP body (Laravel Resource). Runtime HTTP is a language gap.
+//! Domain → HTTP body.
 
 import json
 

@@ -1,41 +1,59 @@
+import json
+import users.UserRow
+
 describe("UsersService") {
   fn testCreatesAda() {
-    const service = UsersService.of(MemoryUsers.empty())
-    const (next, row, err) = service.create("ada")
+    var service = UsersService.of(MemoryUsers.empty())
+    const res = service.create("ada")
+    expect(res.status).toBe(201)
+    const (row, err) = json.decode<UserRow>(res.text)
     expect(err.isNone()).toBe(true)
     expect(row.id).toBe(1)
     expect(row.name).toBe("ada")
     expect(row.active).toBe(true)
-    expect(next.repo.rows.len).toBe(1usize)
+    expect(service.repo.rows.len).toBe(1usize)
   }
 
   fn testSetsActive() {
-    const service = UsersService.of(MemoryUsers.empty())
-    const (created, _, createErr) = service.create("ada")
-    expect(createErr.isNone()).toBe(true)
-    const (next, row, err) = created.setActive(1, false)
+    var service = UsersService.of(MemoryUsers.empty())
+    expect(service.create("ada").status).toBe(201)
+    const res = service.setActive(1, false)
+    expect(res.status).toBe(200)
+    const (row, err) = json.decode<UserRow>(res.text)
     expect(err.isNone()).toBe(true)
     expect(row.active).toBe(false)
     expect(row.name).toBe("ada")
-    expect(next.get(1) ?: UserRow { id: 0, name: "", active: false }).toEqual(UserRow { id: 1, name: "ada", active: false })
+    const shown = service.get(1)
+    expect(shown.status).toBe(200)
+    const (shownRow, shownErr) = json.decode<UserRow>(shown.text)
+    expect(shownErr.isNone()).toBe(true)
+    expect(shownRow).toEqual(UserRow { id: 1, name: "ada", active: false })
   }
 
   fn testRejectsBlankName() {
-    const service = UsersService.of(MemoryUsers.empty())
-    const (_, row, err) = service.create("  ")
-    expect(err.isSome()).toBe(true)
-    expect(row.id).toBe(0)
+    var service = UsersService.of(MemoryUsers.empty())
+    const res = service.create("  ")
+    expect(res.status).toBe(400)
+    expect(res.text).toBe("name is blank")
   }
 
   fn testUpdatesAndRemoves() {
-    const service = UsersService.of(MemoryUsers.empty())
-    const (created, _, createErr) = service.create("ada")
-    expect(createErr.isNone()).toBe(true)
-    const (updated, row, updateErr) = created.update(1, "ana")
-    expect(updateErr.isNone()).toBe(true)
+    var service = UsersService.of(MemoryUsers.empty())
+    expect(service.create("ada").status).toBe(201)
+    const updated = service.update(1, "ana")
+    expect(updated.status).toBe(200)
+    const (row, err) = json.decode<UserRow>(updated.text)
+    expect(err.isNone()).toBe(true)
     expect(row.name).toBe("ana")
-    const (gone, removeErr) = updated.remove(1)
-    expect(removeErr.isNone()).toBe(true)
-    expect(gone.list().isEmpty()).toBe(true)
+    const gone = service.remove(1)
+    expect(gone.status).toBe(200)
+    expect(service.list().text).toBe("[]")
+  }
+
+  fn testGetMissing() {
+    var service = UsersService.of(MemoryUsers.empty())
+    const res = service.get(9)
+    expect(res.status).toBe(404)
+    expect(res.text).toBe("not found")
   }
 }

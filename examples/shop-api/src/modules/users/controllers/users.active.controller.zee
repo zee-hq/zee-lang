@@ -2,7 +2,7 @@
 
 import http
 import http.Response
-import users.{PatchActive, UserRow, toJson}
+import users.PatchActive
 
 @Controller("/users")
 pub class UsersActiveController {
@@ -14,19 +14,7 @@ pub class UsersActiveController {
 
   @Patch("/:id/active")
   pub fn patch(var self, @Param("id") id: i32, @Body body: PatchActive) -> Response {
-    const (next, row, err) = self.users.service.setActive(id, body.active)
-    self.users.service = next
-    failOrOk(row, err)
+    var service = self.users.service
+    service.setActive(id, body.active)
   }
-}
-
-fn failOrOk(row: UserRow, err: Option<Error>) -> Response {
-  if err != None {
-    const message = (err ?: panic("err")).message()
-    if message == "not found" {
-      return http.notFound(message)
-    }
-    return http.badRequest(message)
-  }
-  http.ok(toJson(row))
 }

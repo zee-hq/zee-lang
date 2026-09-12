@@ -142,7 +142,7 @@ describe('zee generate controller (AC-generate-controller)', () => {
     assertChecks(created.file)
   })
 
-  it('scaffolds Laravel --api resource methods', () => {
+  it('scaffolds --api resource methods', () => {
     const root = project()
     const created = generateController({ cwd: root, path: 'user', kind: 'api' })
     const source = readFileSync(created.file, 'utf8')
@@ -156,7 +156,7 @@ describe('zee generate controller (AC-generate-controller)', () => {
     assertChecks(created.file)
   })
 
-  it('scaffolds Laravel -i / --invokable as invoke()', () => {
+  it('scaffolds -i / --invokable as invoke()', () => {
     const root = project()
     const created = generateController({ cwd: root, path: 'user', kind: 'invokable' })
     const source = readFileSync(created.file, 'utf8')

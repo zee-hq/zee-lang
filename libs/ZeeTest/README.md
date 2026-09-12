@@ -29,6 +29,6 @@ describe("math") {
 
 Cases are `fn test*` in `*.test.zee` (`users.service.test.zee`, not `foo_test.zee` or `.spec.zee`). `describe("title") { }` is a closure: inner `fn` get that env. Nested `describe` nests label + env. Sequential `describe("title")` labels following file-level cases. Lifecycle: `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`.
 
-Assertions: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch; Eq values only). No `test` keyword. No Vitest `it()` — Zee `it` is the lambda parameter.
+Assertions: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch; Eq values only). No `test` keyword. No `it()` test helper — Zee `it` is the lambda parameter.
 
 Releases are Git tags matching `[package] version` in `zee.toml` (`0.1.0`, not `v0.1.0`). Host builtins `testCases` / `testCall` / `expect` / `describe` live in [zee-lang](https://github.com/zee-hq/zee-lang). In-tree fixture: [`libs/ZeeTest`](https://github.com/zee-hq/zee-lang/tree/main/libs/ZeeTest).

@@ -83,7 +83,7 @@ describe('same-package files (AC-root-module)', () => {
     expect(() => executePath(created.entry)).toThrow(/src\/modules/)
   })
 
-  it('maps src/bootstrap + src/shared/config + src/modules/users like a Quarkus app', () => {
+  it('maps src/bootstrap + src/shared/config + src/modules/users as an HTTP app', () => {
     const created = createProject({ name: 'mod', parentDir: scratch(), mode: 'new' })
     mkdirSync(join(created.root, 'src/bootstrap'), { recursive: true })
     mkdirSync(join(created.root, 'src/shared/config'), { recursive: true })

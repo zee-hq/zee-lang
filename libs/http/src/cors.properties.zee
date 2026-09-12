@@ -1,0 +1,6 @@
+//! Associated `@Cors` config (`properties() -> CorsProperties`).
+
+pub data struct CorsProperties {
+  pub const allowedOrigins: List<String>
+  pub const allowedOriginPatterns: List<String>
+}

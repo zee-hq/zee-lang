@@ -1,0 +1,18 @@
+//! HTTP failure with a status. `abort` builds one; `fail` maps any `Error` to a `Response`.
+
+pub data struct HttpError {
+  pub const code: HttpCode
+  pub const text: String
+} implements Error
+
+pub fn message(self: HttpError) -> String {
+  self.text
+}
+
+pub fn abort(code: HttpCode, text: String) -> Response {
+  fail(HttpError { code: code, text: text })
+}
+
+pub fn fail(err: Error) -> Response {
+  httpFail(err)
+}

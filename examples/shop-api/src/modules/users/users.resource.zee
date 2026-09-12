@@ -1,4 +1,4 @@
-//! Domain → HTTP body (Laravel Resource).
+//! Domain → HTTP body.
 
 import json
 

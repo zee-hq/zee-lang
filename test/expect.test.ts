@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PanicError } from '../src/error.ts'
 import { execute } from '../src/zee.ts'
 
-describe('expect (Vitest-like)', () => {
+describe('expect', () => {
   it('passes toBe and toEqual on matching values', () => {
     expect(execute('expect(1).toBe(1)').value).toEqual({ type: 'unit' })
     expect(execute('expect("ada").toBe("ada")').value).toEqual({ type: 'unit' })
@@ -17,7 +17,7 @@ describe('expect (Vitest-like)', () => {
     ).toEqual({ type: 'unit' })
   })
 
-  it('panics with a Vitest-like message when toBe fails', () => {
+  it('panics with a mismatch message when toBe fails', () => {
     expect(() => execute('expect(1).toBe(2)')).toThrow(PanicError)
     expect(() => execute('expect(1).toBe(2)')).toThrow(/expected 1 to be 2/)
     expect(() => execute('expect("ada").toBe("bob")')).toThrow(/expected "ada" to be "bob"/)

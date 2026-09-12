@@ -32,6 +32,7 @@ export const BUILTIN_NAMES = [
   'httpI32Param',
   'httpRouterController',
   'httpApp',
+  'httpFail',
   'testCases',
   'testCall',
   'error',

@@ -1,4 +1,4 @@
-//! HTTP in. Maps the request onto an action. Laravel --api verbs.
+//! HTTP in. Maps the request onto an action.
 
 pub data struct UsersController {
   pub const action: UsersAction

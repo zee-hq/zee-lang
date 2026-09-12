@@ -1,0 +1,41 @@
+//! Dispatch table. `app()` indexes loaded `@Controller`; `router()` is empty (tests).
+
+pub data struct Router {
+  pub const staticGets: List<StaticGet>
+  pub const mounts: List<Mount>
+  pub const apiMounts: List<ApiMount>
+  pub const controllers: List<String>
+
+  pub fn get(self, path: String, body: String) -> Router {
+    Router { staticGets: self.staticGets + [StaticGet { path: path, body: body }], mounts: self.mounts, apiMounts: self.apiMounts, controllers: self.controllers }
+  }
+
+  pub fn resource(self, prefix: String, resource: Resource) -> Router {
+    Router { staticGets: self.staticGets, mounts: self.mounts + [Mount { prefix: prefix, resource: resource }], apiMounts: self.apiMounts, controllers: self.controllers }
+  }
+
+  pub fn apiResource(self, prefix: String, resource: ApiResource) -> Router {
+    Router { staticGets: self.staticGets, mounts: self.mounts, apiMounts: self.apiMounts + [ApiMount { prefix: prefix, resource: resource }], controllers: self.controllers }
+  }
+
+  pub fn controller<T>(self, instance: T) -> Router {
+    httpRouterController(self, instance)
+  }
+}
+
+pub fn router() -> Router {
+  const controllers: List<String> = []
+  Router { staticGets: [], mounts: [], apiMounts: [], controllers: controllers }
+}
+
+pub fn app() -> Router {
+  httpApp()
+}
+
+pub fn dispatch(router: Router, req: Request) -> Response {
+  httpDispatch(router, req)
+}
+
+pub fn listen(addr: String, router: Router) {
+  httpListen(addr, router)
+}
