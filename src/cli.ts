@@ -22,6 +22,7 @@ import { serveLsp } from './lsp.ts'
 import { runDebuggee, serveDap } from './dap.ts'
 import { getPackages, updatePackages } from './pkg.ts'
 import { createProject, defaultInitName, findProjectRoot, listPackageSources, resolveEntry } from './project.ts'
+import { parseCreateArgv, scaffoldProjectKind } from './scaffold.ts'
 import { publishPackage, defaultRegistryUrl, isHttpRegistry } from './registry.ts'
 import { listenRegistry } from './registry-http.ts'
 import { checkPath, executeFile, runPackageTests, ZeeSession } from './zee.ts'
@@ -31,8 +32,9 @@ function usage(): string {
 
 Usage:
   zee                 Start a REPL
-  zee new <name>                 Create a new project in ./<name>
-  zee init [name]                Scaffold a project in the current directory
+  zee new <name> [--kind bin|api|web|monolith|service]
+                                 Create a package in ./<name> (default --kind bin)
+  zee init [name] [--kind …]     Scaffold a package in the current directory
   zee generate feature <path>        HTTP slice (controller → action → service → …)
   zee generate controller <path>      HTTP in; --api or -i like Laravel
   zee generate resource <path>        HTTP response mapper (not the whole stack)
@@ -73,12 +75,13 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === 'new') {
-    const name = argv[1]
-    if (!name) {
+    const parsed = parseCreateArgv(argv.slice(1))
+    if (!parsed.name) {
       stderr('missing package name')
       return 1
     }
-    const created = createProject({ name, parentDir: cwd(), mode: 'new' })
+    const created = createProject({ name: parsed.name, parentDir: cwd(), mode: 'new' })
+    scaffoldProjectKind(created.root, parsed.kind)
     stdout.write(`created ${created.name} at ${created.root}\n`)
     stdout.write(`  cd ${created.name} && zee run\n`)
     return 0
@@ -89,8 +92,10 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === 'init') {
-    const name = argv[1] ?? defaultInitName(cwd())
+    const parsed = parseCreateArgv(argv.slice(1))
+    const name = parsed.name ?? defaultInitName(cwd())
     const created = createProject({ name, parentDir: cwd(), mode: 'init' })
+    scaffoldProjectKind(created.root, parsed.kind)
     stdout.write(`created package ${created.name} in ${created.root}\n`)
     stdout.write('  zee run\n')
     return 0

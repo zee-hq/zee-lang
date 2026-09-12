@@ -165,6 +165,50 @@ fn main() {
     expect(() => executePath(join(root, 'src/main.zee'))).toThrow(/file vs folder clash/)
   })
 
+  it('picks two pub names from a module that exports more (JS-shaped subset)', () => {
+    const root = project()
+    write(
+      root,
+      'src/http/api.zee',
+      `pub fn a() -> i32 { 1 }
+pub fn b() -> i32 { 2 }
+pub fn c() -> i32 { 3 }
+pub fn d() -> i32 { 4 }
+fn hidden() -> i32 { 9 }
+`,
+    )
+    write(
+      root,
+      'src/main.zee',
+      `import http.{a, b}
+fn main() {
+  println(str(a() + b()))
+}
+`,
+    )
+    expect(executePath(join(root, 'src/main.zee')).stdout).toBe('3\n')
+    write(
+      root,
+      'src/main.zee',
+      `import http.{a, b}
+fn main() {
+  println(str(c()))
+}
+`,
+    )
+    expect(() => executePath(join(root, 'src/main.zee'))).toThrow(/undefined name `c`/)
+    write(
+      root,
+      'src/main.zee',
+      `import http.{a, hidden}
+fn main() {
+  println(str(a()))
+}
+`,
+    )
+    expect(() => executePath(join(root, 'src/main.zee'))).toThrow(/internal|not exported/)
+  })
+
   it('rejects importing an internal name from another module', () => {
     const root = project()
     write(root, 'src/http/client.zee', 'internal fn get() -> String { "ok" }\n')

@@ -1106,7 +1106,14 @@ src/users/users.module.zee
 - `--api` and `-i` cannot be combined.
 - `zee generate feature` writes every layer file. `zee generate resource` writes **only** `*.resource.zee`.
 - Aliases: `co`, `act`, `s`, `re`, `repo`, `mod`, `api`, `feat`. `mo` is the module stub.
-- `zee new` stays **package**. Generate is **inside** a package. Path is relative to `src/`.
+- `zee new` stays **package**. `--kind` only changes the **src/ layout** (still one `zee.toml`). Generate is **inside** a package. Path is relative to `src/`.
+- `zee new <name> [--kind bin|api|web|monolith|service]` (default `bin`). `zee init` takes the same flag.
+  - **bin** — `src/main.zee` (today’s hello).
+  - **api** — HTTP slice via `zee generate feature user --api` (`src/users/…`). No `ui` module. Runtime HTTP stays a gap.
+  - **service** — same slice as **api**; `description` marks a process. Not a mesh. Another service is another `zee new`.
+  - **web** — `src/ui/` adapter (`ui.module.zee` + `ui.view.zee`). UI runtime is a gap. No HTTP slice.
+  - **monolith** — **api** slice **and** `src/ui/` in the **same** package. `main` is the composition root. Not two packages, not Next+Nest.
+- Kinds do **not** invent a container, HTTP server, or UI. `main` still wires by hand.
 - Wiring is not generated — `*.module.zee` is a comment. `main` is the composition root.
 
 ### Import (Kotlin-shaped)
@@ -1121,6 +1128,8 @@ import http.Client as HttpClient
 - No star import (`import http.*`) — dependencies stay explicit.
 - Paths are identifiers (`http.Client`), not Go strings (`import "net/http"`).
 - External packages: `import json.Value` where `json` is a `[deps]` name in `zee.toml`. Same syntax.
+- **Pick a subset of `pub` names** with `{A, B}`. A module may export four `pub` types; the importer lists the two it uses. Unmarked / `internal` names never appear in an import. The other `pub` names stay on the module; they are not in this file’s scope unless listed (or you `import http` and write `http.C`).
+- The **directory** is the module, not the file. Four `pub` in `src/users/shop.zee` and two in `src/users/clock.zee` are all `users`. `import users.{Shop, Clock}` is the JS-shaped “take two exports”. There is no `from "./shop.zee"` and no `import users.shop.Shop` unless `src/users/shop/` is a nested **folder** (`users.shop`).
 
 ### Visibility (three levels)
 
@@ -1159,6 +1168,7 @@ fn debugDump(c: Client) { … }        // this file only
 - Not PHP namespaces + `use` + `public` on every member.
 - Not Java packages with classpath scanning.
 - Not Rust `mod foo;` declarations — the **directory is the module** (Go). Import spelling is Kotlin.
+- Not JavaScript modules (`import { A } from "./shop.zee"`, `export default`). A `.zee` file is not an import path.
 
 ---
 
@@ -1201,7 +1211,7 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 8. **Collections** — `T[]` growable buffer, `List<T>` immutable, `Map<K,V>` typed; no PHP mixed array.
 9. **Types** — OOP à la C#: `struct` (value object) and `class` (identity object), both with methods. Default closed. `data`, `sealed`, `readonly` in; `open` opt-in. Not C mute structs, not Java everything-is-class.
 10. **Modules** — package = `zee.toml`; module = directory; root = `src/`. Same folder, no import.
-11. **Import** — `import http`, `import http.Client`, `import http.{A, B}`, `as` rename. No glob.
+11. **Import** — `import http`, `import http.Client`, `import http.{A, B}`, `as` rename. No glob. `{A, B}` is the subset of `pub` names (JS-shaped pick; the file is not a module).
 12. **Visibility** — default file-private; `internal` = module; `pub` = export. Fields opt-in. No `protected`, no Go capitals.
 13. **Runtimes** — Zee is *the* language. Backends (Node bootstrap, JVM, LLVM, WASM, kernel) are machines. No Java/Kotlin dialect, no host stdlib as Zee stdlib. JVM is optional hosted codegen, not identity.
 14. **Generics** — `Foo<T>`, `fn f<T>(…)`, `name<T>(…)`. Infer locally. Invariant. No wildcards, no raw types, no erasure. Bounds: built-in `Eq`/`Hash`/`Ord` plus user `T: Closeable`.
@@ -1227,6 +1237,7 @@ Company jar/Quarkus is a *deployment* of Zee, not a reason to look like Java.
 34. **Composition** — `main` wires by hand. Not a language container, not a stdlib `App.get`, not `zee generate` filling a graph. `*.module.zee` stays a comment. Bind by the name you pass. `main` chooses the impl of an interface. Instance cycles are errors. Hexagonal architecture is the course (module 08), not a keyword.
 35. **Collection methods** — catalog in §8f. `forEach` (not `each`). `any` (not `some`). `map` on `Map` is `mapValues`. Map order is `sortByKey` / `sortByValue` (not PHP `ksort` / `asort`). List `sort()` is `T: Ord`; `sort { a, b -> }` is `(T, T) -> i32` (not PHP `usort`); `sortBy { it.age }` extracts an `Ord` key. `push`/`pop` only on `var T[]`. Debug dump is `toString`, not `str`. Interpreter may lag (same as `task`).
 36. **Emptiness** — catalog in §8g. Predicates are `is*` (`Type.empty()` stays the factory). Unicode whitespace on `Char`. `== None` stays; `isNone`/`isSome` are sugar. No `null`.
+37. **Project kinds** — `zee new --kind bin|api|web|monolith|service`. One package. Monolith = HTTP slice + `ui` module. Microservice = another `zee new --kind service`. Not a workspace of three packages. Not a language UI/HTTP runtime.
 
 ---
 
@@ -1334,7 +1345,8 @@ unsafe { asm("nop") }
 | macros / preprocessor | `zee generate` |
 | `StringBuilder` | `u8[]` / rebind `String` |
 | `in` / `out` variance | invariant generics |
-| `import x.*` | named imports |
+| `import x.*` | named imports (`import http.{A, B}`) |
+| `from "./file.zee"` / file-as-module | directory module; `{A, B}` picks `pub` names |
 | `null` / exceptions / `recover` | already refused |
 | `new` | `Name { fields }` / `Type.empty()` |
 | `@Inject` / scan / service locator | `main` wires |
