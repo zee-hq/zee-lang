@@ -1,3 +1,4 @@
+import json
 import users.UsersService
 import users.MemoryUsers
 
@@ -12,16 +13,24 @@ describe("OrdersController") {
     OrdersController.of(OrdersAction.of(OrdersService.of(MemoryOrders.empty(), catalog())))
   }
 
+  var orders = wired()
+
+  fn beforeEach() {
+    orders = wired()
+  }
+
   fn testStoreThenShow() {
-    const orders = wired()
     const (afterStore, body) = orders.store(1, "keyboard")
-    expect(body).toBe("{\"id\":1,\"userId\":1,\"title\":\"keyboard\"}")
+    const (got, err) = json.decode<OrderRow>(body)
+    expect(err.isNone()).toBe(true)
+    expect(got).toEqual(OrderRow { id: 1, userId: 1, title: "keyboard" })
     const (_, shown) = afterStore.show(1)
-    expect(shown).toBe("{\"id\":1,\"userId\":1,\"title\":\"keyboard\"}")
+    const (shownRow, shownErr) = json.decode<OrderRow>(shown)
+    expect(shownErr.isNone()).toBe(true)
+    expect(shownRow).toEqual(OrderRow { id: 1, userId: 1, title: "keyboard" })
   }
 
   fn testStoreUnknownUser() {
-    const orders = wired()
     const (_, body) = orders.store(9, "mouse")
     expect(body).toBe("user not found")
   }

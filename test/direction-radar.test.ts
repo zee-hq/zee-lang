@@ -25,5 +25,8 @@ describe('radar §9 closed (ZEE-13)', () => {
     expect(direction).toContain('`isEmpty`')
     expect(direction).toMatch(/37\.\s+\*\*Project kinds\*\*/)
     expect(direction).toContain('--kind bin|api|web|monolith|service')
+    expect(direction).toMatch(/38\.\s+\*\*JSON\*\*/)
+    expect(direction).toContain('json.encode')
+    expect(direction).toContain('json.decode')
   })
 })

@@ -25,6 +25,8 @@ export const BUILTIN_NAMES = [
   'getenv',
   'envProfile',
   'envAppMeta',
+  'jsonEncode',
+  'jsonDecode',
   'testCases',
   'testCall',
   'error',

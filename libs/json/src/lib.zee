@@ -1,0 +1,11 @@
+//! Official json package: encode Zee values, decode into a type.
+//! JSON `null` is `None`. Missing keys and invalid JSON are `err`, not panic.
+//! Host overlay: `jsonEncode` / `jsonDecode`. No Zee `null`.
+
+pub fn encode<T>(value: T) -> String {
+  jsonEncode(value)
+}
+
+pub fn decode<T>(text: String) -> (T, Option<Error>) {
+  jsonDecode<T>(text)
+}

@@ -1,3 +1,5 @@
+import json
+
 describe("UsersController") {
   fn wired() -> UsersController {
     UsersController.of(UsersAction.of(UsersService.of(MemoryUsers.empty())))
@@ -6,9 +8,13 @@ describe("UsersController") {
   fn testStoreThenShow() {
     const users = wired()
     const (afterStore, body) = users.store("ada")
-    expect(body).toBe("{\"id\":1,\"name\":\"ada\"}")
+    const (got, err) = json.decode<UserRow>(body)
+    expect(err.isNone()).toBe(true)
+    expect(got).toEqual(UserRow { id: 1, name: "ada" })
     const (_, shown) = afterStore.show(1)
-    expect(shown).toBe("{\"id\":1,\"name\":\"ada\"}")
+    const (shownRow, shownErr) = json.decode<UserRow>(shown)
+    expect(shownErr.isNone()).toBe(true)
+    expect(shownRow).toEqual(UserRow { id: 1, name: "ada" })
   }
 
   fn testDestroyMissing() {

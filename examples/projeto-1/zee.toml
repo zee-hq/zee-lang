@@ -3,3 +3,7 @@ name = "projeto-1"
 version = "0.1.0"
 entry = "src/main.zee"
 description = "Zee monolith example: users + orders CRUD and ui adapter (HTTP/UI runtimes are language gaps)."
+
+[deps]
+json = { path = "../../libs/json" }
+

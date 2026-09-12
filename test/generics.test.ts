@@ -56,4 +56,27 @@ describe('user generics (AC-generics-fn)', () => {
       `),
     ).toThrow(/expected String, got i32|expected String/)
   })
+
+  it('infers T when a generic fn forwards to another generic fn', () => {
+    expect(
+      execute(`
+        fn identity<T>(x: T) -> T { x }
+        fn wrap<T>(x: T) -> T { identity(x) }
+        wrap(3)
+      `).value,
+    ).toEqual({ type: 'i32', value: 3 })
+  })
+
+  it('parses type arguments on a member call', () => {
+    const program = parse('json.decode<UserRow>(text)')
+    const stmt = program.stmts[0]
+    expect(stmt?.kind).toBe('expr')
+    if (stmt?.kind !== 'expr') return
+    expect(stmt.expr.kind).toBe('call')
+    if (stmt.expr.kind !== 'call') return
+    expect(stmt.expr.callee.kind).toBe('member')
+    expect(stmt.expr.typeArgs).toHaveLength(1)
+    expect(stmt.expr.typeArgs?.[0]).toMatchObject({ kind: 'named', name: 'UserRow' })
+    expect(stmt.expr.args).toHaveLength(1)
+  })
 })

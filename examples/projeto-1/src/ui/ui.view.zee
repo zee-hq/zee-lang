@@ -1,11 +1,10 @@
 //! UI adapter (borda). Zee UI runtime is a language gap.
 // Domain stays in other modules. Import: import ui.home
 
+import json
 import users.UserRow
-import users.{toJsonList as usersJson}
 import orders.OrderRow
-import orders.{toJsonList as ordersJson}
 
 pub fn home(userRows: List<UserRow>, orderRows: List<OrderRow>) -> String {
-  "users=" + usersJson(userRows) + " orders=" + ordersJson(orderRows)
+  "users=" + json.encode(userRows) + " orders=" + json.encode(orderRows)
 }

@@ -83,15 +83,19 @@ First official library: [`zee-hq/env`](https://github.com/zee-hq/env) (fixture c
 
 Second: [`zee-hq/ZeeTest`](https://github.com/zee-hq/ZeeTest) (fixture copy in [`libs/ZeeTest`](libs/ZeeTest) for language tests). `zee test` injects it and calls `ZeeTest.run()`. Group with `describe("title") { fn testFoo() { } }`. Hooks: `fn beforeEach()`. Assertions: `expect(x).toBe(1)`. You can also `import ZeeTest`.
 
+Third: [`zee-hq/json`](https://github.com/zee-hq/json) (fixture copy in [`libs/json`](libs/json)). `import json` then `json.encode(value)` and `json.decode<T>(text)` — JSON `null` is `None`, never a Zee `null`. Invalid JSON and missing fields are `err` (dummy `T`), not panic. Host overlay: `jsonEncode` / `jsonDecode`.
+
 ```toml
 # libs.toml
 [versions]
 env = "0.1"
 ZeeTest = "0.1"
+json = "0.1"
 
 [libraries]
 env = { git = "https://github.com/zee-hq/env.git", version.ref = "env" }
 ZeeTest = { git = "https://github.com/zee-hq/ZeeTest.git", version.ref = "ZeeTest" }
+json = { git = "https://github.com/zee-hq/json.git", version.ref = "json" }
 ```
 
 ```toml

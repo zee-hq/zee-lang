@@ -1072,7 +1072,7 @@ class Parser {
   private parseCall(): Expr {
     let expr = this.parsePrimary()
     while (true) {
-      if (expr.kind === 'ident' && this.looksLikeTypeArgs()) {
+      if ((expr.kind === 'ident' || expr.kind === 'member') && this.looksLikeTypeArgs()) {
         this.advance()
         const typeArgs: TypeAst[] = []
         if (!this.checkCloseAngle()) {

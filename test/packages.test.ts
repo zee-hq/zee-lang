@@ -287,14 +287,20 @@ describe('libs.toml catalog (AC-ZEE-4)', () => {
 describe('catalog.json central index', () => {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-  it('lists env and ZeeTest in the shipped catalog.json', () => {
+  it('lists env, ZeeTest, and json in the shipped catalog.json', () => {
     const file = join(repoRoot, 'catalog.json')
     const catalog = parseCatalogJson(readFileSync(file, 'utf8'), file)
     expect(catalog.libraries.has('env')).toBe(true)
     expect(catalog.libraries.has('ZeeTest')).toBe(true)
+    expect(catalog.libraries.has('json')).toBe(true)
     expect(catalog.libraries.get('ZeeTest')).toMatchObject({
       kind: 'git',
       git: 'https://github.com/zee-hq/ZeeTest.git',
+      tag: '0.1.0',
+    })
+    expect(catalog.libraries.get('json')).toMatchObject({
+      kind: 'git',
+      git: 'https://github.com/zee-hq/json.git',
       tag: '0.1.0',
     })
   })

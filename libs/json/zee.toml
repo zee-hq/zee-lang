@@ -1,0 +1,11 @@
+[package]
+name = "json"
+version = "0.1.0"
+entry = "src/lib.zee"
+description = "JSON encode and decode. JSON null is None — never a Zee null."
+author = "Marcio Theodoro Rodrigues"
+company = "Zee HQ"
+contact = "https://github.com/zee-hq/json"
+license = "MIT"
+homepage = "https://github.com/zee-hq/json"
+repository = "https://github.com/zee-hq/json"

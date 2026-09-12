@@ -1188,6 +1188,18 @@ function defineBuiltins(env: TypeEnv): void {
   env.define('getenv', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
   env.define('envProfile', { kind: 'fn', params: [], ret: T_STRING })
   env.define('envAppMeta', { kind: 'fn', params: [T_STRING], ret: { kind: 'option', inner: T_STRING } })
+  env.define('jsonEncode', {
+    kind: 'fn',
+    params: [{ kind: 'typeParam', name: 'T' }],
+    ret: T_STRING,
+    typeParams: ['T'],
+  })
+  env.define('jsonDecode', {
+    kind: 'fn',
+    params: [T_STRING],
+    ret: { kind: 'tuple', parts: [{ kind: 'typeParam', name: 'T' }, { kind: 'option', inner: T_ERROR }] },
+    typeParams: ['T'],
+  })
   env.define('testCases', {
     kind: 'fn',
     params: [],
@@ -2905,7 +2917,10 @@ function unifyType(
 ): void {
   const expected = substituteType(pattern, subst)
   if (expected.kind === 'typeParam') {
-    if (actual.kind === 'typeParam' && actual.name === expected.name) return
+    if (actual.kind === 'typeParam' && actual.name === expected.name) {
+      subst.set(expected.name, actual)
+      return
+    }
     const existing = subst.get(expected.name)
     if (existing) {
       if (!isAssignable(actual, existing) && !typeEq(actual, existing)) {

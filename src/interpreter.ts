@@ -4,6 +4,7 @@ import { PanicError, ZeeError } from './error.ts'
 import { hostEnvFor, lookupEnv } from './host-env.ts'
 import { isZeeTestFile } from './project.ts'
 import type { DebugStop } from './debug.ts'
+import { decodeJsonToZee, dummyZeeValue, encodeZeeToJson, type JsonTarget } from './json-codec.ts'
 import {
   INT_KINDS,
   canWidenInt,
@@ -95,7 +96,7 @@ export type ZeeValue =
       module: string
       members: Record<string, ZeeValue>
     }
-  | { type: 'fn'; name: string; params: string[]; body: Block; env: Env; mutatingReceiver: boolean }
+  | { type: 'fn'; name: string; params: string[]; body: Block; env: Env; mutatingReceiver: boolean; typeParams?: string[] }
   | { type: 'closure'; params: string[]; body: Block; env: Env }
   | { type: 'builtin'; name: string }
   | { type: 'module'; name: string; env: Env }
@@ -114,7 +115,7 @@ interface StructInfo {
   data: boolean
   readonly: boolean
   identity: boolean
-  fields: { name: string; mutable: boolean }[]
+  fields: { name: string; mutable: boolean; type?: TypeAst }[]
 }
 
 export interface RuntimeIo {
@@ -153,6 +154,7 @@ type TestHost = {
 }
 
 const testHosts = new WeakMap<RuntimeIo, TestHost>()
+const jsonTypeSubst: Map<string, JsonTarget>[] = []
 
 const UNIT: ZeeValue = { type: 'unit' }
 
@@ -339,6 +341,8 @@ export function interpret(
   builtins.define('testCall', { type: 'builtin', name: 'testCall' })
   builtins.define('expect', { type: 'builtin', name: 'expect' })
   builtins.define('describe', { type: 'builtin', name: 'describe' })
+  builtins.define('jsonEncode', { type: 'builtin', name: 'jsonEncode' })
+  builtins.define('jsonDecode', { type: 'builtin', name: 'jsonDecode' })
   builtins.define('Some', { type: 'builtin', name: 'Some' })
   builtins.define('None', { type: 'option', tag: 'none' })
   builtins.defineStruct('Fail', {
@@ -383,6 +387,7 @@ export function interpret(
           body: stmt.body,
           env: fileEnv,
           mutatingReceiver,
+          typeParams: stmt.typeParams,
         }
         const selfAst = stmt.params[0]?.type
         if (stmt.params[0]?.name === 'self' && selfAst?.kind === 'named') {
@@ -613,7 +618,7 @@ function registerRuntimeStruct(
     data: stmt.data,
     readonly: stmt.readonly,
     identity: stmt.identity,
-    fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable })),
+    fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable, type: field.type })),
   }
   fileEnv.defineStruct(name, info)
   if (stmt.visibility !== 'private') {
@@ -658,6 +663,7 @@ function registerRuntimeStruct(
       body: method.body,
       env: fileEnv,
       mutatingReceiver,
+      typeParams: method.typeParams,
     }
     if (method.params[0]?.name === 'self') {
       fileEnv.defineMethod(name, method.name, fn)
@@ -2506,6 +2512,26 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
         return { type: 'option', tag: 'some', value: intValue(target, n) }
       }
     }
+    if (name === 'jsonEncode') {
+      if (expr.args.length !== 1) {
+        throw new ZeeError('`jsonEncode` takes one argument', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const arg = evalExpr(expr.args[0]!, env, io)
+      return () => encodeJsonValue(arg, expr.loc)
+    }
+    if (name === 'jsonDecode') {
+      if (!expr.typeArgs || expr.typeArgs.length !== 1 || expr.args.length !== 1) {
+        throw new ZeeError(
+          '`jsonDecode` takes one type argument and one String',
+          expr.loc.line,
+          expr.loc.column,
+          expr.loc.file,
+        )
+      }
+      const target = resolveJsonTarget(expr.typeArgs[0]!, env, mergedJsonSubst(), expr.loc)
+      const arg = evalExpr(expr.args[0]!, env, io)
+      return () => decodeJsonValue(arg, target, expr.loc)
+    }
     if (isFloatKind(name)) {
       if (expr.args.length !== 1) {
         throw new ZeeError(`\`${name}\` takes one argument`, expr.loc.line, expr.loc.column, expr.loc.file)
@@ -2563,11 +2589,13 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
     }
     const target = evalExpr(expr.callee.target, env, io)
     const args = expr.args.map((arg) => evalExpr(arg, env, io))
-    return () => invokeMemberCall(expr, target, args, env, io)
+    const typeTargets = expr.typeArgs?.map((ast) => resolveJsonTarget(ast, env, mergedJsonSubst(), expr.loc))
+    return () => invokeMemberCall(expr, target, args, env, io, typeTargets)
   }
   const callee = evalExpr(expr.callee, env, io)
   const args = expr.args.map((arg) => evalExpr(arg, env, io))
-  return () => invokeValue(callee, args, io, expr.loc)
+  const typeTargets = expr.typeArgs?.map((ast) => resolveJsonTarget(ast, env, mergedJsonSubst(), expr.loc))
+  return () => invokeValue(callee, args, io, expr.loc, typeTargets)
 }
 
 function invokeMemberCall(
@@ -2576,6 +2604,7 @@ function invokeMemberCall(
   args: ZeeValue[],
   env: Env,
   io: RuntimeIo,
+  typeTargets?: JsonTarget[],
 ): ZeeValue {
   if (expr.callee.kind !== 'member') {
     throw new ZeeError('cannot call this value', expr.loc.line, expr.loc.column, expr.loc.file)
@@ -2591,9 +2620,9 @@ function invokeMemberCall(
   if (builtin) return builtin
   const method = lookupRuntimeMethod(target, expr.callee.field, env)
   if (method) {
-    return callFn(method, [target, ...args], io, expr.loc)
+    return callFn(method, [target, ...args], io, expr.loc, typeTargets)
   }
-  return invokeValue(memberOnValue(target, expr.callee.field, env, expr.callee.loc), args, io, expr.loc)
+  return invokeValue(memberOnValue(target, expr.callee.field, env, expr.callee.loc), args, io, expr.loc, typeTargets)
 }
 
 function invokeValue(
@@ -2601,6 +2630,7 @@ function invokeValue(
   args: ZeeValue[],
   io: RuntimeIo,
   loc: { file: string; line: number; column: number },
+  typeTargets?: JsonTarget[],
 ): ZeeValue {
   if (callee.type === 'newtypeCtor') {
     if (args.length !== 1) {
@@ -2608,8 +2638,11 @@ function invokeValue(
     }
     return { type: 'newtype', name: callee.name, module: callee.module, inner: copyValue(args[0]!) }
   }
-  if (callee.type === 'builtin') return callBuiltin(callee.name, args, io, loc)
-  if (callee.type === 'fn') return callFn(callee, args, io, loc)
+  if (callee.type === 'builtin') {
+    if (callee.name === 'jsonEncode') return encodeJsonValue(args[0]!, loc)
+    return callBuiltin(callee.name, args, io, loc)
+  }
+  if (callee.type === 'fn') return callFn(callee, args, io, loc, typeTargets)
   if (callee.type === 'closure') return callClosure(callee, args, io, loc)
   throw new ZeeError('cannot call this value', loc.line, loc.column, loc.file)
 }
@@ -2686,6 +2719,7 @@ function callFn(
   args: ZeeValue[],
   io: RuntimeIo,
   loc: { file: string; line: number; column: number },
+  typeTargets?: JsonTarget[],
 ): ZeeValue {
   if (args.length !== fn.params.length) {
     throw new ZeeError(
@@ -2695,14 +2729,28 @@ function callFn(
       loc.file,
     )
   }
-  const local = fn.env.child()
-  local.markFunctionFrame(fn.name)
-  fn.params.forEach((name, index) => {
-    const arg = args[index]!
-    const shareSelf = fn.mutatingReceiver && index === 0
-    local.define(name, shareSelf ? arg : copyValue(arg), shareSelf)
-  })
-  return runWithDefers(local, io, () => execBlock(fn.body, local, io))
+  const params = fn.typeParams ?? []
+  const pushed =
+    params.length > 0 && typeTargets !== undefined && typeTargets.length === params.length
+  if (pushed) {
+    const layer = new Map<string, JsonTarget>()
+    params.forEach((name, index) => {
+      layer.set(name, typeTargets[index]!)
+    })
+    jsonTypeSubst.push(layer)
+  }
+  try {
+    const local = fn.env.child()
+    local.markFunctionFrame(fn.name)
+    fn.params.forEach((name, index) => {
+      const arg = args[index]!
+      const shareSelf = fn.mutatingReceiver && index === 0
+      local.define(name, shareSelf ? arg : copyValue(arg), shareSelf)
+    })
+    return runWithDefers(local, io, () => execBlock(fn.body, local, io))
+  } finally {
+    if (pushed) jsonTypeSubst.pop()
+  }
 }
 
 function callClosure(
@@ -2830,6 +2878,12 @@ function callBuiltin(
     }
     return UNIT
   }
+  if (name === 'jsonEncode') {
+    if (args.length !== 1) {
+      throw new ZeeError('`jsonEncode` takes one argument', loc.line, loc.column, loc.file)
+    }
+    return encodeJsonValue(args[0]!, loc)
+  }
   throw new ZeeError(`unknown builtin \`${name}\``, loc.line, loc.column, loc.file)
 }
 
@@ -2841,6 +2895,7 @@ function stmtFn(stmt: Extract<Stmt, { kind: 'fn' }>, fileEnv: Env): TestFn {
     body: stmt.body,
     env: fileEnv,
     mutatingReceiver: false,
+    typeParams: stmt.typeParams,
   }
 }
 
@@ -3730,4 +3785,114 @@ function intKindFromTypeAst(ast: TypeAst): IntKind {
     throw new ZeeError(`expected integer type, got \`${ast.kind}\``, ast.loc.line, ast.loc.column, ast.loc.file)
   }
   return ast.name
+}
+
+function mergedJsonSubst(): Map<string, JsonTarget> {
+  const merged = new Map<string, JsonTarget>()
+  for (const layer of jsonTypeSubst) {
+    for (const [name, target] of layer) merged.set(name, target)
+  }
+  return merged
+}
+
+function encodeJsonValue(value: ZeeValue, loc: { file: string; line: number; column: number }): ZeeValue {
+  try {
+    return { type: 'string', value: JSON.stringify(encodeZeeToJson(value)) }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'cannot encode JSON'
+    throw new ZeeError(message, loc.line, loc.column, loc.file)
+  }
+}
+
+function decodeJsonValue(
+  text: ZeeValue,
+  target: JsonTarget,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (text.type !== 'string') {
+    throw new ZeeError('`jsonDecode` expects a String', loc.line, loc.column, loc.file)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.value)
+  } catch {
+    return {
+      type: 'tuple',
+      items: [dummyZeeValue(target), { type: 'option', tag: 'some', value: { type: 'error', message: 'invalid JSON' } }],
+    }
+  }
+  const decoded = decodeJsonToZee(parsed, target)
+  if (decoded.error) {
+    return {
+      type: 'tuple',
+      items: [
+        decoded.value,
+        { type: 'option', tag: 'some', value: { type: 'error', message: decoded.error } },
+      ],
+    }
+  }
+  return { type: 'tuple', items: [decoded.value, { type: 'option', tag: 'none' }] }
+}
+
+function resolveJsonTarget(
+  ast: TypeAst,
+  env: Env,
+  subst: Map<string, JsonTarget>,
+  loc: { file: string; line: number; column: number },
+): JsonTarget {
+  if (ast.kind === 'named') {
+    const mapped = subst.get(ast.name)
+    if (mapped) return mapped
+    if (isIntKind(ast.name)) return { tag: 'int', kind: ast.name }
+    if (isFloatKind(ast.name)) return { tag: 'float', kind: ast.name }
+    if (ast.name === 'String') return { tag: 'string' }
+    if (ast.name === 'bool') return { tag: 'bool' }
+    if (ast.name === 'Char') return { tag: 'char' }
+    const info = env.getStruct(ast.name)
+    if (info) {
+      return {
+        tag: 'struct',
+        name: info.name,
+        module: info.module,
+        data: info.data,
+        readonly: info.readonly,
+        identity: info.identity,
+        fields: info.fields.map((field) => {
+          if (!field.type) {
+            throw new ZeeError(
+              `cannot decode JSON as \`${info.name}\``,
+              loc.line,
+              loc.column,
+              loc.file,
+            )
+          }
+          return {
+            name: field.name,
+            mutable: field.mutable,
+            type: resolveJsonTarget(field.type, env, subst, loc),
+          }
+        }),
+      }
+    }
+    throw new ZeeError(`cannot decode JSON as \`${ast.name}\``, ast.loc.line, ast.loc.column, ast.loc.file)
+  }
+  if (ast.kind === 'generic') {
+    if (ast.name === 'Option' && ast.args.length === 1) {
+      return { tag: 'option', inner: resolveJsonTarget(ast.args[0]!, env, subst, loc) }
+    }
+    if (ast.name === 'List' && ast.args.length === 1) {
+      return { tag: 'list', elem: resolveJsonTarget(ast.args[0]!, env, subst, loc) }
+    }
+    if (ast.name === 'Map' && ast.args.length === 2) {
+      const key = ast.args[0]!
+      if (key.kind !== 'named' || key.name !== 'String') {
+        throw new ZeeError('JSON object Map keys must be String', loc.line, loc.column, loc.file)
+      }
+      return { tag: 'map', value: resolveJsonTarget(ast.args[1]!, env, subst, loc) }
+    }
+  }
+  if (ast.kind === 'array') {
+    return { tag: 'array', elem: resolveJsonTarget(ast.elem, env, subst, loc) }
+  }
+  throw new ZeeError('cannot decode JSON as this type', ast.loc.line, ast.loc.column, ast.loc.file)
 }

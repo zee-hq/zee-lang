@@ -183,7 +183,7 @@
     },
     "builtins": {
       "name": "support.function.builtin.zee",
-      "match": "\\b(print|println|printf|sprintf|str|error|getenv|envProfile|envAppMeta)\\b"
+      "match": "\\b(print|println|printf|sprintf|str|error|getenv|envProfile|envAppMeta|jsonEncode|jsonDecode)\\b"
     },
     "functionCalls": {
       "name": "entity.name.function.zee",
