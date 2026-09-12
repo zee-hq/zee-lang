@@ -48,6 +48,12 @@ export type LoopMode = 'while' | 'until' | 'do-while' | 'do-until'
 
 export type Visibility = 'private' | 'internal' | 'pub'
 
+export interface Attribute {
+  name: string
+  args: string[]
+  loc: Loc
+}
+
 export interface ImportName {
   name: string
   alias?: string
@@ -92,6 +98,7 @@ export interface Param {
   type: TypeAst
   loc: Loc
   mutable: boolean
+  attributes?: Attribute[]
 }
 
 export interface Block {
@@ -223,6 +230,7 @@ export type Stmt =
       body: Block
       loc: Loc
       doc?: string
+      attributes?: Attribute[]
     }
   | {
       kind: 'structDecl'
@@ -240,9 +248,8 @@ export type Stmt =
       methods: Extract<Stmt, { kind: 'fn' }>[]
       loc: Loc
       doc?: string
+      attributes?: Attribute[]
     }
-  | {
-      kind: 'enumDecl'
       visibility: Visibility
       name: string
       variants: { name: string; loc: Loc; doc?: string }[]

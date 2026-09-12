@@ -96,6 +96,7 @@ export type TokenKind =
   | ':'
   | '->'
   | ';'
+  | '@'
   | 'doc'
   | 'innerDoc'
 
@@ -245,6 +246,9 @@ class Lexer {
         break
       case '~':
         this.add('~')
+        break
+      case '@':
+        this.add('@')
         break
       case '?':
         if (this.match(':')) this.add('?:')

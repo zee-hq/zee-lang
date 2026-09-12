@@ -4,6 +4,8 @@ import { ZeeError } from './error.ts'
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]*$/
 const DEFAULT_ENTRY = 'src/main.zee'
+export const MODULES_CONTAINER = 'modules'
+export const TEST_CONTAINER = 'test'
 
 export interface CreateProjectOptions {
   name: string
@@ -100,14 +102,18 @@ export function resolveEntry(cwd: string, file?: string): string {
   return resolve(root, manifest.entry)
 }
 
-/** All `.zee` files under `src/`, grouped by directory module. Nested folders are other modules. */
+/** All `.zee` files under `src/` and `test/`, grouped by directory module. Nested folders are other modules. */
 export function listPackageSources(root: string, modulePrefix = ''): { file: string; module: string }[] {
   const src = join(root, 'src')
   if (!existsSync(src) || !statSync(src).isDirectory()) {
     throw new ZeeError('project is missing src/', 1, 1, src)
   }
   const files: { file: string; module: string }[] = []
-  walkModuleDir(src, '', files, modulePrefix)
+  walkModuleDir(src, '', files, modulePrefix, true)
+  const tests = join(root, TEST_CONTAINER)
+  if (existsSync(tests) && statSync(tests).isDirectory()) {
+    walkModuleDir(tests, '', files, modulePrefix, true)
+  }
   return files.sort((a, b) => a.file.localeCompare(b.file))
 }
 
@@ -126,6 +132,7 @@ function walkModuleDir(
   module: string,
   files: { file: string; module: string }[],
   prefix: string,
+  asSrcRoot: boolean,
 ): void {
   const names = readdirSync(dir)
   const zeeFiles: string[] = []
@@ -137,6 +144,24 @@ function walkModuleDir(
       continue
     }
     if (extname(name) === '.zee') zeeFiles.push(name)
+  }
+  if (asSrcRoot && basename(dir) === MODULES_CONTAINER && zeeFiles.length > 0) {
+    const file = join(dir, zeeFiles[0]!)
+    throw new ZeeError(
+      `\`src/modules/\` is a container for feature slices; put files in \`src/modules/<name>/\``,
+      1,
+      1,
+      file,
+    )
+  }
+  if (asSrcRoot && basename(dir) === TEST_CONTAINER && zeeFiles.length > 0) {
+    const file = join(dir, zeeFiles[0]!)
+    throw new ZeeError(
+      `\`test/\` is a container mirroring src/; put files in \`test/<tree>/\``,
+      1,
+      1,
+      file,
+    )
   }
   for (const name of zeeFiles) {
     const stem = basename(name, '.zee')
@@ -152,8 +177,12 @@ function walkModuleDir(
     files.push({ file: join(dir, name), module: qualifyModule(module, prefix) })
   }
   for (const name of dirs) {
+    if (asSrcRoot && name === MODULES_CONTAINER) {
+      walkModuleDir(join(dir, name), '', files, prefix, true)
+      continue
+    }
     const child = module ? `${module}.${name}` : name
-    walkModuleDir(join(dir, name), child, files, prefix)
+    walkModuleDir(join(dir, name), child, files, prefix, false)
   }
 }
 
@@ -168,11 +197,16 @@ export function isPackageSourceFile(path: string): string | undefined {
   const root = findProjectRoot(dirname(path))
   if (!root) return undefined
   const resolved = resolve(path)
-  const src = resolve(root, 'src')
   if (extname(resolved) !== '.zee') return undefined
-  const rel = relative(src, resolved)
-  if (rel.startsWith('..') || isAbsolute(rel)) return undefined
-  return root
+  if (isUnderDir(join(root, 'src'), resolved) || isUnderDir(join(root, TEST_CONTAINER), resolved)) {
+    return root
+  }
+  return undefined
+}
+
+function isUnderDir(dir: string, file: string): boolean {
+  const rel = relative(dir, file)
+  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 export function isRootModuleFile(path: string): string | undefined {

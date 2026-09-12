@@ -3,6 +3,7 @@
   "name": "Zee",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#annotations" },
     { "include": "#rawStrings" },
     { "include": "#strings" },
     { "include": "#typeNames" },
@@ -16,6 +17,10 @@
     { "include": "#literals" }
   ],
   "repository": {
+    "annotations": {
+      "name": "storage.type.annotation.zee",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*"
+    },
     "comments": {
       "patterns": [
         {
@@ -183,7 +188,7 @@
     },
     "builtins": {
       "name": "support.function.builtin.zee",
-      "match": "\\b(print|println|printf|sprintf|str|error|getenv|envProfile|envAppMeta|jsonEncode|jsonDecode)\\b"
+      "match": "\\b(print|println|printf|sprintf|str|error|getenv|envProfile|envAppMeta|jsonEncode|jsonDecode|httpDispatch|httpListen|httpI32Param|httpRouterController|httpApp)\\b"
     },
     "functionCalls": {
       "name": "entity.name.function.zee",

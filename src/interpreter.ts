@@ -2,9 +2,22 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import type { AssignOp, Block, Expr, MatchPattern, Program, Stmt, TypeAst, Visibility } from './ast.ts'
 import { PanicError, ZeeError } from './error.ts'
 import { hostEnvFor, lookupEnv } from './host-env.ts'
-import { isZeeTestFile } from './project.ts'
+import { isZeeTestFile, MODULES_CONTAINER, TEST_CONTAINER } from './project.ts'
 import type { DebugStop } from './debug.ts'
 import { decodeJsonToZee, dummyZeeValue, encodeZeeToJson, type JsonTarget } from './json-codec.ts'
+import {
+  applyCorsHeaders,
+  headerGet,
+  httpRequestValue,
+  httpResponseValue,
+  i32ParamFromRequest,
+  matchHttpRoute,
+  readHttpRequest,
+  readHttpResponse,
+  resolveCorsAllowOrigin,
+  startHttpServer,
+  type CorsConfig,
+} from './http-host.ts'
 import {
   INT_KINDS,
   canWidenInt,
@@ -96,7 +109,7 @@ export type ZeeValue =
       module: string
       members: Record<string, ZeeValue>
     }
-  | { type: 'fn'; name: string; params: string[]; body: Block; env: Env; mutatingReceiver: boolean; typeParams?: string[] }
+  | { type: 'fn'; name: string; params: string[]; body: Block; env: Env; mutatingReceiver: boolean; typeParams?: string[]; attributes?: { name: string; args: string[] }[]; paramMeta?: { name: string; type: TypeAst; attributes?: { name: string; args: string[] }[] }[] }
   | { type: 'closure'; params: string[]; body: Block; env: Env }
   | { type: 'builtin'; name: string }
   | { type: 'module'; name: string; env: Env }
@@ -112,10 +125,12 @@ interface RuntimeSealedVariant {
 interface StructInfo {
   name: string
   module: string
+  file: string
   data: boolean
   readonly: boolean
   identity: boolean
   fields: { name: string; mutable: boolean; type?: TypeAst }[]
+  attributes?: { name: string; args: string[] }[]
 }
 
 export interface RuntimeIo {
@@ -193,6 +208,19 @@ class Env {
     return this.modules?.get(name) ?? this.parent?.getModule(name)
   }
 
+  listModules(): Env[] {
+    const map = this.modules ?? this.parent?.listModuleMap()
+    return map ? [...map.values()] : []
+  }
+
+  private listModuleMap(): Map<string, Env> | undefined {
+    return this.modules ?? this.parent?.listModuleMap()
+  }
+
+  ownStructs(): StructInfo[] {
+    return [...this.structMap.values()]
+  }
+
   define(name: string, value: ZeeValue, mutable = false, visibility: Visibility = 'private'): void {
     this.slots.set(name, { value, mutable, visibility })
   }
@@ -220,6 +248,13 @@ class Env {
 
   getMethod(typeName: string, name: string): Extract<ZeeValue, { type: 'fn' }> | undefined {
     return this.ownMethod(typeName, name) ?? this.parent?.getMethod(typeName, name)
+  }
+
+  methodsOf(typeName: string): Extract<ZeeValue, { type: 'fn' }>[] {
+    const own = [...(this.methodMap.get(typeName)?.values() ?? [])]
+    const inherited = this.parent?.methodsOf(typeName) ?? []
+    const seen = new Set(own.map((item) => item.name))
+    return [...own, ...inherited.filter((item) => !seen.has(item.name))]
   }
 
   own(name: string): { value: ZeeValue; mutable: boolean; visibility: Visibility } | undefined {
@@ -343,11 +378,17 @@ export function interpret(
   builtins.define('describe', { type: 'builtin', name: 'describe' })
   builtins.define('jsonEncode', { type: 'builtin', name: 'jsonEncode' })
   builtins.define('jsonDecode', { type: 'builtin', name: 'jsonDecode' })
+  builtins.define('httpDispatch', { type: 'builtin', name: 'httpDispatch' })
+  builtins.define('httpListen', { type: 'builtin', name: 'httpListen' })
+  builtins.define('httpI32Param', { type: 'builtin', name: 'httpI32Param' })
+  builtins.define('httpRouterController', { type: 'builtin', name: 'httpRouterController' })
+  builtins.define('httpApp', { type: 'builtin', name: 'httpApp' })
   builtins.define('Some', { type: 'builtin', name: 'Some' })
   builtins.define('None', { type: 'option', tag: 'none' })
   builtins.defineStruct('Fail', {
     name: 'Fail',
     module: '',
+    file: '<builtin>',
     data: true,
     readonly: false,
     identity: false,
@@ -388,6 +429,8 @@ export function interpret(
           env: fileEnv,
           mutatingReceiver,
           typeParams: stmt.typeParams,
+          attributes: stmt.attributes,
+          paramMeta: runtimeParamMeta(stmt.params),
         }
         const selfAst = stmt.params[0]?.type
         if (stmt.params[0]?.name === 'self' && selfAst?.kind === 'named') {
@@ -615,10 +658,12 @@ function registerRuntimeStruct(
   const info: StructInfo = {
     name,
     module: unitModule,
+    file: fileEnv.file,
     data: stmt.data,
     readonly: stmt.readonly,
     identity: stmt.identity,
     fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable, type: field.type })),
+    attributes: stmt.attributes,
   }
   fileEnv.defineStruct(name, info)
   if (stmt.visibility !== 'private') {
@@ -664,6 +709,8 @@ function registerRuntimeStruct(
       env: fileEnv,
       mutatingReceiver,
       typeParams: method.typeParams,
+      attributes: method.attributes,
+      paramMeta: runtimeParamMeta(method.params),
     }
     if (method.params[0]?.name === 'self') {
       fileEnv.defineMethod(name, method.name, fn)
@@ -2532,6 +2579,58 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
       const arg = evalExpr(expr.args[0]!, env, io)
       return () => decodeJsonValue(arg, target, expr.loc)
     }
+    if (name === 'httpDispatch') {
+      if (expr.args.length !== 2) {
+        throw new ZeeError('`httpDispatch` takes two arguments', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const router = evalExpr(expr.args[0]!, env, io)
+      const req = evalExpr(expr.args[1]!, env, io)
+      return () => runHttpDispatch(router, req, env, io, expr.loc)
+    }
+    if (name === 'httpRouterController') {
+      if (expr.args.length !== 2) {
+        throw new ZeeError('`httpRouterController` takes two arguments', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const router = evalExpr(expr.args[0]!, env, io)
+      const instance = evalExpr(expr.args[1]!, env, io)
+      return () => mountHttpController(router, instance)
+    }
+    if (name === 'httpApp') {
+      if (expr.args.length !== 0) {
+        throw new ZeeError('`httpApp` takes no arguments', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      return () => buildHttpApp(env, io, expr.loc)
+    }
+    if (name === 'httpListen') {
+      if (expr.args.length !== 2) {
+        throw new ZeeError('`httpListen` takes two arguments', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const addr = evalExpr(expr.args[0]!, env, io)
+      const router = evalExpr(expr.args[1]!, env, io)
+      return () => {
+        if (addr.type !== 'string') {
+          throw new ZeeError('`httpListen` expects a String address', expr.loc.line, expr.loc.column, expr.loc.file)
+        }
+        startHttpServer(addr.value, (method, path, text, headers) => {
+          const incoming = httpRequestValue(method, path, text, {}, headers)
+          return readHttpResponse(runHttpDispatch(router, incoming, env, io, expr.loc))
+        })
+        return UNIT
+      }
+    }
+    if (name === 'httpI32Param') {
+      if (expr.args.length !== 2) {
+        throw new ZeeError('`httpI32Param` takes two arguments', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const req = evalExpr(expr.args[0]!, env, io)
+      const nameArg = evalExpr(expr.args[1]!, env, io)
+      return () => {
+        if (nameArg.type !== 'string') {
+          throw new ZeeError('`httpI32Param` expects a String name', expr.loc.line, expr.loc.column, expr.loc.file)
+        }
+        return i32ParamFromRequest(req, nameArg.value)
+      }
+    }
     if (isFloatKind(name)) {
       if (expr.args.length !== 1) {
         throw new ZeeError(`\`${name}\` takes one argument`, expr.loc.line, expr.loc.column, expr.loc.file)
@@ -2884,6 +2983,21 @@ function callBuiltin(
     }
     return encodeJsonValue(args[0]!, loc)
   }
+  if (name === 'httpI32Param') {
+    if (args.length !== 2) {
+      throw new ZeeError('`httpI32Param` takes two arguments', loc.line, loc.column, loc.file)
+    }
+    if (args[1]!.type !== 'string') {
+      throw new ZeeError('`httpI32Param` expects a String name', loc.line, loc.column, loc.file)
+    }
+    return i32ParamFromRequest(args[0]!, args[1]!.value)
+  }
+  if (name === 'httpRouterController') {
+    if (args.length !== 2) {
+      throw new ZeeError('`httpRouterController` takes two arguments', loc.line, loc.column, loc.file)
+    }
+    return mountHttpController(args[0]!, args[1]!)
+  }
   throw new ZeeError(`unknown builtin \`${name}\``, loc.line, loc.column, loc.file)
 }
 
@@ -2896,6 +3010,8 @@ function stmtFn(stmt: Extract<Stmt, { kind: 'fn' }>, fileEnv: Env): TestFn {
     env: fileEnv,
     mutatingReceiver: false,
     typeParams: stmt.typeParams,
+    attributes: stmt.attributes,
+    paramMeta: runtimeParamMeta(stmt.params),
   }
 }
 
@@ -3832,6 +3948,432 @@ function decodeJsonValue(
     }
   }
   return { type: 'tuple', items: [decoded.value, { type: 'option', tag: 'none' }] }
+}
+
+function runHttpDispatch(
+  router: ZeeValue,
+  req: ZeeValue,
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  const incoming = readHttpRequest(req)
+  const cors = httpCorsConfig(env, io, loc)
+  const origin = headerGet(incoming.headers, 'Origin')
+  if (cors && incoming.method.toUpperCase() === 'OPTIONS') {
+    if (resolveCorsAllowOrigin(origin, cors)) {
+      return applyCorsHeaders(httpResponseValue(200, ''), origin, cors)
+    }
+  }
+  const matched = matchHttpRoute(router, incoming.method, incoming.path)
+  if (matched.kind === 'static') {
+    return withCors(httpResponseValue(200, matched.body), origin, cors)
+  }
+  if (matched.kind === 'resource') {
+    const request = httpRequestValue(
+      incoming.method,
+      incoming.path,
+      incoming.text,
+      matched.params,
+      incoming.headers,
+    )
+    const method = lookupRuntimeMethod(matched.controller, matched.verb, env)
+    if (!method) {
+      throw new ZeeError(
+        `http resource is missing \`${matched.verb}\``,
+        loc.line,
+        loc.column,
+        loc.file,
+      )
+    }
+    const bound = bindHttpHandlerArgs(method, matched.controller, request, loc)
+    if (bound.kind === 'bad') return withCors(bound.response, origin, cors)
+    return withCors(callFn(method, bound.args, io, loc), origin, cors)
+  }
+  const decorated = matchDecoratedControllers(router, incoming.method, incoming.path, env, loc)
+  if (!decorated) return withCors(httpResponseValue(404, 'not found'), origin, cors)
+  const request = httpRequestValue(
+    incoming.method,
+    incoming.path,
+    incoming.text,
+    decorated.params,
+    incoming.headers,
+  )
+  const method = lookupRuntimeMethod(decorated.controller, decorated.name, env)
+  if (!method) {
+    throw new ZeeError(`http controller is missing \`${decorated.name}\``, loc.line, loc.column, loc.file)
+  }
+  const bound = bindHttpHandlerArgs(method, decorated.controller, request, loc)
+  if (bound.kind === 'bad') return withCors(bound.response, origin, cors)
+  return withCors(callFn(method, bound.args, io, loc), origin, cors)
+}
+
+function httpCorsConfig(
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): CorsConfig | undefined {
+  let found = false
+  const allowedOrigins: string[] = []
+  const allowedOriginPatterns: string[] = []
+  for (const home of env.listModules()) {
+    for (const info of home.ownStructs()) {
+      if (info.attributes?.some((attr) => attr.name === 'Controller')) continue
+      if (!info.attributes?.some((attr) => attr.name === 'Cors')) continue
+      found = true
+      const ns = home.own(info.name)?.value
+      if (!ns || ns.type !== 'typeNs' || ns.tag !== 'struct') continue
+      const propsFn = ns.members.properties
+      if (!propsFn || propsFn.type !== 'fn') continue
+      const props = callFn(propsFn, [], io, loc)
+      if (props.type !== 'struct') continue
+      allowedOrigins.push(...listStrings(props.fields.allowedOrigins))
+      allowedOriginPatterns.push(...listStrings(props.fields.allowedOriginPatterns))
+    }
+  }
+  return found ? { allowedOrigins, allowedOriginPatterns } : undefined
+}
+
+function listStrings(value: ZeeValue | undefined): string[] {
+  if (value?.type !== 'list') return []
+  const out: string[] = []
+  for (const item of value.items) {
+    if (item.type === 'string') out.push(item.value)
+  }
+  return out
+}
+
+function withCors(res: ZeeValue, origin: string | undefined, cors: CorsConfig | undefined): ZeeValue {
+  if (!cors) return res
+  return applyCorsHeaders(res, origin, cors)
+}
+
+function matchDecoratedControllers(
+  router: ZeeValue,
+  method: string,
+  path: string,
+  env: Env,
+  loc: { file: string; line: number; column: number },
+): { controller: ZeeValue; name: string; params: Record<string, string> } | undefined {
+  if (router.type !== 'struct') return undefined
+  const controllers = router.fields.controllers
+  if (controllers?.type !== 'list') return undefined
+  const verb = method.toUpperCase()
+  const modulesPrefix = httpModulesPathPrefix(env, loc)
+  for (const controller of controllers.items) {
+    if (controller.type !== 'struct' && controller.type !== 'sealed') continue
+    const home = env.getModule(controller.module) ?? env
+    const info = home.getStruct(controller.name)
+    const typePrefix = info?.attributes?.find((attr) => attr.name === 'Controller')?.args[0]
+    const prefix =
+      modulesPrefix && isUnderModulesContainer(info?.file ?? '')
+        ? joinHttpPath(modulesPrefix, typePrefix ?? '/')
+        : typePrefix
+    for (const fn of home.methodsOf(controller.name)) {
+      const route = httpRouteFromAttributes(fn.attributes, prefix)
+      if (!route || route.verb !== verb) continue
+      const params = matchHttpPattern(route.path, path)
+      if (params) return { controller, name: fn.name, params }
+    }
+  }
+  return undefined
+}
+
+function httpModulesPathPrefix(
+  env: Env,
+  loc: { file: string; line: number; column: number },
+): string | undefined {
+  let prefix: string | undefined
+  for (const home of env.listModules()) {
+    for (const info of home.ownStructs()) {
+      if (info.attributes?.some((attr) => attr.name === 'Controller')) continue
+      const attr = info.attributes?.find((item) => item.name === 'PathPrefix')
+      if (!attr) continue
+      const value = attr.args[0]
+      if (!value) {
+        throw new ZeeError('`@PathPrefix` needs a path', loc.line, loc.column, loc.file)
+      }
+      if (prefix !== undefined && prefix !== value) {
+        throw new ZeeError(
+          `conflicting \`@PathPrefix\` (\`${prefix}\` vs \`${value}\`)`,
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      prefix = value
+    }
+  }
+  return prefix
+}
+
+function isUnderModulesContainer(file: string): boolean {
+  const parts = file.split(/[/\\]/)
+  for (let i = 0; i < parts.length - 1; i++) {
+    if ((parts[i] === 'src' || parts[i] === TEST_CONTAINER) && parts[i + 1] === MODULES_CONTAINER) {
+      return true
+    }
+  }
+  return false
+}
+
+function buildHttpApp(
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  const routerFn = env.getModule('http')?.own('router')?.value
+  if (!routerFn || routerFn.type !== 'fn') {
+    throw new ZeeError('`http.app` needs `http.router`', loc.line, loc.column, loc.file)
+  }
+  let router = callFn(routerFn, [], io, loc)
+  httpModulesPathPrefix(env, loc)
+  const beans = new Map<string, ZeeValue>()
+  const visiting = new Set<string>()
+  for (const home of env.listModules()) {
+    for (const info of home.ownStructs()) {
+      if (!info.attributes?.some((attr) => attr.name === 'Controller')) continue
+      const instance = constructHttpBean(info.name, info.module, env, io, loc, beans, visiting)
+      router = mountHttpController(router, instance)
+    }
+  }
+  return router
+}
+
+function beanKey(module: string, name: string): string {
+  return `${module}\0${name}`
+}
+
+function constructHttpBean(
+  name: string,
+  module: string,
+  env: Env,
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+  beans: Map<string, ZeeValue>,
+  visiting: Set<string>,
+): ZeeValue {
+  const key = beanKey(module, name)
+  const cached = beans.get(key)
+  if (cached) return cached
+  if (visiting.has(key)) {
+    throw new ZeeError(`http bean cycle involving \`${name}\``, loc.line, loc.column, loc.file)
+  }
+  visiting.add(key)
+  const home = env.getModule(module)
+  const ns = home?.own(name)?.value
+  if (!ns || ns.type !== 'typeNs' || ns.tag !== 'struct') {
+    throw new ZeeError(`cannot construct http bean \`${name}\``, loc.line, loc.column, loc.file)
+  }
+  const ofFn = ns.members.of
+  const emptyFn = ns.members.empty
+  let instance: ZeeValue
+  if (ofFn?.type === 'fn') {
+    const args: ZeeValue[] = []
+    for (const param of ofFn.paramMeta ?? []) {
+      if (param.type.kind !== 'named') {
+        throw new ZeeError(
+          `http bean \`${name}.of\` needs a named type for \`${param.name}\``,
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      const dep = ofFn.env.getStruct(param.type.name)
+      if (!dep) {
+        throw new ZeeError(
+          `unknown http bean type \`${param.type.name}\` for \`${name}.of\``,
+          loc.line,
+          loc.column,
+          loc.file,
+        )
+      }
+      args.push(constructHttpBean(dep.name, dep.module, env, io, loc, beans, visiting))
+    }
+    instance = callFn(ofFn, args, io, loc)
+  } else if (emptyFn?.type === 'fn') {
+    instance = callFn(emptyFn, [], io, loc)
+  } else {
+    throw new ZeeError(
+      `http bean \`${name}\` needs associated \`of\` or \`empty\``,
+      loc.line,
+      loc.column,
+      loc.file,
+    )
+  }
+  beans.set(key, instance)
+  visiting.delete(key)
+  return instance
+}
+
+function mountHttpController(router: ZeeValue, instance: ZeeValue): ZeeValue {
+  if (router.type !== 'struct') return router
+  const existing = router.fields.controllers
+  const items = existing?.type === 'list' ? [...existing.items, instance] : [instance]
+  const elem = existing?.type === 'list' ? existing.elem : { kind: 'named' as const, name: 'Handler' }
+  return {
+    ...router,
+    fields: {
+      ...router.fields,
+      controllers: { type: 'list', items, elem },
+    },
+  }
+}
+
+const HTTP_VERBS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete'])
+
+function runtimeParamMeta(
+  params: { name: string; type: TypeAst; attributes?: { name: string; args: string[] }[] }[],
+): { name: string; type: TypeAst; attributes?: { name: string; args: string[] }[] }[] {
+  return params.map((param) => ({ name: param.name, type: param.type, attributes: param.attributes }))
+}
+
+function bindHttpHandlerArgs(
+  fn: Extract<ZeeValue, { type: 'fn' }>,
+  controller: ZeeValue,
+  request: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): { kind: 'ok'; args: ZeeValue[] } | { kind: 'bad'; response: ZeeValue } {
+  const meta = fn.paramMeta
+  if (!meta) return { kind: 'ok', args: [controller, request] }
+  const args: ZeeValue[] = []
+  for (const param of meta) {
+    if (param.name === 'self') {
+      args.push(controller)
+      continue
+    }
+    const bound = bindHttpParam(param, request, fn.env, loc)
+    if (bound.kind === 'bad') return bound
+    args.push(bound.value)
+  }
+  return { kind: 'ok', args }
+}
+
+function bindHttpParam(
+  param: { name: string; type: TypeAst; attributes?: { name: string; args: string[] }[] },
+  request: ZeeValue,
+  env: Env,
+  loc: { file: string; line: number; column: number },
+): { kind: 'ok'; value: ZeeValue } | { kind: 'bad'; response: ZeeValue } {
+  const attr = param.attributes?.find((item) =>
+    item.name === 'Param' ||
+    item.name === 'Params' ||
+    item.name === 'Query' ||
+    item.name === 'Body' ||
+    item.name === 'Request',
+  )
+  const name = attr?.name ?? (isRequestType(param.type) ? 'Request' : undefined)
+  if (name === 'Request') return { kind: 'ok', value: request }
+  if (name === 'Params') return { kind: 'ok', value: requestMapField(request, 'params') }
+  if (name === 'Query' && (attr?.args.length ?? 0) === 0) {
+    return { kind: 'ok', value: requestMapField(request, 'query') }
+  }
+  if (name === 'Param') {
+    const key = attr?.args[0]
+    if (!key) return { kind: 'bad', response: httpResponseValue(400, 'bad id') }
+    const raw = stringFromMap(requestMapField(request, 'params'), key)
+    if (raw === undefined) return { kind: 'bad', response: httpResponseValue(400, 'bad id') }
+    return coerceHttpScalar(raw, param.type, 'bad id')
+  }
+  if (name === 'Query') {
+    const key = attr?.args[0]
+    if (!key) return { kind: 'ok', value: requestMapField(request, 'query') }
+    const raw = stringFromMap(requestMapField(request, 'query'), key)
+    if (raw === undefined) return { kind: 'bad', response: httpResponseValue(400, 'missing query') }
+    return coerceHttpScalar(raw, param.type, 'missing query')
+  }
+  if (name === 'Body') {
+    const text = request.type === 'struct' && request.fields.text?.type === 'string'
+      ? request.fields.text
+      : { type: 'string' as const, value: '' }
+    const decoded = decodeJsonValue(text, resolveJsonTarget(param.type, env, mergedJsonSubst(), loc), loc)
+    if (decoded.type !== 'tuple' || decoded.items.length < 2) {
+      return { kind: 'bad', response: httpResponseValue(400, 'invalid json') }
+    }
+    const err = decoded.items[1]!
+    if (err.type === 'option' && err.tag === 'some') {
+      return { kind: 'bad', response: httpResponseValue(400, 'invalid json') }
+    }
+    return { kind: 'ok', value: decoded.items[0]! }
+  }
+  return { kind: 'ok', value: request }
+}
+
+function isRequestType(type: TypeAst): boolean {
+  return type.kind === 'named' && type.name === 'Request'
+}
+
+function requestMapField(request: ZeeValue, field: 'params' | 'query'): ZeeValue {
+  if (request.type !== 'struct') {
+    return { type: 'map', entries: new Map(), key: { kind: 'string' }, value: { kind: 'string' } }
+  }
+  const value = request.fields[field]
+  if (value?.type === 'map') return value
+  return { type: 'map', entries: new Map(), key: { kind: 'string' }, value: { kind: 'string' } }
+}
+
+function stringFromMap(map: ZeeValue, key: string): string | undefined {
+  if (map.type !== 'map') return undefined
+  const entry = map.entries.get(`str:${JSON.stringify(key)}`)
+  return entry?.value.type === 'string' ? entry.value.value : undefined
+}
+
+function coerceHttpScalar(
+  raw: string,
+  type: TypeAst,
+  bad: string,
+): { kind: 'ok'; value: ZeeValue } | { kind: 'bad'; response: ZeeValue } {
+  if (type.kind === 'named' && type.name === 'String') {
+    return { kind: 'ok', value: { type: 'string', value: raw } }
+  }
+  if (type.kind === 'named' && type.name === 'i32') {
+    const n = Number(raw)
+    if (!Number.isInteger(n)) return { kind: 'bad', response: httpResponseValue(400, bad) }
+    return { kind: 'ok', value: { type: 'i32', value: n } }
+  }
+  return { kind: 'ok', value: { type: 'string', value: raw } }
+}
+
+function httpRouteFromAttributes(
+  attributes: { name: string; args: string[] }[] | undefined,
+  prefix?: string,
+): { verb: string; path: string } | undefined {
+  const attr = attributes?.find((item) => HTTP_VERBS.has(item.name))
+  if (!attr) return undefined
+  return { verb: attr.name.toUpperCase(), path: joinHttpPath(prefix, attr.args[0] ?? '/') }
+}
+
+function joinHttpPath(prefix: string | undefined, path: string): string {
+  const base = normalizeHttpPath(prefix ?? '/')
+  const rest = path.length === 0 || path === '/' ? '' : path.startsWith('/') ? path : `/${path}`
+  if (rest.length === 0) return base
+  if (base === '/') return normalizeHttpPath(rest)
+  return normalizeHttpPath(base + rest)
+}
+
+function normalizeHttpPath(path: string): string {
+  if (path.length === 0) return '/'
+  const withSlash = path.startsWith('/') ? path : `/${path}`
+  if (withSlash.length > 1 && withSlash.endsWith('/')) return withSlash.slice(0, -1)
+  return withSlash
+}
+
+function matchHttpPattern(pattern: string, pathname: string): Record<string, string> | undefined {
+  const path = pathname.includes('?') ? pathname.slice(0, pathname.indexOf('?')) : pathname
+  const patternParts = normalizeHttpPath(pattern).split('/').filter((part) => part.length > 0)
+  const pathParts = normalizeHttpPath(path).split('/').filter((part) => part.length > 0)
+  if (patternParts.length !== pathParts.length) return undefined
+  const params: Record<string, string> = {}
+  for (let i = 0; i < patternParts.length; i++) {
+    const expected = patternParts[i]!
+    const got = pathParts[i]!
+    if (expected.startsWith(':')) {
+      params[expected.slice(1)] = got
+      continue
+    }
+    if (expected !== got) return undefined
+  }
+  return params
 }
 
 function resolveJsonTarget(

@@ -1,0 +1,41 @@
+describe("UsersService") {
+  fn testCreatesAda() {
+    const service = UsersService.of(MemoryUsers.empty())
+    const (next, row, err) = service.create("ada")
+    expect(err.isNone()).toBe(true)
+    expect(row.id).toBe(1)
+    expect(row.name).toBe("ada")
+    expect(row.active).toBe(true)
+    expect(next.repo.rows.len).toBe(1usize)
+  }
+
+  fn testSetsActive() {
+    const service = UsersService.of(MemoryUsers.empty())
+    const (created, _, createErr) = service.create("ada")
+    expect(createErr.isNone()).toBe(true)
+    const (next, row, err) = created.setActive(1, false)
+    expect(err.isNone()).toBe(true)
+    expect(row.active).toBe(false)
+    expect(row.name).toBe("ada")
+    expect(next.get(1) ?: UserRow { id: 0, name: "", active: false }).toEqual(UserRow { id: 1, name: "ada", active: false })
+  }
+
+  fn testRejectsBlankName() {
+    const service = UsersService.of(MemoryUsers.empty())
+    const (_, row, err) = service.create("  ")
+    expect(err.isSome()).toBe(true)
+    expect(row.id).toBe(0)
+  }
+
+  fn testUpdatesAndRemoves() {
+    const service = UsersService.of(MemoryUsers.empty())
+    const (created, _, createErr) = service.create("ada")
+    expect(createErr.isNone()).toBe(true)
+    const (updated, row, updateErr) = created.update(1, "ana")
+    expect(updateErr.isNone()).toBe(true)
+    expect(row.name).toBe("ana")
+    const (gone, removeErr) = updated.remove(1)
+    expect(removeErr.isNone()).toBe(true)
+    expect(gone.list().isEmpty()).toBe(true)
+  }
+}

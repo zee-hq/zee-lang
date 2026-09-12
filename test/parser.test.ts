@@ -22,4 +22,30 @@ describe('parser', () => {
     const program = parse('const x = 1\nvar y: String = "zee"')
     expect(program.stmts.map((stmt) => stmt.kind)).toEqual(['bind', 'bind'])
   })
+
+  it('parses @Name on a class method', () => {
+    const program = parse(`
+      @Controller("/users")
+      pub class Users {
+        @Get("/:id")
+        pub fn show(self) {}
+      }
+    `)
+    const decl = program.stmts[0]
+    expect(decl?.kind).toBe('structDecl')
+    if (decl?.kind !== 'structDecl') return
+    expect(decl.attributes).toEqual([expect.objectContaining({ name: 'Controller', args: ['/users'] })])
+    expect(decl.methods[0]?.attributes).toEqual([expect.objectContaining({ name: 'Get', args: ['/:id'] })])
+  })
+
+  it('parses @Name on a parameter', () => {
+    const program = parse(`
+      pub fn show(@Param("id") id: i32, @Params all: Map<String, String>) {}
+    `)
+    const fn = program.stmts[0]
+    expect(fn?.kind).toBe('fn')
+    if (fn?.kind !== 'fn') return
+    expect(fn.params[0]?.attributes).toEqual([expect.objectContaining({ name: 'Param', args: ['id'] })])
+    expect(fn.params[1]?.attributes).toEqual([expect.objectContaining({ name: 'Params', args: [] })])
+  })
 })

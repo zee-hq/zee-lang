@@ -2,13 +2,13 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ZeeError } from './error.ts'
 import { pluralizeLast } from './inflect.ts'
-import { findProjectRoot } from './project.ts'
+import { findProjectRoot, MODULES_CONTAINER } from './project.ts'
 
 const MODULE_SEGMENT_RE = /^[a-z][a-z0-9_]*$/
 
 export type ControllerKind = 'empty' | 'api' | 'invokable'
 
-/** Layer file: src/<plural>/<plural>.<role>.zee. */
+/** Layer file: src/modules/<plural>/<plural>.<role>.zee. */
 export type LayerRole =
   | 'module'
   | 'controller'
@@ -142,6 +142,10 @@ export function parseModulePath(raw: string): string[] {
     throw new ZeeError(`module path is relative to src/ (use \`${hint}\`)`, 1, 1, 'zee')
   }
   const segments = normalized.split('/').filter((part) => part.length > 0)
+  if (segments[0] === MODULES_CONTAINER) {
+    const hint = segments.slice(1).join('/') || '<name>'
+    throw new ZeeError(`module path is relative to src/modules/ (use \`${hint}\`)`, 1, 1, 'zee')
+  }
   for (const segment of segments) {
     if (segment === '.' || segment === '..' || !MODULE_SEGMENT_RE.test(segment)) {
       throw new ZeeError(
@@ -170,6 +174,8 @@ function writeRole(
   return { ...layout, file }
 }
 
+const TOP_LEVEL_ADAPTERS = new Set(['bootstrap', 'shared', 'ui'])
+
 function resolveLayout(options: GenerateOptions): Omit<GeneratedFile, 'file'> {
   const root = findProjectRoot(options.cwd)
   if (!root) {
@@ -177,14 +183,33 @@ function resolveLayout(options: GenerateOptions): Omit<GeneratedFile, 'file'> {
   }
   const segments = parseModulePath(options.path)
   const name = segments[segments.length - 1]!
-  const dir = join(root, 'src', ...segments)
-  assertNoFileFolderClash(root, segments)
+  const underModules = !isTopLevelAdapter(segments)
+  const dir = underModules
+    ? join(root, 'src', MODULES_CONTAINER, ...segments)
+    : join(root, 'src', ...segments)
+  assertNoFileFolderClash(root, segments, underModules)
   return { root, dir, name, importPath: segments.join('.') }
 }
 
-function assertNoFileFolderClash(root: string, segments: string[]): void {
+function isTopLevelAdapter(segments: string[]): boolean {
+  return TOP_LEVEL_ADAPTERS.has(segments[0]!)
+}
+
+function assertNoFileFolderClash(root: string, segments: string[], underModules: boolean): void {
+  if (underModules) {
+    const containerFile = join(root, 'src', `${MODULES_CONTAINER}.zee`)
+    if (existsSync(containerFile)) {
+      throw new ZeeError(
+        `file vs folder clash: \`${containerFile}\` and \`${join(root, 'src', MODULES_CONTAINER)}/\``,
+        1,
+        1,
+        containerFile,
+      )
+    }
+  }
+  const base = underModules ? [MODULES_CONTAINER] : []
   for (let i = 0; i < segments.length; i++) {
-    const siblingFile = join(root, 'src', ...segments.slice(0, i), `${segments[i]}.zee`)
+    const siblingFile = join(root, 'src', ...base, ...segments.slice(0, i), `${segments[i]}.zee`)
     if (existsSync(siblingFile)) {
       throw new ZeeError(
         `file vs folder clash: \`${siblingFile}\` already exists (cannot create module directory \`${segments.slice(0, i + 1).join('/')}\`)`,

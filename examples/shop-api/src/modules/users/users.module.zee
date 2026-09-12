@@ -1,0 +1,2 @@
+//! users — one HTTP slice. Controllers live in `controllers/` (`users.controllers`).
+// `http.app()` mounts `@Controller`. This file is the directory comment.

@@ -14,5 +14,7 @@ describe('pluralize (AC-generate-inflect)', () => {
     expect(pluralize('tls')).toBe('tls')
     expect(pluralize('math')).toBe('math')
     expect(pluralize('auth')).toBe('auth')
+    expect(pluralize('bootstrap')).toBe('bootstrap')
+    expect(pluralize('shared')).toBe('shared')
   })
 })

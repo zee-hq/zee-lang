@@ -1200,6 +1200,36 @@ function defineBuiltins(env: TypeEnv): void {
     ret: { kind: 'tuple', parts: [{ kind: 'typeParam', name: 'T' }, { kind: 'option', inner: T_ERROR }] },
     typeParams: ['T'],
   })
+  env.define('httpDispatch', {
+    kind: 'fn',
+    params: [{ kind: 'typeParam', name: 'R' }, { kind: 'typeParam', name: 'Q' }],
+    ret: { kind: 'typeParam', name: 'S' },
+    typeParams: ['R', 'Q', 'S'],
+  })
+  env.define('httpListen', {
+    kind: 'fn',
+    params: [T_STRING, { kind: 'typeParam', name: 'R' }],
+    ret: T_UNIT,
+    typeParams: ['R'],
+  })
+  env.define('httpI32Param', {
+    kind: 'fn',
+    params: [{ kind: 'typeParam', name: 'Q' }, T_STRING],
+    ret: { kind: 'tuple', parts: [T_I32, { kind: 'option', inner: T_ERROR }] },
+    typeParams: ['Q'],
+  })
+  env.define('httpRouterController', {
+    kind: 'fn',
+    params: [{ kind: 'typeParam', name: 'R' }, { kind: 'typeParam', name: 'T' }],
+    ret: { kind: 'typeParam', name: 'R' },
+    typeParams: ['R', 'T'],
+  })
+  env.define('httpApp', {
+    kind: 'fn',
+    params: [],
+    ret: { kind: 'typeParam', name: 'R' },
+    typeParams: ['R'],
+  })
   env.define('testCases', {
     kind: 'fn',
     params: [],
@@ -2769,6 +2799,15 @@ function checkCall(
     if (method) {
       if (method.mutating) {
         requireVarReceiver(expr.callee.target, env, expr.loc)
+      }
+      if (method.type.typeParams && method.type.typeParams.length > 0) {
+        return checkGenericCall(
+          expr,
+          { ...method.type, params: method.type.params.slice(1) },
+          env,
+          returnType,
+          expected,
+        )
       }
       const rest = method.type.params.slice(1)
       if (expr.args.length !== rest.length) {

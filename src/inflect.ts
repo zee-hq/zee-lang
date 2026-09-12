@@ -1,6 +1,7 @@
 const UNCOUNTABLE = new Set([
   'api',
   'auth',
+  'bootstrap',
   'css',
   'html',
   'http',
@@ -10,6 +11,7 @@ const UNCOUNTABLE = new Set([
   'llvm',
   'math',
   'os',
+  'shared',
   'sql',
   'ssl',
   'tls',

@@ -1,0 +1,7 @@
+//! Spring `addPathPrefix("/api", RestController in modules)`.
+//! `http` reads `@PathPrefix`. Applies to `@Controller` under `src/modules/`.
+//! Not a bean — no `empty()` / `of`.
+
+@Configuration
+@PathPrefix("/api")
+pub class ApiPrefixConfig {}

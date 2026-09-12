@@ -1,6 +1,7 @@
 import type {
   AssociatedConst,
   AssignOp,
+  Attribute,
   BinaryOp,
   Block,
   Expr,
@@ -90,20 +91,41 @@ class Parser {
   private parseTopLevel(): Stmt {
     const doc = this.takeDocs()
     if (this.isAtEnd()) this.fail('doc comment with no following declaration')
-    if (this.match('import')) return this.attachDoc(this.parseImport(), doc)
+    const attributes = this.parseAttributes()
+    if (this.match('import')) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      return this.attachDoc(this.parseImport(), doc)
+    }
     const visibility = this.parseVisibility()
-    if (this.match('const')) return this.attachDoc(this.parseBind(false, true, visibility ?? 'private'), doc)
-    if (this.match('var')) return this.attachDoc(this.parseBind(true, true, visibility ?? 'private'), doc)
-    if (this.match('fn')) return this.attachDoc(this.parseFn(visibility ?? 'private'), doc)
-    if (this.match('enum')) return this.attachDoc(this.parseEnumDecl(visibility ?? 'private'), doc)
-    if (this.match('type')) return this.attachDoc(this.parseTypeAliasDecl(visibility ?? 'private'), doc)
-    if (this.match('newtype')) return this.attachDoc(this.parseNewtypeDecl(visibility ?? 'private'), doc)
+    if (this.match('const')) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      return this.attachDoc(this.parseBind(false, true, visibility ?? 'private'), doc)
+    }
+    if (this.match('var')) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      return this.attachDoc(this.parseBind(true, true, visibility ?? 'private'), doc)
+    }
+    if (this.match('fn')) return this.attachAttrs(this.attachDoc(this.parseFn(visibility ?? 'private'), doc), attributes)
+    if (this.match('enum')) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      return this.attachDoc(this.parseEnumDecl(visibility ?? 'private'), doc)
+    }
+    if (this.match('type')) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      return this.attachDoc(this.parseTypeAliasDecl(visibility ?? 'private'), doc)
+    }
+    if (this.match('newtype')) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      return this.attachDoc(this.parseNewtypeDecl(visibility ?? 'private'), doc)
+    }
     if (this.looksLikeInterfaceDecl()) {
+      if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
       return this.attachDoc(this.parseInterfaceDecl(visibility ?? 'private'), doc)
     }
     if (this.looksLikeTypeDecl()) {
-      return this.attachDoc(this.parseStructDecl(visibility ?? 'private'), doc)
+      return this.attachAttrs(this.attachDoc(this.parseStructDecl(visibility ?? 'private'), doc), attributes)
     }
+    if (attributes.length > 0) this.fail('attributes are only valid on `class` and `fn`')
     if (visibility) {
       this.fail('expected `fn`, `const`, `var`, `struct`, `class`, `enum`, `type`, `newtype`, or `interface` after visibility')
     }
@@ -453,13 +475,16 @@ class Parser {
         if (doc) this.fail('doc comment with no following declaration')
         break
       }
+      const attrs = this.parseAttributes()
       const memberVis = this.parseVisibility() ?? 'private'
       if (this.match('fn')) {
-        const fn = this.attachDoc(this.parseFn(memberVis, receiverName), doc)
+        const fn = this.attachAttrs(this.attachDoc(this.parseFn(memberVis, receiverName), doc), attrs)
+        if (fn.kind !== 'fn') this.fail('expected a method')
         claim(fn.name)
         methods.push(fn)
         continue
       }
+      if (attrs.length > 0) this.fail('attributes are only valid on `class` and `fn`')
       if (this.match('enum')) {
         const decl = this.attachDoc(this.parseEnumDecl(memberVis), doc)
         if (decl.kind !== 'enumDecl') this.fail('expected nested `enum`')
@@ -634,10 +659,17 @@ class Parser {
     }
     const params: Param[] = []
     while (this.match(',')) {
+      const attributes = this.parseAttributes()
       const paramName = this.consume('ident', 'expected parameter name')
       this.consume(':', 'expected `:` after parameter name')
       const type = this.parseType()
-      params.push({ name: paramName.lexeme, type, loc: paramName.loc, mutable: false })
+      params.push({
+        name: paramName.lexeme,
+        type,
+        loc: paramName.loc,
+        mutable: false,
+        ...(attributes.length > 0 ? { attributes } : {}),
+      })
     }
     this.consume(')', 'expected `)` after parameters')
     let returnType: TypeAst | undefined
@@ -699,6 +731,7 @@ class Parser {
     const params: Param[] = []
     if (!this.check(')')) {
       do {
+        const attributes = this.parseAttributes()
         const mutable = this.match('var')
         const paramName = this.consume('ident', 'expected parameter name')
         if (mutable && paramName.lexeme === 'self' && params.length !== 0) {
@@ -725,7 +758,13 @@ class Parser {
         } else {
           throw new ZeeError('expected `:` after parameter name', paramName.loc.line, paramName.loc.column, this.file)
         }
-        params.push({ name: paramName.lexeme, type, loc: paramName.loc, mutable })
+        params.push({
+          name: paramName.lexeme,
+          type,
+          loc: paramName.loc,
+          mutable,
+          ...(attributes.length > 0 ? { attributes } : {}),
+        })
       } while (this.match(','))
     }
     this.consume(')', 'expected `)` after parameters')
@@ -733,6 +772,35 @@ class Parser {
     if (this.match('->')) returnType = this.parseType()
     const body = this.parseBlock()
     return { kind: 'fn', visibility, name: nameTok.lexeme, typeParams, params, returnType, body, loc }
+  }
+
+  private parseAttributes(): Attribute[] {
+    const attributes: Attribute[] = []
+    while (this.match('@')) {
+      const loc = this.previous().loc
+      const nameTok = this.consume('ident', 'expected attribute name after `@`')
+      const args: string[] = []
+      if (this.match('(')) {
+        if (!this.check(')')) {
+          do {
+            const tok = this.consume('string', 'attribute arguments must be string literals')
+            args.push(tok.lexeme)
+          } while (this.match(','))
+        }
+        this.consume(')', 'expected `)` after attribute arguments')
+      }
+      attributes.push({ name: nameTok.lexeme, args, loc })
+    }
+    return attributes
+  }
+
+  private attachAttrs<T extends Stmt>(stmt: T, attributes: Attribute[]): T {
+    if (attributes.length === 0) return stmt
+    if (stmt.kind === 'fn' || stmt.kind === 'structDecl') {
+      stmt.attributes = attributes
+      return stmt
+    }
+    this.fail('attributes are only valid on `class`, `fn`, and parameters')
   }
 
   private parseReturn(): Stmt {

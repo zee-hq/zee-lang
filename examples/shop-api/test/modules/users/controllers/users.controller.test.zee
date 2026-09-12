@@ -1,0 +1,30 @@
+import http
+import http.Router
+import json
+import users.UserRow
+
+describe("UsersController") {
+  fn app() -> Router {
+    http.app()
+  }
+
+  fn testStoreThenShow() {
+    const router = app()
+    const created = http.dispatch(router, http.request("POST", "/api/users", "{\"name\":\"ada\"}"))
+    expect(created.status).toBe(201)
+    const (got, err) = json.decode<UserRow>(created.text)
+    expect(err.isNone()).toBe(true)
+    expect(got).toEqual(UserRow { id: 1, name: "ada", active: true })
+    const shown = http.dispatch(router, http.request("GET", "/api/users/1", ""))
+    expect(shown.status).toBe(200)
+    const (shownRow, shownErr) = json.decode<UserRow>(shown.text)
+    expect(shownErr.isNone()).toBe(true)
+    expect(shownRow).toEqual(UserRow { id: 1, name: "ada", active: true })
+  }
+
+  fn testDestroyMissing() {
+    const missing = http.dispatch(app(), http.request("DELETE", "/api/users/9", ""))
+    expect(missing.status).toBe(404)
+    expect(missing.text).toBe("not found")
+  }
+}

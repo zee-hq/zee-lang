@@ -47,7 +47,7 @@ Usage:
   zee check [file]               Type-check a file, or the project entry
   zee fmt [file]                 Format a .zee file, or every file in the package
   zee debug                      Debug adapter (stdio DAP) for editors
-  zee test                       Run fn test* in *.test.zee under src/
+  zee test                       Run fn test* in *.test.zee under src/ and test/
   zee goto <file> <line> <column>
                                  Print the definition at a 1-based position
   zee lsp                        Language server (stdio JSON-RPC)
@@ -468,7 +468,7 @@ Examples:
   zee generate feature user --api
   zee generate controller user --api
   zee g co user -i
-  zee g re user                             → src/users/users.resource.zee
+  zee g re user                             → src/modules/users/users.resource.zee
 `
 }
 

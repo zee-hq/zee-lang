@@ -1,0 +1,55 @@
+//! Domain rules. No HTTP, no SQL.
+
+pub data struct UsersService {
+  pub const repo: MemoryUsers
+
+  pub fn of(repo: MemoryUsers) -> self {
+    self { repo: repo }
+  }
+
+  pub fn list(self) -> List<UserRow> {
+    self.repo.rows
+  }
+
+  pub fn create(self, name: String) -> (self, UserRow, Option<Error>) {
+    if name.isBlank() {
+      return (self, UserRow { id: 0, name: "", active: false }, Some(error("name is blank")))
+    }
+    const (next, row) = self.repo.insert(name)
+    (UsersService { repo: next }, row, None)
+  }
+
+  pub fn get(self, id: i32) -> Option<UserRow> {
+    self.repo.find(id)
+  }
+
+  pub fn update(self, id: i32, name: String) -> (self, UserRow, Option<Error>) {
+    if name.isBlank() {
+      return (self, UserRow { id: 0, name: "", active: false }, Some(error("name is blank")))
+    }
+    const found = self.repo.find(id)
+    if found.isNone() {
+      return (self, UserRow { id: 0, name: "", active: false }, Some(error("not found")))
+    }
+    const current = found ?: UserRow { id: 0, name: "", active: false }
+    const row = UserRow { id: id, name: name, active: current.active }
+    (UsersService { repo: self.repo.replace(row) }, row, None)
+  }
+
+  pub fn setActive(self, id: i32, active: bool) -> (self, UserRow, Option<Error>) {
+    const found = self.repo.find(id)
+    if found.isNone() {
+      return (self, UserRow { id: 0, name: "", active: false }, Some(error("not found")))
+    }
+    const current = found ?: UserRow { id: 0, name: "", active: false }
+    const row = UserRow { id: id, name: current.name, active: active }
+    (UsersService { repo: self.repo.replace(row) }, row, None)
+  }
+
+  pub fn remove(self, id: i32) -> (self, Option<Error>) {
+    if self.repo.find(id).isNone() {
+      return (self, Some(error("not found")))
+    }
+    (UsersService { repo: self.repo.remove(id) }, None)
+  }
+}

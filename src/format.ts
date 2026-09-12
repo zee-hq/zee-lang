@@ -16,7 +16,16 @@ export function formatProgram(program: Program): string {
 function formatStmt(stmt: Stmt, indent: number): string {
   const pad = '  '.repeat(indent)
   const doc = 'doc' in stmt && stmt.doc ? stmt.doc.split('\n').map((line) => `${pad}/// ${line}`).join('\n') + '\n' : ''
-  return doc + pad + formatStmtBody(stmt, indent)
+  const attrs =
+    (stmt.kind === 'fn' || stmt.kind === 'structDecl') && stmt.attributes && stmt.attributes.length > 0
+      ? stmt.attributes
+          .map((attr) => {
+            const args = attr.args.length > 0 ? `(${attr.args.map((arg) => JSON.stringify(arg)).join(', ')})` : ''
+            return `${pad}@${attr.name}${args}\n`
+          })
+          .join('')
+      : ''
+  return doc + attrs + pad + formatStmtBody(stmt, indent)
 }
 
 function vis(stmt: { visibility: string }): string {
@@ -90,7 +99,7 @@ function formatStmtBody(stmt: Stmt, indent: number): string {
         .map((method) => {
           const mdoc = method.doc ? `  /// ${method.doc}\n` : ''
           const self = method.mutating ? 'var self' : 'self'
-          const extra = method.params.map((param) => `${param.mutable ? 'var ' : ''}${param.name}: ${formatType(param.type)}`)
+          const extra = method.params.map((param) => formatParam(param))
           const params = [self, ...extra].join(', ')
           const ret = method.returnType ? ` -> ${formatType(method.returnType)}` : ''
           return `${mdoc}  fn ${method.name}(${params})${ret}`
@@ -105,10 +114,19 @@ function formatStmtBody(stmt: Stmt, indent: number): string {
   }
 }
 
+function formatParam(param: { name: string; type: TypeAst; mutable: boolean; attributes?: { name: string; args: string[] }[] }): string {
+  const attrs = (param.attributes ?? [])
+    .map((attr) => {
+      const args = attr.args.length > 0 ? `(${attr.args.map((arg) => JSON.stringify(arg)).join(', ')})` : ''
+      return `@${attr.name}${args}`
+    })
+    .join(' ')
+  const prefix = attrs.length > 0 ? `${attrs} ` : ''
+  return `${prefix}${param.mutable ? 'var ' : ''}${param.name}: ${formatType(param.type)}`
+}
+
 function formatFn(stmt: Extract<Stmt, { kind: 'fn' }>, indent: number): string {
-  const params = stmt.params
-    .map((param) => `${param.mutable ? 'var ' : ''}${param.name}: ${formatType(param.type)}`)
-    .join(', ')
+  const params = stmt.params.map((param) => formatParam(param)).join(', ')
   const gens = stmt.typeParams.length > 0 ? `<${stmt.typeParams.join(', ')}>` : ''
   const ret = stmt.returnType ? ` -> ${formatType(stmt.returnType)}` : ''
   return `${vis(stmt)}fn ${stmt.name}${gens}(${params})${ret} ${formatBlock(stmt.body, indent)}`

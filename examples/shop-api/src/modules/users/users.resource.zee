@@ -1,0 +1,11 @@
+//! Domain → HTTP body (Laravel Resource).
+
+import json
+
+pub fn toJson(row: UserRow) -> String {
+  json.encode(row)
+}
+
+pub fn toJsonList(rows: List<UserRow>) -> String {
+  json.encode(rows)
+}

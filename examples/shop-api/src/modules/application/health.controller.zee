@@ -1,0 +1,16 @@
+//! Readiness. `@Controller` under `src/modules/` gets `@PathPrefix` (`/api/health`).
+
+import http
+import http.Response
+
+@Controller("/health")
+pub class HealthController {
+  pub fn empty() -> self {
+    self {}
+  }
+
+  @Get("/")
+  pub fn index(self) -> Response {
+    http.ok("ok")
+  }
+}

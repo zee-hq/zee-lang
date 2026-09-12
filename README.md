@@ -52,7 +52,7 @@ cd hello
 zee run
 ```
 
-`zee new hello` creates `zee.toml` + `src/main.zee` (`--kind bin`). `zee new shop --kind api` adds the HTTP feature slice (`src/users/`); `--kind web` adds `src/ui/` (UI runtime is a gap); `--kind monolith` is both in **one** package; `--kind service` is an API slice labeled as a process. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee test` injects the official [`ZeeTest`](https://github.com/zee-hq/ZeeTest) package and calls `ZeeTest.run()` — `fn test*` in `*.test.zee` under `src/` (`users.service.test.zee`, not `foo_test.zee` or `.spec.zee`), including library packages with `src/lib.zee`. Group with `describe("title") { const row = …; fn testFoo() { } }` — the block is a closure; inner `fn` get that env. Lifecycle hooks are `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. You can also `import ZeeTest` yourself. Assertions are Vitest-shaped: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch). `it()` is not a test helper — Zee `it` is the lambda parameter. Failure is also `panic` or a visible `err`. `zee init` scaffolds the current directory.
+`zee new hello` creates `zee.toml` + `src/main.zee` (`--kind bin`). `zee new shop --kind api` uses `src/bootstrap/main.zee` plus the HTTP slice (`src/modules/users/`); `--kind web` adds `src/ui/` (UI runtime is a gap); `--kind monolith` is both in **one** package; `--kind service` is an API slice labeled as a process. Inside a project, `zee run` and `zee check` use the entry in the manifest (default `src/main.zee`). `zee test` injects the official [`ZeeTest`](https://github.com/zee-hq/ZeeTest) package and calls `ZeeTest.run()` — `fn test*` in `*.test.zee` under `src/` or `test/` (`test/` mirrors `src/`; `users.service.test.zee`, not `foo_test.zee` or `.spec.zee`), including library packages with `src/lib.zee`. Group with `describe("title") { const row = …; fn testFoo() { } }` — the block is a closure; inner `fn` get that env. Lifecycle hooks are `fn beforeAll()` / `fn beforeEach()` / `fn afterEach()` / `fn afterAll()`. You can also `import ZeeTest` yourself. Assertions are Vitest-shaped: `expect(x).toBe(y)` / `toEqual` / `.not` (panic on mismatch). `it()` is not a test helper — Zee `it` is the lambda parameter. Failure is also `panic` or a visible `err`. `zee init` scaffolds the current directory.
 
 Dependencies are Gradle-style aliases. `zee get ZeeTest` looks up the name in a workspace `libs.toml` if you have one, otherwise in the official [`catalog.json`](catalog.json) (Maven-style index: where the package lives). You can point `ZEE_CATALOG` at a JSON URL or file — later that URL will be the landing-page central. `zee get` adds the alias to `[deps]` and copies the package into `.zee/`. `zee get` with no args fetches what is already listed and **honors `zee.lock`**. `zee update` (or `zee update env`) re-resolves within the current constraint and rewrites the lock — `1.2` can pick a newer `1.2.x`, `1.2.3` stays exact. It does not edit `libs.toml`. `zee.lock` is the pin (commit it). `.zee/` is generated (gitignored). Inline `{ path }` / `{ git, tag }` still work. `json = "1.2"` is SemVer precision (`1.2` → latest `1.2.x`). Registry order: `ZEE_REGISTRY`, `[registry] url`, then `~/.zee/registry`. `zee publish` refuses overwrite. Contract: [`docs/REGISTRY.md`](docs/REGISTRY.md).
 
@@ -84,6 +84,8 @@ First official library: [`zee-hq/env`](https://github.com/zee-hq/env) (fixture c
 Second: [`zee-hq/ZeeTest`](https://github.com/zee-hq/ZeeTest) (fixture copy in [`libs/ZeeTest`](libs/ZeeTest) for language tests). `zee test` injects it and calls `ZeeTest.run()`. Group with `describe("title") { fn testFoo() { } }`. Hooks: `fn beforeEach()`. Assertions: `expect(x).toBe(1)`. You can also `import ZeeTest`.
 
 Third: [`zee-hq/json`](https://github.com/zee-hq/json) (fixture copy in [`libs/json`](libs/json)). `import json` then `json.encode(value)` and `json.decode<T>(text)` — JSON `null` is `None`, never a Zee `null`. Invalid JSON and missing fields are `err` (dummy `T`), not panic. Host overlay: `jsonEncode` / `jsonDecode`.
+
+Fourth: **http** (in-tree fixture [`libs/http`](libs/http); GitHub `zee-hq/http` comes when the package is published). `import http` then `http.listen(addr, http.app())`. `http.app()` indexes `@Controller` in the loaded package and builds via `of` / `empty`. The compiler does not know Get/Post; the package reads `@Get` / `@Param` / `@Query` / `@Body` / `@Request` from metadata. Tests call `http.dispatch` so they do not bind a port. Host overlay: `httpDispatch` / `httpListen` / `httpI32Param` / `httpRouterController` / `httpApp`. Example: [`examples/shop-api`](examples/shop-api).
 
 ```toml
 # libs.toml
@@ -137,7 +139,7 @@ zee generate controller user --api    # or -i
 zee generate resource user
 ```
 
-`user` becomes `src/users/users.controller.zee`, `users.action.zee`, `users.service.zee`, `users.resource.zee`, `users.repository.zee`, `users.model.zee`, `users.api.zee`, `users.module.zee`. Tests are `*.test.zee` only.
+`user` becomes `src/modules/users/users.controller.zee`, `users.action.zee`, `users.service.zee`, `users.resource.zee`, `users.repository.zee`, `users.model.zee`, `users.api.zee`, `users.module.zee`. Tests are `*.test.zee` only.
 
 ```bash
 zee run examples/factorial.zee
@@ -255,7 +257,7 @@ lambda      = "{" (ident ("," ident)* "->")? statements "}"
 intWidth    = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize"
 ```
 
-See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `factorial.zee`) plus one file of each role so the explorer icons show up. A packaged monolith lives in [`examples/projeto-1`](examples/projeto-1) (`users` + `orders` + `ui`; `zee run` / `zee test` from that folder).
+See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `factorial.zee`) plus one file of each role so the explorer icons show up. A packaged monolith lives in [`examples/projeto-1`](examples/projeto-1) (`users` + `orders` + `ui`; HTTP is still a stdout client). An HTTP API lives in [`examples/shop-api`](examples/shop-api) (`import http`; `@Get` is metadata the **package** reads; `zee test` uses `dispatch`, `zee run` listens).
 
 ## Editor
 
@@ -295,7 +297,7 @@ editor/jetbrains TextMate grammar + LSP4IJ (`zee lsp`)
 | `npm run typecheck` | TypeScript strict check |
 | `zee new <name> [--kind bin\|api\|web\|monolith\|service]` | create a package (default `bin`) |
 | `zee init [name]` | scaffold the current directory |
-| `zee generate feature <name> [--api\|-i]` | HTTP slice (`user` → `src/users/users.*.zee`) |
+| `zee generate feature <name> [--api\|-i]` | HTTP slice (`user` → `src/modules/users/users.*.zee`) |
 | `zee generate controller <name> [--api\|-i]` | HTTP in; Laravel `--api` or invokable `-i` |
 | `zee generate resource <name>` | HTTP mapper (`users.resource.zee`) |
 | `zee generate action\|service\|repository\|model\|api\|module <name>` | one layer file |

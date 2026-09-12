@@ -51,23 +51,27 @@ describe('parseCreateArgv (AC-new-kind)', () => {
 describe('zee new --kind (AC-new-kind)', () => {
   it('bin stays a single main with no users or ui modules', () => {
     const created = project('bin', 'hello')
-    expect(existsSync(join(created.root, 'src/users'))).toBe(false)
+    expect(existsSync(join(created.root, 'src/modules/users'))).toBe(false)
     expect(existsSync(join(created.root, 'src/ui'))).toBe(false)
     expect(executeFile(created.entry).stdout).toBe('hello, hello\n')
   })
 
   it('api writes an HTTP feature slice and no ui module', () => {
     const created = project('api')
-    const controller = readFileSync(join(created.root, 'src/users/users.controller.zee'), 'utf8')
+    const controller = readFileSync(join(created.root, 'src/modules/users/users.controller.zee'), 'utf8')
     expect(controller).toContain('fn index()')
     expect(existsSync(join(created.root, 'src/ui'))).toBe(false)
     expect(readFileSync(join(created.root, 'zee.toml'), 'utf8')).toMatch(/description = ".*API/)
-    expect(executeFile(created.entry).stdout).toBe('hello, shop\n')
+    expect(existsSync(join(created.root, 'src/bootstrap/main.zee'))).toBe(true)
+    expect(existsSync(join(created.root, 'src/main.zee'))).toBe(false)
+    expect(readFileSync(join(created.root, 'zee.toml'), 'utf8')).toContain('entry = "src/bootstrap/main.zee"')
+    expect(readFileSync(join(created.root, 'src/bootstrap/main.zee'), 'utf8')).toMatch(/Composition root/)
+    expect(executeFile(join(created.root, 'src/bootstrap/main.zee')).stdout).toBe('hello, shop\n')
   })
 
   it('service is an API slice marked as a process', () => {
     const created = project('service', 'billing')
-    expect(existsSync(join(created.root, 'src/users/users.controller.zee'))).toBe(true)
+    expect(existsSync(join(created.root, 'src/modules/users/users.controller.zee'))).toBe(true)
     expect(existsSync(join(created.root, 'src/ui'))).toBe(false)
     expect(readFileSync(join(created.root, 'zee.toml'), 'utf8')).toMatch(/process/)
   })
@@ -76,14 +80,14 @@ describe('zee new --kind (AC-new-kind)', () => {
     const created = project('web')
     expect(existsSync(join(created.root, 'src/ui/ui.module.zee'))).toBe(true)
     expect(readFileSync(join(created.root, 'src/ui/ui.view.zee'), 'utf8')).toMatch(/gap/i)
-    expect(existsSync(join(created.root, 'src/users'))).toBe(false)
+    expect(existsSync(join(created.root, 'src/modules/users'))).toBe(false)
   })
 
   it('monolith keeps HTTP and ui in one package', () => {
     const created = project('monolith')
-    expect(existsSync(join(created.root, 'src/users/users.controller.zee'))).toBe(true)
+    expect(existsSync(join(created.root, 'src/modules/users/users.controller.zee'))).toBe(true)
     expect(existsSync(join(created.root, 'src/ui/ui.module.zee'))).toBe(true)
-    expect(readFileSync(join(created.root, 'src/main.zee'), 'utf8')).toMatch(/Composition root/)
-    expect(executeFile(created.entry).stdout).toBe('hello, shop\n')
+    expect(readFileSync(join(created.root, 'src/bootstrap/main.zee'), 'utf8')).toMatch(/Composition root/)
+    expect(executeFile(join(created.root, 'src/bootstrap/main.zee')).stdout).toBe('hello, shop\n')
   })
 })

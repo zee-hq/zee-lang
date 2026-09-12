@@ -1,0 +1,92 @@
+import http
+import http.Request
+import http.Router
+import json
+import users.UserRow
+
+describe("app") {
+  fn app() -> Router {
+    http.app()
+  }
+
+  fn originReq(path: String, origin: String) -> Request {
+    const params: Map<String, String> = {}
+    const query: Map<String, String> = {}
+    const headers: Map<String, String> = { "Origin": origin }
+    Request { method: "GET", path: path, text: "", params: params, query: query, headers: headers }
+  }
+
+  fn testHealth() {
+    const res = http.dispatch(app(), http.request("GET", "/api/health", ""))
+    expect(res.status).toBe(200)
+    expect(res.text).toBe("ok")
+  }
+
+  fn testUnknownPath() {
+    const res = http.dispatch(app(), http.request("GET", "/nope", ""))
+    expect(res.status).toBe(404)
+    expect(res.text).toBe("not found")
+  }
+
+  fn testStoreThenShowFromMain() {
+    const routed = app()
+    const created = http.dispatch(routed, http.request("POST", "/api/users", "{\"name\":\"ada\"}"))
+    expect(created.status).toBe(201)
+    const (row, err) = json.decode<UserRow>(created.text)
+    expect(err.isNone()).toBe(true)
+    expect(row).toEqual(UserRow { id: 1, name: "ada", active: true })
+    const shown = http.dispatch(routed, http.request("GET", "/api/users/1", ""))
+    expect(shown.status).toBe(200)
+    const (shownRow, shownErr) = json.decode<UserRow>(shown.text)
+    expect(shownErr.isNone()).toBe(true)
+    expect(shownRow).toEqual(UserRow { id: 1, name: "ada", active: true })
+  }
+
+  fn testIndexUpdateDestroy() {
+    const routed = app()
+    const created = http.dispatch(routed, http.request("POST", "/api/users", "{\"name\":\"ada\"}"))
+    expect(created.status).toBe(201)
+    const listed = http.dispatch(routed, http.request("GET", "/api/users", ""))
+    expect(listed.status).toBe(200)
+    expect(listed.text).toBe("[{\"id\":1,\"name\":\"ada\",\"active\":true}]")
+    const updated = http.dispatch(routed, http.request("PUT", "/api/users/1", "{\"name\":\"ana\"}"))
+    expect(updated.status).toBe(200)
+    const (row, err) = json.decode<UserRow>(updated.text)
+    expect(err.isNone()).toBe(true)
+    expect(row.name).toBe("ana")
+    const gone = http.dispatch(routed, http.request("DELETE", "/api/users/1", ""))
+    expect(gone.status).toBe(200)
+    expect(gone.text).toBe("ok")
+    const missing = http.dispatch(routed, http.request("GET", "/api/users/1", ""))
+    expect(missing.status).toBe(404)
+  }
+
+  fn testStoreBlank() {
+    const res = http.dispatch(app(), http.request("POST", "/api/users", "{\"name\":\"  \"}"))
+    expect(res.status).toBe(400)
+    expect(res.text).toBe("name is blank")
+  }
+
+  fn testPatchActiveFromMain() {
+    const routed = app()
+    const created = http.dispatch(routed, http.request("POST", "/api/users", "{\"name\":\"ada\"}"))
+    expect(created.status).toBe(201)
+    const patched = http.dispatch(routed, http.request("PATCH", "/api/users/1/active", "{\"active\":false}"))
+    expect(patched.status).toBe(200)
+    const (row, err) = json.decode<UserRow>(patched.text)
+    expect(err.isNone()).toBe(true)
+    expect(row.active).toBe(false)
+  }
+
+  fn testCorsLocalhost() {
+    const res = http.dispatch(app(), originReq("/api/health", "http://localhost:3000"))
+    expect(res.status).toBe(200)
+    expect(res.headers["Access-Control-Allow-Origin"] ?: "").toBe("http://localhost:3000")
+  }
+
+  fn testCorsDenied() {
+    const res = http.dispatch(app(), originReq("/api/health", "https://evil.com"))
+    expect(res.status).toBe(200)
+    expect(res.headers["Access-Control-Allow-Origin"] ?: "").toBe("")
+  }
+}

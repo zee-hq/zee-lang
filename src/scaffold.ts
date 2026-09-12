@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ZeeError } from './error.ts'
 import { generateFeature, generateModule } from './generate.ts'
@@ -51,7 +51,7 @@ export function parseCreateArgv(argv: string[]): CreateArgv {
   return { name, kind }
 }
 
-/** Layer files after `zee.toml` exists. One package. HTTP/UI runtimes stay gaps. */
+/** Layer files after `zee.toml` exists. One package. HTTP is `import http`; UI stays a gap. */
 export function scaffoldProjectKind(root: string, kind: ProjectKind): void {
   if (kind === 'bin') return
   if (kind === 'api' || kind === 'service' || kind === 'monolith') {
@@ -62,6 +62,10 @@ export function scaffoldProjectKind(root: string, kind: ProjectKind): void {
     writeFileSync(join(root, 'src/ui/ui.view.zee'), uiViewSource())
   }
   writeKindDescription(root, kind)
+  if (kind === 'api' || kind === 'service' || kind === 'monolith') {
+    moveEntryToBootstrap(root)
+    return
+  }
   annotateMain(root)
 }
 
@@ -75,7 +79,7 @@ function writeKindDescription(root: string, kind: ProjectKind): void {
 
 function kindDescription(kind: ProjectKind): string {
   if (kind === 'api') {
-    return 'Zee API (HTTP slice; main wires). Runtime HTTP is a language gap.'
+    return 'Zee API (HTTP slice; main wires). Runtime HTTP is import http.'
   }
   if (kind === 'service') {
     return 'Zee process (one HTTP slice; main wires). Not a mesh.'
@@ -94,6 +98,21 @@ function annotateMain(root: string): void {
     file,
     `//! Composition root. main wires adapters by hand. No language container.\n${current}`,
   )
+}
+
+function moveEntryToBootstrap(root: string): void {
+  const from = join(root, 'src/main.zee')
+  const dir = join(root, 'src/bootstrap')
+  const to = join(dir, 'main.zee')
+  mkdirSync(dir, { recursive: true })
+  const current = readFileSync(from, 'utf8')
+  const body = current.includes('Composition root')
+    ? current
+    : `//! Composition root. main wires adapters by hand. No language container.\n${current}`
+  writeFileSync(to, body)
+  unlinkSync(from)
+  const toml = join(root, 'zee.toml')
+  writeFileSync(toml, readFileSync(toml, 'utf8').replace('entry = "src/main.zee"', 'entry = "src/bootstrap/main.zee"'))
 }
 
 function uiViewSource(): string {

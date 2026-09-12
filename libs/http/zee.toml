@@ -1,0 +1,11 @@
+[package]
+name = "http"
+version = "0.1.0"
+entry = "src/lib.zee"
+description = "HTTP listen, dispatch, and Laravel resource routes. No Get/Post attributes."
+author = "Marcio Theodoro Rodrigues"
+company = "Zee HQ"
+contact = "https://github.com/zee-hq/http"
+license = "MIT"
+homepage = "https://github.com/zee-hq/http"
+repository = "https://github.com/zee-hq/http"

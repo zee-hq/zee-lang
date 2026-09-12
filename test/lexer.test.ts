@@ -39,6 +39,18 @@ describe('lexer', () => {
     ])
   })
 
+  it('tokenizes @ before any identifier', () => {
+    expect(tokenize('@Get @Trace @Foo').map((token) => token.kind)).toEqual([
+      '@',
+      'ident',
+      '@',
+      'ident',
+      '@',
+      'ident',
+      'eof',
+    ])
+  })
+
   it('tokenizes type, newtype, interface, implements, and is', () => {
     expect(
       tokenize('type Handler newtype UserId interface Closeable implements is').map((token) => token.kind),

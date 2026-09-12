@@ -1,0 +1,30 @@
+//! Persistence port. In-memory stand-in — no SQL runtime yet.
+
+pub data struct MemoryUsers {
+  pub const rows: List<UserRow>
+  pub const nextId: i32
+
+  pub fn empty() -> self {
+    self { rows: [], nextId: 1 }
+  }
+
+  pub fn find(self, id: i32) -> Option<UserRow> {
+    self.rows.find { it.id == id }
+  }
+
+  pub fn insert(self, name: String) -> (self, UserRow) {
+    const row = UserRow { id: self.nextId, name: name, active: true }
+    (MemoryUsers { rows: self.rows + [row], nextId: self.nextId + 1 }, row)
+  }
+
+  pub fn replace(self, row: UserRow) -> self {
+    MemoryUsers {
+      rows: self.rows.map { item -> if item.id == row.id { row } else { item } },
+      nextId: self.nextId
+    }
+  }
+
+  pub fn remove(self, id: i32) -> self {
+    MemoryUsers { rows: self.rows.filter { it.id != id }, nextId: self.nextId }
+  }
+}

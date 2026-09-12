@@ -1,0 +1,32 @@
+import http
+import http.Router
+import json
+import users.UserRow
+
+describe("UsersActiveController") {
+  fn app() -> Router {
+    http.app()
+  }
+
+  fn testPatchActiveThenShow() {
+    const router = app()
+    const created = http.dispatch(router, http.request("POST", "/api/users", "{\"name\":\"ada\"}"))
+    expect(created.status).toBe(201)
+    const patched = http.dispatch(router, http.request("PATCH", "/api/users/1/active", "{\"active\":false}"))
+    expect(patched.status).toBe(200)
+    const (row, err) = json.decode<UserRow>(patched.text)
+    expect(err.isNone()).toBe(true)
+    expect(row).toEqual(UserRow { id: 1, name: "ada", active: false })
+    const shown = http.dispatch(router, http.request("GET", "/api/users/1", ""))
+    expect(shown.status).toBe(200)
+    const (shownRow, shownErr) = json.decode<UserRow>(shown.text)
+    expect(shownErr.isNone()).toBe(true)
+    expect(shownRow.active).toBe(false)
+  }
+
+  fn testPatchMissing() {
+    const missing = http.dispatch(app(), http.request("PATCH", "/api/users/9/active", "{\"active\":true}"))
+    expect(missing.status).toBe(404)
+    expect(missing.text).toBe("not found")
+  }
+}

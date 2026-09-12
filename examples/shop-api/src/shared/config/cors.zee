@@ -1,0 +1,15 @@
+//! JAX-RS `ContainerResponseFilter` + `CorsProperties`.
+//! Localhost is always allowed (overlay). Lists are the Spring properties.
+//! Not a bean — overlay calls `properties()`, no `empty()` / `of`.
+
+import http.CorsProperties
+
+@Provider
+@Cors
+pub class CorsFilter {
+  pub fn properties() -> CorsProperties {
+    const allowedOrigins: List<String> = []
+    const allowedOriginPatterns: List<String> = []
+    CorsProperties { allowedOrigins: allowedOrigins, allowedOriginPatterns: allowedOriginPatterns }
+  }
+}

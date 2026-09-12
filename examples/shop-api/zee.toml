@@ -1,0 +1,9 @@
+[package]
+name = "shop-api"
+version = "0.1.0"
+entry = "src/bootstrap/main.zee"
+description = "Zee API example: http.router().controller + @Get/@Param/@Body."
+
+[deps]
+http = { path = "../../libs/http" }
+json = { path = "../../libs/json" }
