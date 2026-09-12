@@ -1,0 +1,12 @@
+//! Official class-validator package: field `@Name` is metadata. This package reads the names.
+//! `validate` returns `List<Issue>`. Empty list is valid. No throw.
+//! Zee import is `classValidator` (`class` is a keyword; `-` is not an ident).
+//! Decorator names follow typestack. Zee extras: NotBlank, Email, Pattern, ConfirmPassword.
+
+pub fn validate<T>(value: T) -> List<Issue> {
+  checkFields(value.fields())
+}
+
+pub fn validateSync<T>(value: T) -> List<Issue> {
+  validate(value)
+}

@@ -432,6 +432,7 @@ class Parser {
         if (doc) this.fail('doc comment with no following declaration')
         break
       }
+      const attributes = this.parseAttributes()
       const fieldVis = this.parseVisibility() ?? 'private'
       const mutable = this.match('var')
       if (!mutable) this.consume('const', 'expected `const` or `var` field')
@@ -449,6 +450,7 @@ class Parser {
         type,
         loc: fieldName.loc,
         doc,
+        ...(attributes.length > 0 ? { attributes } : {}),
       })
     }
     return fields
@@ -484,7 +486,16 @@ class Parser {
         methods.push(fn)
         continue
       }
-      if (attrs.length > 0) this.fail('attributes are only valid on `class` and `fn`')
+      if (
+        attrs.length > 0 &&
+        (this.check('enum') ||
+          this.check('type') ||
+          this.check('newtype') ||
+          this.looksLikeInterfaceDecl() ||
+          this.looksLikeTypeDecl())
+      ) {
+        this.fail('attributes are only valid on `class`, `fn`, parameters, and fields')
+      }
       if (this.match('enum')) {
         const decl = this.attachDoc(this.parseEnumDecl(memberVis), doc)
         if (decl.kind !== 'enumDecl') this.fail('expected nested `enum`')
@@ -526,6 +537,7 @@ class Parser {
       let typeAnn: TypeAst | undefined
       if (this.match(':')) typeAnn = this.parseType()
       if (this.match('=')) {
+        if (attrs.length > 0) this.fail('attributes are only valid on `class`, `fn`, parameters, and fields')
         const init = this.parseExpression()
         this.match(';')
         claim(nameTok.lexeme)
@@ -550,6 +562,7 @@ class Parser {
         type: typeAnn,
         loc: nameTok.loc,
         doc,
+        ...(attrs.length > 0 ? { attributes: attrs } : {}),
       })
     }
     return { fields, associated, nested, methods }
@@ -780,18 +793,42 @@ class Parser {
       const loc = this.previous().loc
       const nameTok = this.consume('ident', 'expected attribute name after `@`')
       const args: string[] = []
+      const argKinds: Attribute['argKinds'] = []
       if (this.match('(')) {
         if (!this.check(')')) {
           do {
-            const tok = this.consume('string', 'attribute arguments must be string literals')
-            args.push(tok.lexeme)
+            const arg = this.parseAttributeArg()
+            args.push(arg.value)
+            argKinds.push(arg.kind)
           } while (this.match(','))
         }
         this.consume(')', 'expected `)` after attribute arguments')
       }
-      attributes.push({ name: nameTok.lexeme, args, loc })
+      attributes.push({
+        name: nameTok.lexeme,
+        args,
+        loc,
+        ...(argKinds.length > 0 ? { argKinds } : {}),
+      })
     }
     return attributes
+  }
+
+  private parseAttributeArg(): { value: string; kind: 'string' | 'int' } {
+    if (this.check('string')) {
+      return { value: this.advance().lexeme, kind: 'string' }
+    }
+    const negative = this.match('-')
+    if (this.check('number')) {
+      const tok = this.advance()
+      const digits = splitIntLiteral(tok.lexeme).digits
+      const n = parseIntLexeme(digits)
+      if (n === undefined) {
+        this.fail('attribute arguments must be string or integer literals')
+      }
+      return { value: negative ? `-${n}` : `${n}`, kind: 'int' }
+    }
+    this.fail('attribute arguments must be string or integer literals')
   }
 
   private attachAttrs<T extends Stmt>(stmt: T, attributes: Attribute[]): T {
@@ -800,7 +837,7 @@ class Parser {
       stmt.attributes = attributes
       return stmt
     }
-    this.fail('attributes are only valid on `class`, `fn`, and parameters')
+    this.fail('attributes are only valid on `class`, `fn`, parameters, and fields')
   }
 
   private parseReturn(): Stmt {

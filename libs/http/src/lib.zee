@@ -1,8 +1,9 @@
 //! Official http package: listen, dispatch, and `@Get` / `@Post` on controllers.
-//! The language stores `@Name`. This package decides what Get/Post/Controller/Param/Query/Body do.
+//! The language stores `@Name`. This package decides what Get/Post/Controller/Param/Query/Body/Valid do.
 //! `http.app()` indexes loaded `@Controller` types and builds them via `of` / `empty`.
 //! `@PathPrefix("/api")` prepends `/api` to `@Controller` under `src/modules/`.
 //! `@Cors` reads associated `properties() -> CorsProperties` (`allowedOrigins` / `allowedOriginPatterns`).
+//! `@Valid` on a method calls `classValidator.validate` on bound structs except `self`; every issue is `422` JSON `{"issues":[…]}`. The app must depend on `classValidator`.
 //! Localhost is always allowed (host overlay). Not `@Inject`.
 //! Not a macro. Not a `src/` walk.
 //! Host overlay: `httpDispatch` / `httpListen` / `httpI32Param` / `httpRouterController` / `httpApp` / `httpFail`.

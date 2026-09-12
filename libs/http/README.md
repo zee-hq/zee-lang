@@ -1,6 +1,6 @@
 # http
 
-Official Zee HTTP listen/dispatch. The language stores `@Name` as metadata. **This package** reads `@Get` / `@Post` / `@Put` / `@Patch` / `@Delete` / `@Controller` on types and methods, and `@Param` / `@Params` / `@Query` / `@Body` / `@Request` on parameters.
+Official Zee HTTP listen/dispatch. The language stores `@Name` as metadata. **This package** reads `@Get` / `@Post` / `@Put` / `@Patch` / `@Delete` / `@Controller` on types and methods, `@Param` / `@Params` / `@Query` / `@Body` / `@Request` on parameters, and `@Valid` on methods.
 
 ```zee
 import http
@@ -20,8 +20,9 @@ fn main() {
 | `@Query` | whole query `Map` |
 | `@Body` | `json.decode` into the parameter type |
 | `@Request` | the whole `Request` (`method` / `path` / `text` / `params` / `query` / `headers`) |
+| `@Valid` | after bind, calls `classValidator.validate` on bound structs except `self`; every issue is `422` JSON `{"issues":[{field, rule, text}, …]}`. The app must depend on `classValidator`. |
 
-Query string is parsed from `?k=v` (`+` and `%20`). Bind failures are `400`. A parameter typed `Request` with no attribute is still the bag (compat).
+Query string is parsed from `?k=v` (`+` and `%20`). Bind failures are `400`. `@Valid` failures are `422` JSON and skip `@ErrorHandler`. A parameter typed `Request` with no attribute is still the bag (compat).
 
 `resource("/users", users)` maps `http.Resource` without attributes:
 

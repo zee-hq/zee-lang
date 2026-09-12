@@ -1,4 +1,5 @@
 //! HTTP in. PATCH active/inactive only. Shares the users controller instance.
+//! `http` reads `@Patch` / `@Param` / `@Body` / `@Valid`.
 
 import http
 import http.Response
@@ -13,6 +14,7 @@ pub class UsersActiveController {
   }
 
   @Patch("/:id/active")
+  @Valid
   pub fn patch(var self, @Param("id") id: i32, @Body body: PatchActive) -> Response {
     var service = self.users.service
     service.setActive(id, body.active)

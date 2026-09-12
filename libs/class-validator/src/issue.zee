@@ -1,0 +1,7 @@
+//! One failed field rule. Empty list from `validate` is valid.
+
+pub data struct Issue {
+  pub const field: String
+  pub const rule: String
+  pub const text: String
+}

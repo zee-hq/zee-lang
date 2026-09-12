@@ -1,0 +1,5 @@
+pub data struct StoreUser {
+    @NotBlank
+    pub const name: String
+  }
+  

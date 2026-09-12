@@ -1,0 +1,33 @@
+describe("json") {
+  fn testRoundtrip() {
+    const row = UserRow { id: 1, name: "ada" }
+    const text = encode(row)
+    expect(text).toBe("{\"id\":1,\"name\":\"ada\"}")
+    const (got, err) = decode<UserRow>(text)
+    expect(err.isNone()).toBe(true)
+    expect(got).toEqual(UserRow { id: 1, name: "ada" })
+  }
+
+  fn testInvalidIsErr() {
+    const (row, err) = decode<UserRow>("nope")
+    expect(err.isSome()).toBe(true)
+    expect(row.id).toBe(0)
+  }
+
+  fn testNullIsNone() {
+    const (n, err) = decode<Option<i32>>("null")
+    expect(err.isNone()).toBe(true)
+    expect(n.isNone()).toBe(true)
+    expect(encode(n)).toBe("null")
+  }
+
+  fn testListRoundtrip() {
+    const rows = [UserRow { id: 1, name: "ada" }, UserRow { id: 2, name: "grace" }]
+    expect(encode(rows)).toBe("[{\"id\":1,\"name\":\"ada\"},{\"id\":2,\"name\":\"grace\"}]")
+  }
+}
+
+data struct UserRow {
+  pub const id: i32
+  pub const name: String
+}

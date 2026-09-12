@@ -4,7 +4,7 @@ import users.UserRow
 describe("UsersService") {
   fn testCreatesAda() {
     var service = UsersService.of(MemoryUsers.empty())
-    const res = service.create("ada")
+    const res = service.create(StoreUser { name: "ada" })
     expect(res.status).toBe(201)
     const (row, err) = json.decode<UserRow>(res.text)
     expect(err.isNone()).toBe(true)
@@ -16,7 +16,7 @@ describe("UsersService") {
 
   fn testSetsActive() {
     var service = UsersService.of(MemoryUsers.empty())
-    expect(service.create("ada").status).toBe(201)
+    expect(service.create(StoreUser { name: "ada" }).status).toBe(201)
     const res = service.setActive(1, false)
     expect(res.status).toBe(200)
     const (row, err) = json.decode<UserRow>(res.text)
@@ -30,17 +30,10 @@ describe("UsersService") {
     expect(shownRow).toEqual(UserRow { id: 1, name: "ada", active: false })
   }
 
-  fn testRejectsBlankName() {
-    var service = UsersService.of(MemoryUsers.empty())
-    const res = service.create("  ")
-    expect(res.status).toBe(400)
-    expect(res.text).toBe("name is blank")
-  }
-
   fn testUpdatesAndRemoves() {
     var service = UsersService.of(MemoryUsers.empty())
-    expect(service.create("ada").status).toBe(201)
-    const updated = service.update(1, "ana")
+    expect(service.create(StoreUser { name: "ada" }).status).toBe(201)
+    const updated = service.update(1, StoreUser { name: "ana" })
     expect(updated.status).toBe(200)
     const (row, err) = json.decode<UserRow>(updated.text)
     expect(err.isNone()).toBe(true)

@@ -25,6 +25,8 @@ import {
   T_I32,
   T_NEVER,
   T_STRING,
+  T_REGEX,
+  T_STORED_FIELD,
   T_U8,
   T_U32,
   T_UNIT,
@@ -2798,6 +2800,18 @@ function checkCall(
       }
       return { kind: 'tuple', parts: [T_STRING, { kind: 'option', inner: T_ERROR }] }
     }
+    if (
+      expr.callee.target.kind === 'ident' &&
+      expr.callee.target.name === 'Regex' &&
+      expr.callee.field === 'of'
+    ) {
+      if (expr.args.length !== 1) throw error(expr.loc, '`Regex.of` takes one argument')
+      const from = checkExpr(expr.args[0]!, env, returnType, T_STRING)
+      if (from.kind !== 'string') {
+        throw error(expr.args[0]!.loc, '`Regex.of` expects a String')
+      }
+      return { kind: 'tuple', parts: [T_REGEX, { kind: 'option', inner: T_ERROR }] }
+    }
     const targetType = checkExpr(expr.callee.target, env, returnType)
     const builtin = checkBuiltinMethod(targetType, expr.callee.field, expr, env, returnType)
     if (builtin) return builtin
@@ -3021,6 +3035,10 @@ function checkBuiltinMethod(
   env: TypeEnv,
   returnType: ZeeType,
 ): ZeeType | undefined {
+  if (name === 'fields') {
+    if (expr.args.length !== 0) throw error(expr.loc, '`fields` takes no arguments')
+    return { kind: 'list', elem: T_STORED_FIELD }
+  }
   if (name === 'isEmpty' || name === 'isNotEmpty') {
     if (
       targetType.kind === 'list' ||
@@ -3040,6 +3058,12 @@ function checkBuiltinMethod(
     if (targetType.kind === 'list' || targetType.kind === 'array' || targetType.kind === 'map') {
       throw error(expr.loc, `\`${name}\` is only on String`)
     }
+  }
+  if (targetType.kind === 'regex' && name === 'isMatch') {
+    if (expr.args.length !== 1) throw error(expr.loc, '`isMatch` takes one argument')
+    const arg = checkExpr(expr.args[0]!, env, returnType, T_STRING)
+    if (arg.kind !== 'string') throw error(expr.args[0]!.loc, '`isMatch` expects a String')
+    return T_BOOL
   }
   if (targetType.kind === 'option') {
     if (name === 'isNone' || name === 'isSome') {

@@ -1,0 +1,90 @@
+internal fn charCount(text: String) -> i32 {
+  var n = 0
+  for c in text {
+    n = n + 1
+  }
+  n
+}
+
+internal fn digitOf(c: Char) -> i32 {
+  if c == '0' { return 0 }
+  if c == '1' { return 1 }
+  if c == '2' { return 2 }
+  if c == '3' { return 3 }
+  if c == '4' { return 4 }
+  if c == '5' { return 5 }
+  if c == '6' { return 6 }
+  if c == '7' { return 7 }
+  if c == '8' { return 8 }
+  if c == '9' { return 9 }
+  return -1
+}
+
+internal fn parseI32(text: String) -> Option<i32> {
+  if text.isEmpty() {
+    return None
+  }
+  var n = 0
+  var sign = 1
+  var seen = false
+  var onlySign = false
+  for c in text {
+    if !seen && c == '-' {
+      sign = -1
+      seen = true
+      onlySign = true
+      continue
+    }
+    const d = digitOf(c)
+    if d < 0 {
+      return None
+    }
+    n = n * 10 + d
+    seen = true
+    onlySign = false
+  }
+  if !seen || onlySign {
+    return None
+  }
+  Some(n * sign)
+}
+
+internal fn regexEscape(text: String) -> String {
+  var out = ""
+  for c in text {
+    const s = `{c}`
+    if s == "\\" || s == "^" || s == "$" || s == "." || s == "|" || s == "?" || s == "*" || s == "+" || s == "(" || s == ")" || s == "[" || s == "]" || s == "{" || s == "}" {
+      out = out + "\\" + s
+    } else {
+      out = out + s
+    }
+  }
+  out
+}
+
+internal fn regexMatch(text: String, pattern: String) -> bool {
+  const (re, err) = Regex.of(pattern)
+  if err.isSome() {
+    return false
+  }
+  re.isMatch(text)
+}
+
+internal fn regexOk(pattern: String) -> bool {
+  const (re, err) = Regex.of(pattern)
+  err.isNone()
+}
+
+internal fn containsText(hay: String, seed: String) -> bool {
+  if seed.isEmpty() {
+    return true
+  }
+  regexMatch(hay, regexEscape(seed))
+}
+
+internal fn isEmail(text: String) -> bool {
+  if text.isBlank() {
+    return false
+  }
+  regexMatch(text, "^[^@ ]+@[^@ ]+\\.[^@ ]+$")
+}

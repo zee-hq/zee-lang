@@ -48,9 +48,12 @@ export type LoopMode = 'while' | 'until' | 'do-while' | 'do-until'
 
 export type Visibility = 'private' | 'internal' | 'pub'
 
+export type AttributeArgKind = 'string' | 'int'
+
 export interface Attribute {
   name: string
   args: string[]
+  argKinds?: AttributeArgKind[]
   loc: Loc
 }
 
@@ -81,6 +84,7 @@ export interface StructField {
   type: TypeAst
   loc: Loc
   doc?: string
+  attributes?: Attribute[]
 }
 
 export interface AssociatedConst {
@@ -250,6 +254,8 @@ export type Stmt =
       doc?: string
       attributes?: Attribute[]
     }
+  | {
+      kind: 'enumDecl'
       visibility: Visibility
       name: string
       variants: { name: string; loc: Loc; doc?: string }[]

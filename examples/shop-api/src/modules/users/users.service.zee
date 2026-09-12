@@ -1,4 +1,4 @@
-//! Domain rules. Failures stop with `http.abort`.
+//! Domain rules. Failures stop with `http.abort`. Field rules run at the HTTP edge (`@Valid`).
 
 import http
 import http.{HttpCode, Response}
@@ -14,11 +14,8 @@ pub class UsersService {
     http.ok(toJsonList(self.repo.rows))
   }
 
-  pub fn create(var self, name: String) -> Response {
-    if name.isBlank() {
-      return http.abort(HttpCode.BadRequest, "name is blank")
-    }
-    const (next, row) = self.repo.insert(name)
+  pub fn create(var self, body: StoreUser) -> Response {
+    const (next, row) = self.repo.insert(body.name)
     self.repo = next
     http.created(toJson(row))
   }
@@ -31,16 +28,13 @@ pub class UsersService {
     http.ok(toJson(found ?: UserRow { id: 0, name: "", active: false }))
   }
 
-  pub fn update(var self, id: i32, name: String) -> Response {
-    if name.isBlank() {
-      return http.abort(HttpCode.BadRequest, "name is blank")
-    }
+  pub fn update(var self, id: i32, body: StoreUser) -> Response {
     const found = self.repo.find(id)
     if found.isNone() {
       return http.abort(HttpCode.NotFound, "not found")
     }
     const current = found ?: UserRow { id: 0, name: "", active: false }
-    const row = UserRow { id: id, name: name, active: current.active }
+    const row = UserRow { id: id, name: body.name, active: current.active }
     self.repo = self.repo.replace(row)
     http.ok(toJson(row))
   }

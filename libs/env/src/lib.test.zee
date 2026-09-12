@@ -1,0 +1,19 @@
+describe("env") {
+  fn testGetAbsentIsNone() {
+    expect(get("ZEE_TEST_ABSENT_KEY").isNone()).toBe(true)
+  }
+
+  fn testGetOrFallback() {
+    expect(getOr("ZEE_TEST_ABSENT_KEY", "fallback")).toBe("fallback")
+  }
+
+  fn testProfileIsPresent() {
+    expect(profile().isEmpty()).toBe(false)
+  }
+
+  fn testAppIdentityFromRunningPackage() {
+    expect(appName().isEmpty()).toBe(false)
+    expect(appVersion().isEmpty()).toBe(false)
+    expect(app("name").isSome()).toBe(true)
+  }
+}

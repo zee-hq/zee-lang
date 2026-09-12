@@ -1,0 +1,56 @@
+describe("http") {
+  fn testHttpCodeNumbers() {
+    expect(HttpCode.Ok.code()).toBe(200)
+    expect(HttpCode.Created.code()).toBe(201)
+    expect(HttpCode.BadRequest.code()).toBe(400)
+    expect(HttpCode.NotFound.code()).toBe(404)
+    expect(HttpCode.UnprocessableEntity.code()).toBe(422)
+  }
+
+  fn testNamedResponses() {
+    expect(ok("hi").status).toBe(200)
+    expect(ok("hi").text).toBe("hi")
+    expect(created("ada").status).toBe(201)
+    expect(notFound("gone").status).toBe(404)
+  }
+
+  fn testRequestFactory() {
+    const req = request("GET", "/hi", "")
+    expect(req.method).toBe("GET")
+    expect(req.path).toBe("/hi")
+    expect(req.text).toBe("")
+  }
+
+  fn testI32Param() {
+    const params: Map<String, String> = { "id": "7" }
+    const query: Map<String, String> = {}
+    const headers: Map<String, String> = {}
+    const req = Request { method: "GET", path: "/x", text: "", params: params, query: query, headers: headers }
+    const (n, err) = i32Param(req, "id")
+    expect(err.isNone()).toBe(true)
+    expect(n).toBe(7)
+  }
+
+  fn testStaticGetDispatch() {
+    const routed = router().get("/hi", "hello")
+    const res = dispatch(routed, request("GET", "/hi", ""))
+    expect(res.status).toBe(200)
+    expect(res.text).toBe("hello")
+  }
+
+  fn testUnknownPath() {
+    const res = dispatch(router(), request("GET", "/nope", ""))
+    expect(res.status).toBe(404)
+  }
+
+  fn testResponseKeepsCode() {
+    const res = response(HttpCode.BadRequest, "bad id")
+    expect(res.status).toBe(400)
+    expect(res.text).toBe("bad id")
+  }
+
+  fn testAbortWithoutHandlerIsServerError() {
+    const res = abort(HttpCode.BadRequest, "bad id")
+    expect(res.status).toBe(500)
+  }
+}

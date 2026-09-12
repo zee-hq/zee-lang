@@ -63,8 +63,8 @@ describe("app") {
 
   fn testStoreBlank() {
     const res = http.dispatch(app(), http.request("POST", "/api/users", "{\"name\":\"  \"}"))
-    expect(res.status).toBe(400)
-    expect(res.text).toBe("name is blank")
+    expect(res.status).toBe(422)
+    expect(res.text).toBe("{\"issues\":[{\"field\":\"name\",\"rule\":\"NotBlank\",\"text\":\"name is blank\"}]}")
   }
 
   fn testPatchActiveFromMain() {

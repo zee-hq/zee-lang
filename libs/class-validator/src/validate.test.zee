@@ -1,0 +1,215 @@
+describe("validate") {
+  fn testPassesWhenRulesHold() {
+    const issues = validate(OkUser { name: "ada" })
+    expect(issues.isEmpty()).toBe(true)
+  }
+
+  fn testReportsNotBlankMinLengthMaxMinEmailLength() {
+    const issues = validate(Form {
+      name: "  ",
+      code: "ab",
+      tag: "abc",
+      pin: "1",
+      age: -1,
+      qty: 11,
+      mail: "not-mail"
+    })
+    expect(labels(issues)).toBe("name NotBlank;code MinLength;tag MaxLength;pin Length;age Min;qty Max;mail Email")
+  }
+
+  fn testReportsPatternAndConfirmPassword() {
+    const issues = validate(SignUp {
+      password: "short",
+      confirmPassword: "other"
+    })
+    expect(labels(issues)).toBe("password MinLength;password Pattern;password Pattern;confirmPassword ConfirmPassword")
+    const hit = issues.first() ?: Issue { field: "", rule: "", text: "" }
+    expect(hit.text).toBe("password is shorter than 8")
+  }
+
+  fn testTypestackNames() {
+    const spaces = validate(Typed {
+      title: "  ",
+      mail: "ada@example.com",
+      code: "A",
+      body: "hello world"
+    })
+    expect(spaces.isEmpty()).toBe(true)
+    const issues = validate(Typed {
+      title: "",
+      mail: "not-mail",
+      code: "a",
+      body: "world"
+    })
+    expect(labels(issues)).toBe("title IsNotEmpty;mail IsEmail;code Matches;body Contains")
+  }
+
+  fn testValidateSyncMatchesValidate() {
+    const body = OkUser { name: "ada" }
+    expect(validateSync(body).isEmpty()).toBe(true)
+  }
+
+  fn testIgnoresUnknownFieldNames() {
+    expect(validate(Tagged { name: "x" }).isEmpty()).toBe(true)
+  }
+}
+
+describe("optional empty equals and membership") {
+  fn testIsOptionalSkipsEmptyAndStillChecksFilled() {
+    expect(validate(OptionalName { name: "" }).isEmpty()).toBe(true)
+    expect(labels(validate(OptionalName { name: "ab" }))).toBe("name MinLength")
+  }
+
+  fn testIsEmptyEqualsNotEqualsIsIn() {
+    expect(validate(EmptyOk { title: "" }).isEmpty()).toBe(true)
+    expect(labels(validate(EmptyOk { title: "x" }))).toBe("title IsEmpty")
+    expect(validate(EqualsRow { name: "ada", pin: 7 }).isEmpty()).toBe(true)
+    expect(labels(validate(EqualsRow { name: "ana", pin: 8 }))).toBe("name Equals;pin Equals")
+    expect(labels(validate(NotEqualsRow { name: "ada" }))).toBe("name NotEquals")
+    expect(validate(Choice { kind: "a" }).isEmpty()).toBe(true)
+    expect(labels(validate(Choice { kind: "z" }))).toBe("kind IsIn")
+    expect(labels(validate(Banned { kind: "no" }))).toBe("kind IsNotIn")
+    expect(labels(validate(NoHello { body: "hello" }))).toBe("body NotContains")
+  }
+}
+
+describe("numbers letters and uuid") {
+  fn testSignDivisibleCaseAndUuid() {
+    expect(validate(Nums { n: 3, neg: -2, chunk: 9 }).isEmpty()).toBe(true)
+    expect(labels(validate(Nums { n: 0, neg: 2, chunk: 10 }))).toBe("n IsPositive;neg IsNegative;chunk IsDivisibleBy")
+    expect(validate(Letters { up: "ABC", low: "abc", word: "Ada", code: "Ada1" }).isEmpty()).toBe(true)
+    expect(labels(validate(Letters { up: "Ab", low: "Ab", word: "A1", code: "A_1" }))).toBe("up IsUppercase;low IsLowercase;word IsAlpha;code IsAlphanumeric")
+    expect(validate(Id { id: "550e8400-e29b-41d4-a716-446655440000" }).isEmpty()).toBe(true)
+    expect(labels(validate(Id { id: "not-a-uuid" }))).toBe("id IsUUID")
+    expect(labels(validate(BadPattern { code: "x" }))).toBe("code Pattern")
+  }
+}
+
+data struct OkUser {
+  @NotBlank
+  @MinLength(1)
+  pub const name: String
+}
+
+data struct Form {
+  @NotBlank
+  pub const name: String
+  @MinLength(3)
+  pub const code: String
+  @MaxLength(2)
+  pub const tag: String
+  @Length(2, 4)
+  pub const pin: String
+  @Min(0)
+  pub const age: i32
+  @Max(10)
+  pub const qty: i32
+  @Email
+  pub const mail: String
+}
+
+data struct SignUp {
+  @MinLength(8)
+  @Pattern("[A-Z]")
+  @Pattern("[0-9]")
+  pub const password: String
+  @ConfirmPassword("password")
+  pub const confirmPassword: String
+}
+
+data struct Typed {
+  @IsNotEmpty
+  pub const title: String
+  @IsEmail
+  pub const mail: String
+  @Matches("[A-Z]")
+  pub const code: String
+  @Contains("hello")
+  pub const body: String
+}
+
+data struct Tagged {
+  @Trace
+  pub const name: String
+}
+
+data struct OptionalName {
+  @IsOptional
+  @MinLength(3)
+  pub const name: String
+}
+
+data struct EmptyOk {
+  @IsEmpty
+  pub const title: String
+}
+
+data struct EqualsRow {
+  @Equals("ada")
+  pub const name: String
+  @Equals("7")
+  pub const pin: i32
+}
+
+data struct NotEqualsRow {
+  @NotEquals("ada")
+  pub const name: String
+}
+
+data struct Choice {
+  @IsIn("a,b")
+  pub const kind: String
+}
+
+data struct Banned {
+  @IsNotIn("no")
+  pub const kind: String
+}
+
+data struct NoHello {
+  @NotContains("hello")
+  pub const body: String
+}
+
+data struct Nums {
+  @IsPositive
+  pub const n: i32
+  @IsNegative
+  pub const neg: i32
+  @IsDivisibleBy(3)
+  pub const chunk: i32
+}
+
+data struct Letters {
+  @IsUppercase
+  pub const up: String
+  @IsLowercase
+  pub const low: String
+  @IsAlpha
+  pub const word: String
+  @IsAlphanumeric
+  pub const code: String
+}
+
+data struct Id {
+  @IsUUID
+  pub const id: String
+}
+
+data struct BadPattern {
+  @Pattern("(")
+  pub const code: String
+}
+
+fn labels(issues: List<Issue>) -> String {
+  var out = ""
+  var first = true
+  for issue in issues {
+    if !first {
+      out = out + ";"
+    }
+    first = false
+    out = out + issue.field + " " + issue.rule
+  }
+  out
+}

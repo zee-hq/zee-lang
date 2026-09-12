@@ -14,9 +14,6 @@ pub class Handler {
     if message == "not found" {
       return http.notFound(message)
     }
-    if message == "name is blank" {
-      return http.badRequest(message)
-    }
     http.internalServerError(message)
   }
 }

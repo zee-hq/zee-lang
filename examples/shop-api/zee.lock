@@ -2,11 +2,18 @@
 version = 1
 
 [[pkg]]
+name = "classValidator"
+version = "0.1.0"
+source = "path"
+path = ".zee/classValidator"
+hash = "sha256:6f0325443b47b401ca8849406d023c87e3e0e7c1af714d41b44511b4cdfe2f09"
+
+[[pkg]]
 name = "http"
 version = "0.1.0"
 source = "path"
 path = ".zee/http"
-hash = "sha256:9c41c0d448cf95deac22aa0fd4a20f8701e312503786ea663ae1f0ab994249f3"
+hash = "sha256:c7ba7d71a4df6c2ad156eb1ba341339b7223ef93b92f708e9fe8e4bec5c3e734"
 
 [[pkg]]
 name = "json"

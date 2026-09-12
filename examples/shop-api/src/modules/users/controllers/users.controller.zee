@@ -1,4 +1,4 @@
-//! HTTP in. Maps the request onto the service. `http` reads `@Get` / `@Param` / `@Body`.
+//! HTTP in. Maps the request onto the service. `http` reads `@Get` / `@Param` / `@Body` / `@Valid`.
 
 import http
 import http.Response
@@ -18,8 +18,10 @@ pub class UsersController {
   }
 
   @Post("/")
+  @Valid
   pub fn store(var self, @Body body: StoreUser) -> Response {
-    self.service.create(body.name)
+    var service = self.service
+    service.create(body)
   }
 
   @Get("/:id")
@@ -28,12 +30,15 @@ pub class UsersController {
   }
 
   @Put("/:id")
+  @Valid
   pub fn update(var self, @Param("id") id: i32, @Body body: StoreUser) -> Response {
-    self.service.update(id, body.name)
+    var service = self.service
+    service.update(id, body)
   }
 
   @Delete("/:id")
   pub fn destroy(var self, @Param("id") id: i32) -> Response {
-    self.service.remove(id)
+    var service = self.service
+    service.remove(id)
   }
 }

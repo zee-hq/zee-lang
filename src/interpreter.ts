@@ -18,6 +18,7 @@ import {
   startHttpServer,
   type CorsConfig,
 } from './http-host.ts'
+import { compileRegex, regexIsMatch } from './regex-host.ts'
 import {
   INT_KINDS,
   canWidenInt,
@@ -26,6 +27,9 @@ import {
   intSigned,
   isFloatKind,
   isIntKind,
+  T_STORED_ATTR,
+  T_STORED_FIELD,
+  T_STRING,
   type FloatKind,
   type IntKind,
   type ZeeType,
@@ -39,6 +43,7 @@ export type ZeeValue =
   | { type: 'bool'; value: boolean }
   | { type: 'string'; value: string }
   | { type: 'char'; value: string }
+  | { type: 'regex'; source: string; ok: boolean }
   | { type: 'unit' }
   | { type: 'error'; message: string }
   | {
@@ -68,6 +73,7 @@ export type ZeeValue =
       identity: boolean
       fields: Record<string, ZeeValue>
       fieldMut: Record<string, boolean>
+      fieldMeta?: { name: string; attributes?: { name: string; args: string[] }[] }[]
     }
   | {
       type: 'enum'
@@ -129,7 +135,7 @@ interface StructInfo {
   data: boolean
   readonly: boolean
   identity: boolean
-  fields: { name: string; mutable: boolean; type?: TypeAst }[]
+  fields: { name: string; mutable: boolean; type?: TypeAst; attributes?: { name: string; args: string[]; argKinds?: ('string' | 'int')[] }[] }[]
   attributes?: { name: string; args: string[] }[]
 }
 
@@ -664,7 +670,12 @@ function registerRuntimeStruct(
     data: stmt.data,
     readonly: stmt.readonly,
     identity: stmt.identity,
-    fields: stmt.fields.map((field) => ({ name: field.name, mutable: field.mutable, type: field.type })),
+    fields: stmt.fields.map((field) => ({
+      name: field.name,
+      mutable: field.mutable,
+      type: field.type,
+      attributes: field.attributes,
+    })),
     attributes: stmt.attributes,
   }
   fileEnv.defineStruct(name, info)
@@ -1403,7 +1414,14 @@ function callCollectionMethod(
   args: ZeeValue[],
   io: RuntimeIo,
   loc: { file: string; line: number; column: number },
+  env: Env,
 ): ZeeValue | undefined {
+  if (name === 'fields') {
+    if (args.length !== 0) {
+      throw new ZeeError('`fields` takes no arguments', loc.line, loc.column, loc.file)
+    }
+    return reflectFields(target, env)
+  }
   if (name === 'isEmpty' || name === 'isNotEmpty') {
     const empty = collectionEmpty(target)
     if (empty !== undefined) {
@@ -1424,6 +1442,17 @@ function callCollectionMethod(
     if (target.type === 'list' || target.type === 'array' || target.type === 'map') {
       throw new ZeeError(`\`${name}\` is only on String`, loc.line, loc.column, loc.file)
     }
+  }
+  if (target.type === 'regex' && name === 'isMatch') {
+    if (args.length !== 1) {
+      throw new ZeeError('`isMatch` takes one argument', loc.line, loc.column, loc.file)
+    }
+    const text = args[0]!
+    if (text.type !== 'string') {
+      throw new ZeeError('`isMatch` expects a String', loc.line, loc.column, loc.file)
+    }
+    if (!target.ok) return { type: 'bool', value: false }
+    return { type: 'bool', value: regexIsMatch(compileRegex(target.source), text.value) }
   }
   if (target.type === 'option') {
     if (name === 'isNone' || name === 'isSome') {
@@ -2233,6 +2262,7 @@ function evalStructLit(expr: Extract<Expr, { kind: 'structLit' }>, env: Env, io:
     identity: info.identity,
     fields,
     fieldMut,
+    fieldMeta: info.fields.map((field) => ({ name: field.name, attributes: field.attributes })),
   }
 }
 
@@ -2695,6 +2725,17 @@ function bindCall(expr: Extract<Expr, { kind: 'call' }>, env: Env, io: RuntimeIo
       const buf = evalExpr(expr.args[0]!, env, io)
       return () => stringFromBytes(buf, expr.loc)
     }
+    if (
+      expr.callee.target.kind === 'ident' &&
+      expr.callee.target.name === 'Regex' &&
+      expr.callee.field === 'of'
+    ) {
+      if (expr.args.length !== 1) {
+        throw new ZeeError('`Regex.of` takes one argument', expr.loc.line, expr.loc.column, expr.loc.file)
+      }
+      const pattern = evalExpr(expr.args[0]!, env, io)
+      return () => runRegexOf(pattern, expr.loc)
+    }
     const target = evalExpr(expr.callee.target, env, io)
     const args = expr.args.map((arg) => evalExpr(arg, env, io))
     const typeTargets = expr.typeArgs?.map((ast) => resolveJsonTarget(ast, env, mergedJsonSubst(), expr.loc))
@@ -2724,7 +2765,7 @@ function invokeMemberCall(
       if (text?.type === 'string') return text
     }
   }
-  const builtin = callCollectionMethod(target, expr.callee.field, args, io, expr.loc)
+  const builtin = callCollectionMethod(target, expr.callee.field, args, io, expr.loc, env)
   if (builtin) return builtin
   const method = lookupRuntimeMethod(target, expr.callee.field, env)
   if (method) {
@@ -3438,6 +3479,8 @@ export function display(value: ZeeValue): string {
     case 'string':
     case 'char':
       return value.value
+    case 'regex':
+      return `Regex(${value.source})`
     case 'unit':
       return '()'
     case 'error':
@@ -3629,6 +3672,8 @@ function typeOfValue(value: ZeeValue): ZeeType {
       return { kind: 'bool' }
     case 'string':
       return { kind: 'string' }
+    case 'regex':
+      return { kind: 'regex' }
     case 'char':
       return { kind: 'char' }
     case 'f32':
@@ -3920,6 +3965,93 @@ function mergedJsonSubst(): Map<string, JsonTarget> {
   return merged
 }
 
+function reflectFields(value: ZeeValue, env: Env): ZeeValue {
+  if (value.type !== 'struct') return { type: 'list', items: [], elem: T_STORED_FIELD }
+  const info = structInfoFor(value, env)
+  const specs =
+    value.fieldMeta ??
+    info?.fields ??
+    Object.keys(value.fields).map((name) => ({ name, attributes: [] }))
+  const items: ZeeValue[] = specs.map((spec) => {
+    const current = value.fields[spec.name]
+    const attrs: ZeeValue[] = (spec.attributes ?? []).map((attr) => ({
+      type: 'tuple',
+      items: [
+        { type: 'string', value: attr.name },
+        {
+          type: 'list',
+          items: attr.args.map((arg) => ({ type: 'string' as const, value: arg })),
+          elem: T_STRING,
+        },
+      ],
+    }))
+    let text: ZeeValue = { type: 'option', tag: 'none' }
+    let intSlot: ZeeValue = { type: 'option', tag: 'none' }
+    if (current?.type === 'string') {
+      text = { type: 'option', tag: 'some', value: current }
+    } else if (current && isIntKind(current.type)) {
+      const n = typeof current.value === 'bigint' ? current.value : BigInt(current.value)
+      if (n >= -2147483648n && n <= 2147483647n) {
+        intSlot = { type: 'option', tag: 'some', value: intValue('i32', n) }
+      }
+    }
+    return {
+      type: 'tuple',
+      items: [
+        { type: 'string', value: spec.name },
+        text,
+        intSlot,
+        { type: 'list', items: attrs, elem: T_STORED_ATTR },
+      ],
+    }
+  })
+  return { type: 'list', items, elem: T_STORED_FIELD }
+}
+
+function runRegexOf(
+  pattern: ZeeValue,
+  loc: { file: string; line: number; column: number },
+): ZeeValue {
+  if (pattern.type !== 'string') {
+    throw new ZeeError('`Regex.of` expects a String', loc.line, loc.column, loc.file)
+  }
+  const compiled = compileRegex(pattern.value)
+  const regex: ZeeValue = { type: 'regex', source: compiled.source, ok: compiled.ok }
+  if (compiled.ok) {
+    return { type: 'tuple', items: [regex, { type: 'option', tag: 'none' }] }
+  }
+  return {
+    type: 'tuple',
+    items: [
+      regex,
+      {
+        type: 'option',
+        tag: 'some',
+        value: {
+          type: 'struct',
+          name: 'Fail',
+          module: '',
+          data: true,
+          readonly: false,
+          identity: false,
+          fields: { text: { type: 'string', value: 'invalid regex' } },
+          fieldMut: { text: false },
+        },
+      },
+    ],
+  }
+}
+
+function structInfoFor(value: ZeeValue, env: Env): StructInfo | undefined {
+  if (value.type !== 'struct') return undefined
+  const home = env.getModule(value.module)
+  if (home) {
+    const info = home.getStruct(value.name)
+    if (info) return info
+  }
+  return env.getStruct(value.name)
+}
+
 function encodeJsonValue(value: ZeeValue, loc: { file: string; line: number; column: number }): ZeeValue {
   try {
     return { type: 'string', value: JSON.stringify(encodeZeeToJson(value)) }
@@ -4021,6 +4153,8 @@ function dispatchHttp(
     }
     const bound = bindHttpHandlerArgs(method, matched.controller, request, loc)
     if (bound.kind === 'bad') return withCors(bound.response, origin, cors)
+    const invalid = validateHttpBoundArgs(method, bound.args, io, loc)
+    if (invalid) return withCors(invalid, origin, cors)
     return withCors(callFn(method, bound.args, io, loc), origin, cors)
   }
   const decorated = matchDecoratedControllers(router, incoming.method, incoming.path, env, loc)
@@ -4039,6 +4173,8 @@ function dispatchHttp(
   }
   const bound = bindHttpHandlerArgs(method, decorated.controller, request, loc)
   if (bound.kind === 'bad') return withCors(bound.response, origin, cors)
+  const invalid = validateHttpBoundArgs(method, bound.args, io, loc)
+  if (invalid) return withCors(invalid, origin, cors)
   return withCors(callFn(method, bound.args, io, loc), origin, cors)
 }
 
@@ -4357,6 +4493,36 @@ function bindHttpHandlerArgs(
     args.push(bound.value)
   }
   return { kind: 'ok', args }
+}
+
+function validateHttpBoundArgs(
+  fn: Extract<ZeeValue, { type: 'fn' }>,
+  args: ZeeValue[],
+  io: RuntimeIo,
+  loc: { file: string; line: number; column: number },
+): ZeeValue | undefined {
+  if (!fn.attributes?.some((attr) => attr.name === 'Valid')) return undefined
+  const validateFn = lookupClassValidatorValidate(fn.env)
+  if (!validateFn) {
+    throw new ZeeError('`@Valid` needs the classValidator package', loc.line, loc.column, loc.file)
+  }
+  const meta = fn.paramMeta ?? []
+  const hits: ZeeValue[] = []
+  for (let i = 0; i < args.length; i++) {
+    if (meta[i]?.name === 'self') continue
+    const value = args[i]!
+    if (value.type !== 'struct' || value.identity) continue
+    const result = callFn(validateFn, [value], io, loc)
+    if (result.type === 'list') hits.push(...result.items)
+  }
+  if (hits.length === 0) return undefined
+  return httpResponseValue(422, JSON.stringify({ issues: hits.map(encodeZeeToJson) }))
+}
+
+function lookupClassValidatorValidate(env: Env): Extract<ZeeValue, { type: 'fn' }> | undefined {
+  const slot = env.getModule('classValidator')?.own('validate')?.value
+  if (slot?.type === 'fn') return slot
+  return undefined
 }
 
 function bindHttpParam(

@@ -81,6 +81,7 @@ export type ZeeType =
   | { kind: 'bool' }
   | { kind: 'string' }
   | { kind: 'char' }
+  | { kind: 'regex' }
   | { kind: 'unit' }
   | { kind: 'option'; inner: ZeeType }
   | { kind: 'tuple'; parts: ZeeType[] }
@@ -116,6 +117,7 @@ export const T_BOOL: ZeeType = { kind: 'bool' }
 export const T_F32: ZeeType = { kind: 'f32' }
 export const T_F64: ZeeType = { kind: 'f64' }
 export const T_STRING: ZeeType = { kind: 'string' }
+export const T_REGEX: ZeeType = { kind: 'regex' }
 export const T_CHAR: ZeeType = { kind: 'char' }
 export const T_UNIT: ZeeType = { kind: 'unit' }
 export const T_ERROR: InterfaceType = {
@@ -135,6 +137,19 @@ export const T_FAIL: Extract<ZeeType, { kind: 'struct' }> = {
   identity: false,
   fields: [{ name: 'text', type: T_STRING, mutable: false, visibility: 'pub', file: '<builtin>' }],
   implements: [T_ERROR],
+}
+export const T_STORED_ATTR: ZeeType = {
+  kind: 'tuple',
+  parts: [T_STRING, { kind: 'list', elem: T_STRING }],
+}
+export const T_STORED_FIELD: ZeeType = {
+  kind: 'tuple',
+  parts: [
+    T_STRING,
+    { kind: 'option', inner: T_STRING },
+    { kind: 'option', inner: T_I32 },
+    { kind: 'list', elem: { kind: 'tuple', parts: [T_STRING, { kind: 'list', elem: T_STRING }] } },
+  ],
 }
 export const T_NEVER: ZeeType = { kind: 'never' }
 
@@ -359,6 +374,8 @@ export function isEquatable(type: ZeeType): boolean {
     case 'char':
     case 'unit':
       return true
+    case 'regex':
+      return false
     case 'option':
       return isEquatable(type.inner)
     case 'tuple':
@@ -412,6 +429,8 @@ export function typeName(type: ZeeType): string {
       return 'bool'
     case 'string':
       return 'String'
+    case 'regex':
+      return 'Regex'
     case 'char':
       return 'Char'
     case 'unit':
@@ -456,6 +475,8 @@ export function typeFromName(name: string): ZeeType | undefined {
       return T_BOOL
     case 'String':
       return T_STRING
+    case 'Regex':
+      return T_REGEX
     case 'Char':
       return T_CHAR
     case 'Unit':

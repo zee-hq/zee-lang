@@ -1,0 +1,259 @@
+internal type StoredAttr = (String, List<String>)
+internal type StoredField = (String, Option<String>, Option<i32>, List<StoredAttr>)
+
+internal fn emptyIssue() -> Issue {
+  Issue { field: "", rule: "", text: "" }
+}
+
+internal fn fail(field: String, rule: String, text: String) -> Option<Issue> {
+  Some(Issue { field: field, rule: rule, text: text })
+}
+
+internal fn arg0(attr: StoredAttr) -> String {
+  attr.1.first() ?: ""
+}
+
+internal fn arg1(attr: StoredAttr) -> String {
+  if attr.1.len < 2usize {
+    return ""
+  }
+  attr.1[1]
+}
+
+internal fn siblingText(fields: List<StoredField>, name: String) -> String {
+  for field in fields {
+    if field.0 == name {
+      return field.1 ?: ""
+    }
+  }
+  ""
+}
+
+internal fn hasOptional(attrs: List<StoredAttr>) -> bool {
+  for attr in attrs {
+    if attr.0 == "IsOptional" {
+      return true
+    }
+  }
+  false
+}
+
+internal fn checkFields(fields: List<StoredField>) -> List<Issue> {
+  var issues: List<Issue> = []
+  for field in fields {
+    if hasOptional(field.3) && (field.1 ?: "").isEmpty() {
+      continue
+    }
+    for attr in field.3 {
+      const hit = checkAttr(field, attr, fields)
+      if hit.isSome() {
+        issues = issues + [hit ?: emptyIssue()]
+      }
+    }
+  }
+  issues
+}
+
+internal fn checkAttr(field: StoredField, attr: StoredAttr, root: List<StoredField>) -> Option<Issue> {
+  const name = field.0
+  const rule = attr.0
+  const hasText = field.1.isSome()
+  const hasInt = field.2.isSome()
+  const text = field.1 ?: ""
+  const n = field.2 ?: 0
+  if rule == "IsOptional" {
+    return None
+  }
+  if rule == "NotBlank" {
+    if hasText && text.isBlank() {
+      return fail(name, rule, name + " is blank")
+    }
+    return None
+  }
+  if rule == "IsNotEmpty" {
+    if hasText && text.isEmpty() {
+      return fail(name, rule, name + " should not be empty")
+    }
+    return None
+  }
+  if rule == "IsEmpty" {
+    if hasText && text.isEmpty() {
+      return None
+    }
+    return fail(name, rule, name + " should be empty")
+  }
+  if rule == "MinLength" {
+    const min = parseI32(arg0(attr)) ?: 0
+    if hasText && charCount(text) < min {
+      return fail(name, rule, name + " is shorter than " + str(min))
+    }
+    return None
+  }
+  if rule == "MaxLength" {
+    const max = parseI32(arg0(attr)) ?: 0
+    if hasText && charCount(text) > max {
+      return fail(name, rule, name + " is longer than " + str(max))
+    }
+    return None
+  }
+  if rule == "Length" {
+    const min = parseI32(arg0(attr)) ?: 0
+    const max = parseI32(arg1(attr)) ?: 0
+    if !hasText {
+      return None
+    }
+    const len = charCount(text)
+    if len < min {
+      return fail(name, rule, name + " is shorter than " + str(min))
+    }
+    if len > max {
+      return fail(name, rule, name + " is longer than " + str(max))
+    }
+    return None
+  }
+  if rule == "Min" {
+    const min = parseI32(arg0(attr)) ?: 0
+    if hasInt && n < min {
+      return fail(name, rule, name + " is less than " + str(min))
+    }
+    return None
+  }
+  if rule == "Max" {
+    const max = parseI32(arg0(attr)) ?: 0
+    if hasInt && n > max {
+      return fail(name, rule, name + " is greater than " + str(max))
+    }
+    return None
+  }
+  if rule == "IsPositive" {
+    if hasInt && n > 0 {
+      return None
+    }
+    return fail(name, rule, name + " must be a positive number")
+  }
+  if rule == "IsNegative" {
+    if hasInt && n < 0 {
+      return None
+    }
+    return fail(name, rule, name + " must be a negative number")
+  }
+  if rule == "IsDivisibleBy" {
+    const d = parseI32(arg0(attr)) ?: 0
+    if hasInt && d != 0 && n % d == 0 {
+      return None
+    }
+    return fail(name, rule, name + " must be divisible by " + arg0(attr))
+  }
+  if rule == "Email" || rule == "IsEmail" {
+    if hasText && isEmail(text) {
+      return None
+    }
+    if rule == "Email" {
+      return fail(name, rule, name + " is not an email")
+    }
+    return fail(name, rule, name + " must be an email")
+  }
+  if rule == "Pattern" || rule == "Matches" {
+    const pattern = arg0(attr)
+    if !hasText {
+      return None
+    }
+    if !regexOk(pattern) {
+      return fail(name, rule, name + " pattern is invalid")
+    }
+    if regexMatch(text, pattern) {
+      return None
+    }
+    return fail(name, rule, name + " does not match " + pattern)
+  }
+  if rule == "ConfirmPassword" {
+    const other = arg0(attr)
+    if hasText && text == siblingText(root, other) {
+      return None
+    }
+    return fail(name, rule, name + " does not match " + other)
+  }
+  if rule == "Contains" {
+    const seed = arg0(attr)
+    if hasText && containsText(text, seed) {
+      return None
+    }
+    return fail(name, rule, name + " must contain a " + seed + " string")
+  }
+  if rule == "NotContains" {
+    const seed = arg0(attr)
+    if hasText && !containsText(text, seed) {
+      return None
+    }
+    return fail(name, rule, name + " should not contain a " + seed + " string")
+  }
+  if rule == "Equals" {
+    const want = arg0(attr)
+    if hasText && text == want {
+      return None
+    }
+    const wantN = parseI32(want)
+    if hasInt && wantN.isSome() && n == (wantN ?: 0) {
+      return None
+    }
+    return fail(name, rule, name + " must be equal to " + want)
+  }
+  if rule == "NotEquals" {
+    const want = arg0(attr)
+    if hasText && text == want {
+      return fail(name, rule, name + " should not be equal to " + want)
+    }
+    const wantN = parseI32(want)
+    if hasInt && wantN.isSome() && n == (wantN ?: 0) {
+      return fail(name, rule, name + " should not be equal to " + want)
+    }
+    return None
+  }
+  if rule == "IsIn" {
+    const csv = arg0(attr)
+    const value = if hasText { text } else { str(n) }
+    if containsText("," + csv + ",", "," + value + ",") {
+      return None
+    }
+    return fail(name, rule, name + " must be one of the following values: " + csv)
+  }
+  if rule == "IsNotIn" {
+    const csv = arg0(attr)
+    const value = if hasText { text } else { str(n) }
+    if !containsText("," + csv + ",", "," + value + ",") {
+      return None
+    }
+    return fail(name, rule, name + " should not be one of the following values: " + csv)
+  }
+  if rule == "IsUppercase" {
+    if hasText && !regexMatch(text, "\\p{Ll}") {
+      return None
+    }
+    return fail(name, rule, name + " must be uppercase")
+  }
+  if rule == "IsLowercase" {
+    if hasText && !regexMatch(text, "\\p{Lu}") {
+      return None
+    }
+    return fail(name, rule, name + " must be lowercase")
+  }
+  if rule == "IsAlpha" {
+    if hasText && regexMatch(text, "^[A-Za-z]+$") {
+      return None
+    }
+    return fail(name, rule, name + " must contain only letters")
+  }
+  if rule == "IsAlphanumeric" {
+    if hasText && regexMatch(text, "^[A-Za-z0-9]+$") {
+      return None
+    }
+    return fail(name, rule, name + " must contain only letters and numbers")
+  }
+  if rule == "IsUUID" {
+    if hasText && regexMatch(text, "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$") {
+      return None
+    }
+    return fail(name, rule, name + " must be a UUID")
+  }
+  None
+}

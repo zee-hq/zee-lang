@@ -13,17 +13,22 @@ export function formatProgram(program: Program): string {
   return text.length === 0 ? '\n' : text
 }
 
+function formatAttr(attr: { name: string; args: string[]; argKinds?: ('string' | 'int')[] }): string {
+  const args =
+    attr.args.length > 0
+      ? `(${attr.args
+          .map((arg, index) => (attr.argKinds?.[index] === 'int' ? arg : JSON.stringify(arg)))
+          .join(', ')})`
+      : ''
+  return `@${attr.name}${args}`
+}
+
 function formatStmt(stmt: Stmt, indent: number): string {
   const pad = '  '.repeat(indent)
   const doc = 'doc' in stmt && stmt.doc ? stmt.doc.split('\n').map((line) => `${pad}/// ${line}`).join('\n') + '\n' : ''
   const attrs =
     (stmt.kind === 'fn' || stmt.kind === 'structDecl') && stmt.attributes && stmt.attributes.length > 0
-      ? stmt.attributes
-          .map((attr) => {
-            const args = attr.args.length > 0 ? `(${attr.args.map((arg) => JSON.stringify(arg)).join(', ')})` : ''
-            return `${pad}@${attr.name}${args}\n`
-          })
-          .join('')
+      ? stmt.attributes.map((attr) => `${pad}${formatAttr(attr)}\n`).join('')
       : ''
   return doc + attrs + pad + formatStmtBody(stmt, indent)
 }
@@ -114,13 +119,13 @@ function formatStmtBody(stmt: Stmt, indent: number): string {
   }
 }
 
-function formatParam(param: { name: string; type: TypeAst; mutable: boolean; attributes?: { name: string; args: string[] }[] }): string {
-  const attrs = (param.attributes ?? [])
-    .map((attr) => {
-      const args = attr.args.length > 0 ? `(${attr.args.map((arg) => JSON.stringify(arg)).join(', ')})` : ''
-      return `@${attr.name}${args}`
-    })
-    .join(' ')
+function formatParam(param: {
+  name: string
+  type: TypeAst
+  mutable: boolean
+  attributes?: { name: string; args: string[]; argKinds?: ('string' | 'int')[] }[]
+}): string {
+  const attrs = (param.attributes ?? []).map((attr) => formatAttr(attr)).join(' ')
   const prefix = attrs.length > 0 ? `${attrs} ` : ''
   return `${prefix}${param.mutable ? 'var ' : ''}${param.name}: ${formatType(param.type)}`
 }
@@ -148,8 +153,9 @@ function formatStruct(stmt: Extract<Stmt, { kind: 'structDecl' }>, indent: numbe
   const members: string[] = []
   for (const field of stmt.fields) {
     const fdoc = field.doc ? `  /// ${field.doc}\n` : ''
+    const fattrs = (field.attributes ?? []).map((attr) => `  ${formatAttr(attr)}\n`).join('')
     const fvis = field.visibility === 'private' ? '' : `${field.visibility} `
-    members.push(`${fdoc}  ${fvis}${field.mutable ? 'var' : 'const'} ${field.name}: ${formatType(field.type)}`)
+    members.push(`${fdoc}${fattrs}  ${fvis}${field.mutable ? 'var' : 'const'} ${field.name}: ${formatType(field.type)}`)
   }
   for (const item of stmt.associated) {
     const adoc = item.doc ? `  /// ${item.doc}\n` : ''
@@ -165,7 +171,10 @@ function formatStruct(stmt: Extract<Stmt, { kind: 'structDecl' }>, indent: numbe
     const vform = variant.identity ? 'class' : 'struct'
     const vmods = `${variant.readonly ? 'readonly ' : ''}${variant.data ? 'data ' : ''}`
     const fields = variant.fields
-      .map((field) => `    ${field.mutable ? 'var' : 'const'} ${field.name}: ${formatType(field.type)}`)
+      .map((field) => {
+        const fattrs = (field.attributes ?? []).map((attr) => `    ${formatAttr(attr)}\n`).join('')
+        return `${fattrs}    ${field.mutable ? 'var' : 'const'} ${field.name}: ${formatType(field.type)}`
+      })
       .join('\n')
     members.push(`${vdoc}  ${vmods}${vform} ${variant.name} {\n${fields}\n  }`)
   }

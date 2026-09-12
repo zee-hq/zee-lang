@@ -1,0 +1,22 @@
+---
+description: Official libs use Zee; they never grow the compiler. Language changes only for a real language gap.
+alwaysApply: true
+---
+
+# Libs use the language
+
+A lib (`libs/*`, `zee-hq/*`) **uses** Zee. It does **not** alter the language.
+
+- Do not add host builtins, overlay rule engines, or compiler types so a package can work (`validateCheck`, `Field`/`Attr` as builtins, per-lib methods on every value).
+- Do not add Vitest ACs in `zee-lang` that are really tests of a lib. Lib tests are `*.test.zee` in that package.
+- `@Name` is metadata. The **package** decides the action. The compiler does not know NotBlank, Get, Valid, …
+
+## Language gap (the only exception)
+
+If the lib **cannot** be written in Zee because a capability is missing (no way to read stored `@Name`, no `Regex`, no string→int, …):
+
+1. Name the gap in `docs/DIRECTION.md` first.
+2. Then add the **smallest** language feature that any Zee program could use — not a backdoor for one lib.
+3. After that, the lib is Zee again. Rules live in `.zee`, not in `src/interpreter.ts`.
+
+Host overlay for `json`/`http`/`env` is the same bar: overlay is a language gap, not a place to implement the package’s product.

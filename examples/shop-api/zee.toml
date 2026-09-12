@@ -7,3 +7,4 @@ description = "Zee API example: http.router().controller + @Get/@Param/@Body."
 [deps]
 http = { path = "../../libs/http" }
 json = { path = "../../libs/json" }
+classValidator = { path = "../../libs/class-validator" }

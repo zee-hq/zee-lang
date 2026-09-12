@@ -1,0 +1,11 @@
+[package]
+name = "classValidator"
+version = "0.1.0"
+entry = "src/lib.zee"
+description = "class-validator: field rules as @Name metadata. validate returns List<Issue>. Empty list is valid."
+author = "Marcio Theodoro Rodrigues"
+company = "Zee HQ"
+contact = "https://github.com/zee-hq/class-validator"
+license = "MIT"
+homepage = "https://github.com/zee-hq/class-validator"
+repository = "https://github.com/zee-hq/class-validator"
