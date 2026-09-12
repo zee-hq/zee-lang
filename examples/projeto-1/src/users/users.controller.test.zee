@@ -1,0 +1,19 @@
+describe("UsersController") {
+  fn wired() -> UsersController {
+    UsersController.of(UsersAction.of(UsersService.of(MemoryUsers.empty())))
+  }
+
+  fn testStoreThenShow() {
+    const users = wired()
+    const (afterStore, body) = users.store("ada")
+    expect(body).toBe("{\"id\":1,\"name\":\"ada\"}")
+    const (_, shown) = afterStore.show(1)
+    expect(shown).toBe("{\"id\":1,\"name\":\"ada\"}")
+  }
+
+  fn testDestroyMissing() {
+    const users = wired()
+    const (_, body) = users.destroy(9)
+    expect(body).toBe("not found")
+  }
+}

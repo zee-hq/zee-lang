@@ -1,0 +1,10 @@
+import users.UserRow
+import orders.OrderRow
+
+describe("ui") {
+  fn testHomeRendersLists() {
+    const userRows: List<UserRow> = [UserRow { id: 1, name: "ana" }]
+    const orderRows: List<OrderRow> = []
+    expect(home(userRows, orderRows)).toBe("users=[{\"id\":1,\"name\":\"ana\"}] orders=[]")
+  }
+}

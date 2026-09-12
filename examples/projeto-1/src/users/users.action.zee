@@ -1,0 +1,32 @@
+//! One use-case (or a small set). Calls the service.
+
+pub data struct UsersAction {
+  pub const service: UsersService
+
+  pub fn of(service: UsersService) -> self {
+    self { service: service }
+  }
+
+  pub fn index(self) -> List<UserRow> {
+    self.service.list()
+  }
+
+  pub fn store(self, name: String) -> (self, UserRow, Option<Error>) {
+    const (next, row, err) = self.service.create(name)
+    (UsersAction { service: next }, row, err)
+  }
+
+  pub fn show(self, id: i32) -> Option<UserRow> {
+    self.service.get(id)
+  }
+
+  pub fn update(self, id: i32, name: String) -> (self, UserRow, Option<Error>) {
+    const (next, row, err) = self.service.update(id, name)
+    (UsersAction { service: next }, row, err)
+  }
+
+  pub fn destroy(self, id: i32) -> (self, Option<Error>) {
+    const (next, err) = self.service.remove(id)
+    (UsersAction { service: next }, err)
+  }
+}

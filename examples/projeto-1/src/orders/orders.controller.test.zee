@@ -1,0 +1,28 @@
+import users.UsersService
+import users.MemoryUsers
+
+describe("OrdersController") {
+  fn catalog() -> UsersService {
+    const (svc, _, err) = UsersService.of(MemoryUsers.empty()).create("ada")
+    expect(err.isNone()).toBe(true)
+    return svc
+  }
+
+  fn wired() -> OrdersController {
+    OrdersController.of(OrdersAction.of(OrdersService.of(MemoryOrders.empty(), catalog())))
+  }
+
+  fn testStoreThenShow() {
+    const orders = wired()
+    const (afterStore, body) = orders.store(1, "keyboard")
+    expect(body).toBe("{\"id\":1,\"userId\":1,\"title\":\"keyboard\"}")
+    const (_, shown) = afterStore.show(1)
+    expect(shown).toBe("{\"id\":1,\"userId\":1,\"title\":\"keyboard\"}")
+  }
+
+  fn testStoreUnknownUser() {
+    const orders = wired()
+    const (_, body) = orders.store(9, "mouse")
+    expect(body).toBe("user not found")
+  }
+}

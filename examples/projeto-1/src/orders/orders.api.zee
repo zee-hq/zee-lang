@@ -1,0 +1,5 @@
+//! Outbound HTTP client. Runtime HTTP is a language gap.
+
+pub fn fetchRemote(_id: i32) -> (OrderRow, Option<Error>) {
+  (OrderRow { id: 0, userId: 0, title: "" }, Some(error("http runtime is a language gap")))
+}

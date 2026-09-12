@@ -1,0 +1,2 @@
+//! orders — one HTTP slice, one module. Same directory, no import.
+// Composition root is main. This file is the directory comment.

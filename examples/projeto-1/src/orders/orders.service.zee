@@ -1,0 +1,51 @@
+//! Domain rules. No HTTP, no SQL. An order belongs to an existing user.
+
+import users.UsersService
+
+pub data struct OrdersService {
+  pub const repo: MemoryOrders
+  pub const users: UsersService
+
+  pub fn of(repo: MemoryOrders, users: UsersService) -> self {
+    self { repo: repo, users: users }
+  }
+
+  pub fn list(self) -> List<OrderRow> {
+    self.repo.rows
+  }
+
+  pub fn create(self, userId: i32, title: String) -> (self, OrderRow, Option<Error>) {
+    if title.isBlank() {
+      return (self, OrderRow { id: 0, userId: 0, title: "" }, Some(error("title is blank")))
+    }
+    if self.users.get(userId).isNone() {
+      return (self, OrderRow { id: 0, userId: 0, title: "" }, Some(error("user not found")))
+    }
+    const (next, row) = self.repo.insert(userId, title)
+    (OrdersService { repo: next, users: self.users }, row, None)
+  }
+
+  pub fn get(self, id: i32) -> Option<OrderRow> {
+    self.repo.find(id)
+  }
+
+  pub fn update(self, id: i32, title: String) -> (self, OrderRow, Option<Error>) {
+    if title.isBlank() {
+      return (self, OrderRow { id: 0, userId: 0, title: "" }, Some(error("title is blank")))
+    }
+    const found = self.repo.find(id)
+    if found.isNone() {
+      return (self, OrderRow { id: 0, userId: 0, title: "" }, Some(error("not found")))
+    }
+    const current = found ?: OrderRow { id: 0, userId: 0, title: "" }
+    const row = OrderRow { id: id, userId: current.userId, title: title }
+    (OrdersService { repo: self.repo.replace(row), users: self.users }, row, None)
+  }
+
+  pub fn remove(self, id: i32) -> (self, Option<Error>) {
+    if self.repo.find(id).isNone() {
+      return (self, Some(error("not found")))
+    }
+    (OrdersService { repo: self.repo.remove(id), users: self.users }, None)
+  }
+}

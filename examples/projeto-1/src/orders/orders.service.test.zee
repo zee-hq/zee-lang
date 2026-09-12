@@ -1,0 +1,32 @@
+import users.UsersService
+import users.MemoryUsers
+
+describe("OrdersService") {
+  fn catalog() -> UsersService {
+    const (svc, _, err) = UsersService.of(MemoryUsers.empty()).create("ada")
+    expect(err.isNone()).toBe(true)
+    return svc
+  }
+
+  fn testCreatesForExistingUser() {
+    const service = OrdersService.of(MemoryOrders.empty(), catalog())
+    const (next, row, err) = service.create(1, "keyboard")
+    expect(err.isNone()).toBe(true)
+    expect(row.id).toBe(1)
+    expect(row.userId).toBe(1)
+    expect(row.title).toBe("keyboard")
+    expect(next.repo.rows.len).toBe(1usize)
+  }
+
+  fn testRejectsUnknownUser() {
+    const service = OrdersService.of(MemoryOrders.empty(), catalog())
+    const (_, _, err) = service.create(9, "mouse")
+    expect(err.isSome()).toBe(true)
+  }
+
+  fn testRejectsBlankTitle() {
+    const service = OrdersService.of(MemoryOrders.empty(), catalog())
+    const (_, _, err) = service.create(1, "  ")
+    expect(err.isSome()).toBe(true)
+  }
+}

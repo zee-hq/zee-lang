@@ -1,0 +1,9 @@
+//! Domain → HTTP body (Laravel Resource). Runtime HTTP is a language gap.
+
+pub fn toJson(row: UserRow) -> String {
+  "{\"id\":" + str(row.id) + ",\"name\":\"" + row.name + "\"}"
+}
+
+pub fn toJsonList(rows: List<UserRow>) -> String {
+  "[" + rows.map { toJson(it) }.join(",") + "]"
+}

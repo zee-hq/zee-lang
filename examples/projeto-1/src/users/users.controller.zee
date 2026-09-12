@@ -1,0 +1,47 @@
+//! HTTP in. Maps the request onto an action. Laravel --api verbs.
+
+pub data struct UsersController {
+  pub const action: UsersAction
+
+  pub fn of(action: UsersAction) -> self {
+    self { action: action }
+  }
+
+  pub fn index(self) -> (self, String) {
+    (self, toJsonList(self.action.index()))
+  }
+
+  pub fn store(self, name: String) -> (self, String) {
+    const (next, row, err) = self.action.store(name)
+    body(UsersController { action: next }, row, err)
+  }
+
+  pub fn show(self, id: i32) -> (self, String) {
+    const found = self.action.show(id)
+    if found.isNone() {
+      return (self, "not found")
+    }
+    (self, toJson(found ?: UserRow { id: 0, name: "" }))
+  }
+
+  pub fn update(self, id: i32, name: String) -> (self, String) {
+    const (next, row, err) = self.action.update(id, name)
+    body(UsersController { action: next }, row, err)
+  }
+
+  pub fn destroy(self, id: i32) -> (self, String) {
+    const (next, err) = self.action.destroy(id)
+    const users = UsersController { action: next }
+    if err != None {
+      return (users, (err ?: panic("err")).message())
+    }
+    (users, "ok")
+  }
+}
+
+fn body(users: UsersController, row: UserRow, err: Option<Error>) -> (UsersController, String) {
+  if err != None {
+    return (users, (err ?: panic("err")).message())
+  }
+  (users, toJson(row))
+}

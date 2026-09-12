@@ -1,0 +1,6 @@
+//! DB shape. Wired in main, not constructed in the controller.
+
+pub data struct UserRow {
+  pub const id: i32
+  pub const name: String
+}

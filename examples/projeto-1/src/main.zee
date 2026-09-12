@@ -1,0 +1,96 @@
+//! Composition root. main wires adapters by hand. No language container.
+//! HTTP runtime is a language gap — this main plays the client.
+
+import users.UsersController
+import users.UsersAction
+import users.UsersService
+import users.MemoryUsers
+import orders.OrdersController
+import orders.OrdersAction
+import orders.OrdersService
+import orders.MemoryOrders
+import ui.home
+
+fn main() {
+  var users = UsersController.of(UsersAction.of(UsersService.of(MemoryUsers.empty())))
+
+  const (afterIndex0, index0) = users.index()
+  users = afterIndex0
+  println("index: " + index0)
+
+  const (afterAda, ada) = users.store("ada")
+  users = afterAda
+  println("store ada: " + ada)
+
+  const (afterGrace, grace) = users.store("grace")
+  users = afterGrace
+  println("store grace: " + grace)
+
+  const (afterIndex1, index1) = users.index()
+  users = afterIndex1
+  println("index: " + index1)
+
+  const (afterShow1, shown) = users.show(1)
+  users = afterShow1
+  println("show 1: " + shown)
+
+  const (afterUpdate, updated) = users.update(1, "ana")
+  users = afterUpdate
+  println("update 1 ana: " + updated)
+
+  const (afterDestroy, destroyed) = users.destroy(2)
+  users = afterDestroy
+  println("destroy 2: " + destroyed)
+
+  const (afterIndex2, index2) = users.index()
+  users = afterIndex2
+  println("index: " + index2)
+
+  const (afterShow2, missing) = users.show(2)
+  users = afterShow2
+  println("show 2: " + missing)
+
+  const (afterBlank, blank) = users.store("  ")
+  users = afterBlank
+  println("store blank: " + blank)
+
+  var orders = OrdersController.of(OrdersAction.of(OrdersService.of(MemoryOrders.empty(), users.action.service)))
+
+  const (afterOrdersIndex0, ordersIndex0) = orders.index()
+  orders = afterOrdersIndex0
+  println("orders index: " + ordersIndex0)
+
+  const (afterKeyboard, keyboard) = orders.store(1, "keyboard")
+  orders = afterKeyboard
+  println("orders store user1 keyboard: " + keyboard)
+
+  const (afterMouse, missingUser) = orders.store(2, "mouse")
+  orders = afterMouse
+  println("orders store user2 mouse: " + missingUser)
+
+  const (afterOrdersBlank, ordersBlank) = orders.store(1, "  ")
+  orders = afterOrdersBlank
+  println("orders store blank: " + ordersBlank)
+
+  const (afterOrderShow1, orderShown) = orders.show(1)
+  orders = afterOrderShow1
+  println("orders show 1: " + orderShown)
+
+  const (afterOrderUpdate, orderUpdated) = orders.update(1, "mouse")
+  orders = afterOrderUpdate
+  println("orders update 1 mouse: " + orderUpdated)
+
+  const (afterOrderDestroy, orderDestroyed) = orders.destroy(1)
+  orders = afterOrderDestroy
+  println("orders destroy 1: " + orderDestroyed)
+
+  const (afterOrdersIndex1, ordersIndex1) = orders.index()
+  orders = afterOrdersIndex1
+  println("orders index: " + ordersIndex1)
+
+  const (afterOrderShowMissing, orderMissing) = orders.show(1)
+  orders = afterOrderShowMissing
+  println("orders show 1: " + orderMissing)
+
+  println("ui home: " + home(users.action.service.repo.rows, orders.action.service.repo.rows))
+}

@@ -1,0 +1,47 @@
+//! HTTP in. Maps the request onto an action. Laravel --api verbs.
+
+pub data struct OrdersController {
+  pub const action: OrdersAction
+
+  pub fn of(action: OrdersAction) -> self {
+    self { action: action }
+  }
+
+  pub fn index(self) -> (self, String) {
+    (self, toJsonList(self.action.index()))
+  }
+
+  pub fn store(self, userId: i32, title: String) -> (self, String) {
+    const (next, row, err) = self.action.store(userId, title)
+    body(OrdersController { action: next }, row, err)
+  }
+
+  pub fn show(self, id: i32) -> (self, String) {
+    const found = self.action.show(id)
+    if found.isNone() {
+      return (self, "not found")
+    }
+    (self, toJson(found ?: OrderRow { id: 0, userId: 0, title: "" }))
+  }
+
+  pub fn update(self, id: i32, title: String) -> (self, String) {
+    const (next, row, err) = self.action.update(id, title)
+    body(OrdersController { action: next }, row, err)
+  }
+
+  pub fn destroy(self, id: i32) -> (self, String) {
+    const (next, err) = self.action.destroy(id)
+    const orders = OrdersController { action: next }
+    if err != None {
+      return (orders, (err ?: panic("err")).message())
+    }
+    (orders, "ok")
+  }
+}
+
+fn body(orders: OrdersController, row: OrderRow, err: Option<Error>) -> (OrdersController, String) {
+  if err != None {
+    return (orders, (err ?: panic("err")).message())
+  }
+  (orders, toJson(row))
+}

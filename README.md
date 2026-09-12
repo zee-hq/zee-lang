@@ -251,7 +251,7 @@ lambda      = "{" (ident ("," ident)* "->")? statements "}"
 intWidth    = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize"
 ```
 
-See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `factorial.zee`) plus one file of each role so the explorer icons show up.
+See `examples/` for programs that actually run (`hello.zee`, `greet.zee`, `factorial.zee`) plus one file of each role so the explorer icons show up. A packaged monolith lives in [`examples/projeto-1`](examples/projeto-1) (`users` + `orders` + `ui`; `zee run` / `zee test` from that folder).
 
 ## Editor
 

@@ -1,0 +1,3 @@
+//! ui — adapter de borda. Zee UI runtime is a language gap.
+// Same directory = same module. Import from elsewhere: import ui
+// Domain stays in users / orders. Composition root is main.
